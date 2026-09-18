@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sc2bench-pathlib"
+version = "0.1.0"
+description = "Independent SC2Bench packaging of the tested sc2pathlib runtime"
+readme = "README.md"
+requires-python = ">=3.9,<3.10"
+license = { file = "LICENSE" }
+dependencies = ["numpy==1.26.4", "burnysc2==5.0.5", "protobuf==3.20.3", "six==1.16.0"]
+
+[tool.setuptools.packages.find]
+include = ["sc2pathlib*"]

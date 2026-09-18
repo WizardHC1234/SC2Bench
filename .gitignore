@@ -1,0 +1,14 @@
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+!dependencies/sc2-pathlib/sc2pathlib/sc2pathlib.cp39-win_amd64.pyd
+*.egg-info/
+.pytest_cache/
+.test_artifacts/
+dist/
+build/
+dependencies/**/build/
+dependencies/**/dist/
+games/
+records/

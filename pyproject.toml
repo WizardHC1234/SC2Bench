@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sc2bench-env"
+version = "0.1.0"
+description = "StarCraft II high-level Agent Benchmark environment"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "SC2Bench" }]
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0", "json-repair==0.44.1"]
+llm = ["json-repair==0.44.1"]
+sharpy = ["burnysc2==5.0.5", "numpy==1.26.4", "scipy==1.10.0", "scikit-learn==1.6.1", "protobuf==3.20.3", "sharpy-sc2==0.1.0", "sc2bench-pathlib==0.1.0"]
+
+[project.scripts]
+sc2bench = "sc2bench_env.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"sc2bench_env.backends.sharpy" = ["default.ini"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

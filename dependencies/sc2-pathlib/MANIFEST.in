@@ -1,0 +1,2 @@
+include build_support.py
+recursive-include sc2pathlib *.pyd *.so

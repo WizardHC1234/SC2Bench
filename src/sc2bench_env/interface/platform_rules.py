@@ -1,0 +1,92 @@
+"""Model-facing contract text; each rule has one presentation owner."""
+
+ROLE_RULES = """You play StarCraft II through SC2Bench. Use listed actions/targets and observed IDs; unimplemented races/operations remain unavailable.
+Destroy the opponent's remaining structures, including hidden/flying ones. Only Observation.terminated and the reported result establish the outcome; no visible enemy is not proof of victory. The time limit produces Tie with end_reason=time_limit.
+If none are visible and play continues, scout fogged/unconfirmed areas for possible remaining structures; never assume their locations.
+"""
+
+GAME_RULES = """Game basics:
+- Minerals and vespene pay separate costs. SCVs build/mine; gas needs a Refinery. Resources are finite; workers need mining capacity and more production buildings need income.
+- The normal supply cap is 200. Supply is consumed when training starts; unfinished Supply Depots provide no capacity. Producers have limited slots and work in parallel. Prerequisite buildings must be ready and prerequisite research must be finished.
+- Barracks/Factory/Starport have at most one add-on. Tech Labs must be attached to the appropriate ready producer; a Reactor permits two simultaneous non-Tech-Lab units. A Reactor does not replace a Tech Lab. Lift/land and add-on swapping are not exposed.
+- Units differ in range, mobility and ability to hit ground/air; counts alone do not determine strength. Invisible enemies require detection. Mining, production and combat run concurrently.
+
+Terran capabilities (not composition recommendations):
+- scv: ground builder/miner/repairer, not army-dispatchable.
+- marine/ghost/cyclone/thor: ground, attack ground/air.
+- reaper/marauder/hellion/hellbat/siege_tank: ground, attack ground only; sieged tanks gain range/splash but cannot move.
+- widow_mine: ground; burrowed ability hits ground/air with cooldown.
+- viking: flying fighter hits air; landed form hits ground.
+- liberator: flying; mobile mode hits air, deployed mode hits ground units, not structures.
+- banshee: flying, hits ground only; cloak needs research/energy. battlecruiser: flying, hits ground/air; Yamato needs research.
+- medivac: flying bio healer/transport, no direct weapon. raven: flying detector/caster, no direct weapon.
+Forms, burrowing and supported spells are backend-controlled, not separate Agent actions.
+"""
+
+PLANNING_RULES = """Player responsibility:
+Choose your own whole-match plan using observed enemy capabilities and ready producer slots. Single-unit and mixed armies are both allowed, with no prescribed composition or required technology transition. Longer request lists alone do not increase throughput. Buildings add capacity, not units: production needs train requests. Unknown enemy information is not evidence for a counter.
+"""
+
+CONTROL_RULES = """Control boundary:
+- You choose buildings, additional production, research, morphs, scouting, scan/MULE expenditure and army composition/style/target. Sharpy handles placement, worker assignment, movement, combat micro and supported abilities; mining, worker distribution, repair and interrupted construction continuation are automatic.
+- AutoDepot is disabled; you control Supply Depots. Automatic MULEs, Orbital morphs and strategic scans are disabled. The platform does not automatically rebuild destroyed production, add technology, train reinforcements or replace casualties.
+"""
+
+OUTPUT_FORMAT_RULE = "Output: Return only a JSON array of new command entries and exactly one final wait. No prose, reasoning paragraph, Markdown, wrapper object or extra keys."
+
+INTERACTION_RULES = """Input: Current Observation and Previous Feedback give current facts and last-step results.
+""" + OUTPUT_FORMAT_RULE + """
+- Production Priority lists accepted work. Omission keeps it, even if blocked. build/train add EXTRA work, not desired totals. accepted means registered, not started/completed.
+- The whole array updates demands in order before backend execution. cancel then new work revises demand; new work appends at the tail. Spending order is not a completion barrier: earlier eligible work soft-reserves the next item's budget; missing-prerequisite work reserves nothing.
+- waiting_for names blockers. If keeping blocked work, supply missing prerequisites yourself or leave it waiting; if unwanted, you may cancel its cancellable quantity. Old orders are not mandatory strategic goals.
+- Schema-invalid arrays apply nothing: correct the complete array. Otherwise correct only the rejected work still wanted. blocking mode pauses during inference and invalid arrays; optional continuous mode keeps running. Waits use game seconds, not wall/API time.
+- With no new commands, return [{"action":"wait"}]. A positive interval-only wait avoids already-true condition loops. Continue until Observation.terminated or the step termination flag; the external harness handles shutdown and model/API failures.
+"""
+
+# Paired with autogenerated field rules in render_decision_guide(). Not a parser.
+ACTION_RULES = {
+    "build": "Append one building (no count/zone). Sharpy chooses its site; Command Centers expand. Completes when construction starts and the unfinished entity appears, not when construction finishes. Refinery also needs an owned ready townhall (a platform restriction, not a game tech prerequisite).",
+    "train": "Append production: train count=N requests N additional births; another identical request adds N more, not a target total. Completes when all N units have finished training and appeared in the game; queued units do not count as produced. Deaths do not undo produced counts. Combat cannot bind future train orders.",
+    "research": "Idempotent for the same target: an existing request/progress/completed upgrade is not duplicated. Completes when research enters the game queue; the upgrade only takes effect after research finishes, as shown in Research.",
+    "cancel": "target_action is build/train/research. Clears ALL matching unstarted/unassigned quantities across requests/rounds by target_action+target; no count or order ID. A dispatched worker, construction and active research stay; train retains produced and paid queued units. No game cancellation or refund.",
+    "scan": "One cast in the target zone: prefer its HeatMap hotspot, otherwise its center. Reveals a limited area, not the entire zone. Needs 50 energy from one ready Orbital.",
+    "call_mule": "One cast; no target. Backend chooses a ready own base not under attack with the most remaining minerals. Needs 50 energy from one ready Orbital. Scan and MULE use the same energy pool in submission order; readiness does not reserve energy.",
+    "scout": 'One SCV: a zone ID array checks selected zones in order; route="all" performs a broader one-pass search of non-own expansion centers, fogged first. New scout replaces old work. Arrival completes; death fails without replacement. Neither guarantees full-zone visibility or all enemies found; no army retargeting.',
+    "upgrade": "target is a current structures[].id, to is a listed morph. Current backend completes the action after issuing the morph command, not after the morph finishes. Check building state for readiness.",
+    "combat": "Exactly one of units or group; group_0 cannot receive combat/retreat orders. Binding starts a persistent mission, not tactical success; combat_ended reports withdrawal/force destruction, not victory. Group numbers are not reused.",
+    "retreat": "Return an existing outbound group home; acceptance is not arrival. Survivors merge into group_0 and the old group ends. Check withdrawing phase and combat_ended.",
+    "wait": "End the decision array and return when its conditions hold or the platform returns control. A bare wait or two empty condition lists use the configured decision interval; it does not cancel active work.",
+}
+
+ARMY_RULES = """New units gather at home and enter group_0, which defends locally without supporting distant bases or sweeping the map. Its members remain dispatchable even during home defense; explicit orders take priority. Units still gathering are unavailable. Outbound members, scouts and loaded transports do not merge merely by passing home. New units never automatically reinforce outbound groups.
+A zone-targeted combat order does not automatically become a whole-map search. You choose scout routes, scans and retargets. Zone numbers do not imply adjacency: a combat target is the final objective, not the next pathfinding hop. Sharpy handles routes; each scout-route waypoint remains an intentional objective.
+"""
+
+COMBAT_DISPATCH_RULES = "units maps army train names to positive counts (not SCV): atomic dispatch from group_0 to a new receipt.group. Insufficient counts reject with requested/available/missing, never waiting for future train orders or partially dispatching; identical active style+zone+units is a no-op."
+COMBAT_RETARGET_RULES = "group updates an existing outbound group without rebinding: surviving members stay, no replacements. Same style/target is a no-op."
+
+COMBAT_STYLE_RULES = """- attack: advance and engage at the chosen zone; backend safety withdrawal remains possible.
+- defend: bounded chasing at the target; no task-level power retreat.
+retreat returns an existing group home; it is not a combat style.
+Backend decides Medivac loading/transport/unloading, healing/escort and local withdrawal pickup; no transport field. Far travel without visible weapon threats may load Marine/Marauder; near goals/threats unload. Capacity/timeouts limit loading; leftovers walk. No guaranteed evacuation or hidden-threat knowledge; the chosen objective stays unchanged.
+"""
+
+WAIT_MEANINGS = {
+    "interval": "relative to this step; omitted seconds uses the decision interval",
+    "resource_at_least": "current minerals or vespene reaches amount",
+    "supply_left_at_most": "available supply is at most amount",
+    "unit_count_at_least": "living unit count, not training progress",
+    "building_count_at_least": "ready building count, not started construction",
+    "scan_ready": "ready Orbital count with enough scan energy; omitted count is 1",
+    "game_time_at_least": "absolute game time reaches seconds",
+    "zone_under_attack": "a visible enemy weapon is in range of our units/buildings in zone; not proof of damage",
+}
+
+# Kept for external imports; no extra duplicate check appended to the prompt.
+FINAL_CHECK = "Before replying: use legal names/IDs and return only the JSON action array, with exactly one final wait.\n"
+
+DECISION_OUTPUT_RULE = "Return a JSON array of new commands and exactly one final wait, using listed fields only."
+
+DECISION_REQUEST = """[Decision Request]
+Choose any plan changes using the facts above, or wait.
+""" + DECISION_OUTPUT_RULE + "\n"
