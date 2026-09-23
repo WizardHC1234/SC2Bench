@@ -37,28 +37,40 @@ finally:
 
 ## LLM 示例
 
-仓库附带的普通 Agent：
+Agent 在 [`agents/llm_agent`](agents/llm_agent/README.md)。从仓库根目录运行。模型默认是 DeepSeek-V4-Flash，用 `LLM_API_KEY`、`LLM_BASE_URL`、`LLM_MODEL` 覆盖。`--dry-run` 只打印本局配置，不启动游戏，也不调用模型。
+
+对人族内置电脑，默认加载 `skills/tank.md`：
 
 ```bash
 python -m agents.llm_agent --help
-python -m agents.llm_agent --dry-run --opponent mediumhard
+python -m agents.llm_agent --dry-run --opponent mediumhard --enemy-style macro
+python -m agents.llm_agent --opponent mediumhard --enemy-style macro --map KairosJunctionLE
+python -m agents.llm_agent --skill none --opponent mediumhard
 ```
 
-默认对接 Commander 的 DeepSeek-V4-Flash；可用 `LLM_API_KEY`、`LLM_BASE_URL`、`LLM_MODEL` 覆盖。`examples/` 演示接法，模型都用上面的 Agent：
+`--race` 是己方种族，`terran`、`protoss` 或 `zerg`。`--enemy-race` 只改电脑种族，还可以是 `random`。现成 Skill 只有人族的 `tank`；神族、虫族和无 Skill 基线都要加 `--skill none`：
+
+```bash
+python -m agents.llm_agent --race protoss --skill none --enemy-race zerg --opponent mediumhard
+python -m agents.llm_agent --race zerg --skill none --enemy-race terran --enemy-style rush
+```
+
+`--opponent` 用短名称：`veryeasy`、`easy`、`medium`、`mediumhard`、`hard`、`harder`、`veryhard`、`cheatvision`、`cheatmoney`、`cheatinsane`。`--enemy-style` 是 `random`、`rush`、`timing`、`power`、`macro`、`air`。`--map` 是 SC2 `Maps` 目录里 `.SC2Map` 的文件名，不含扩展名，默认 `KairosJunctionLE`。
+
+`examples/` 用的是同一个 Agent，普通安装包不包含这些脚本：
 
 ```bash
 python examples/llm_vs_ai.py --dry-run
-python examples/llm_vs_ai.py --opponent easy --enemy-style macro
+python examples/llm_vs_ai.py --opponent easy --enemy-style macro --map KairosJunctionLE
 python examples/agent_integration.py --opponent easy
 python examples/run_llm_benchmark.py --repetitions 1 --max-parallel 2
 python examples/llm_vs_llm.py --dry-run
+python examples/llm_vs_llm.py --race protoss --enemy-race zerg --skill none --opponent-skill none --map KairosJunctionLE
 ```
 
-`--dry-run` 只预览。前三个文件是手写环境循环、Runner 单局和 Suite 批量。`llm_vs_llm.py` 是两个已支持种族的 Agent 对战，各自的 `advance` 到点才询问那一边。普通安装包不包含示例。
+`llm_vs_ai.py` 自己写 `reset` / `step` / `close`。`agent_integration.py` 把同一局交给 Runner。`run_llm_benchmark.py` 按 Suite 批量开局，`--max-parallel` 大于 1 时并行。`llm_vs_llm.py` 是两个 Agent 对战：一边的 `advance` 到点才询问那一边，另一边还停在自己的决策上时，游戏时间不往前走。两边都可以换模型、地址和 Skill；非人族同样使用 `--skill none` 和 `--opponent-skill none`。
 
-直接接入先看 [llm_vs_ai.py](examples/llm_vs_ai.py) 的 `run_episode()`：开始对局 → 取出上下文和工具 → 调用模型 → 提交动作 → 判断终局，最后关闭环境。
-
-运行方法和代码讲解见 [示例说明](examples/README.md)。
+直接接入先看 [llm_vs_ai.py](examples/llm_vs_ai.py) 的 `run_episode()`：开始对局，取出上下文和工具，调用模型，提交动作，判断终局，最后关闭环境。逐步说明见 [示例说明](examples/README.md)。
 
 ## 范围与记录
 

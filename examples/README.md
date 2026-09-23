@@ -10,8 +10,10 @@
 
 ```bash
 python examples/llm_vs_ai.py --dry-run
-python examples/llm_vs_ai.py --opponent mediumhard --enemy-style macro
+python examples/llm_vs_ai.py --opponent mediumhard --enemy-style macro --map KairosJunctionLE
 ```
+
+`--opponent` 是内置电脑难度短名称，`--enemy-style` 是 `random`、`rush`、`timing`、`power`、`macro`、`air`。`--map` 是 SC2 `Maps` 目录中 `.SC2Map` 的文件名。这个脚本的己方种族固定为人族，模型仍是 [`agents.llm_agent`](../agents/llm_agent/README.md)。
 
 `run_episode()` 的顺序：
 
@@ -47,7 +49,10 @@ API 失败会停下来，不会替模型提交 `advance`。超时未分胜负记
 ```bash
 python examples/llm_vs_llm.py --dry-run
 python examples/llm_vs_llm.py --game-time-limit 1200
+python examples/llm_vs_llm.py --race protoss --enemy-race zerg --skill none --opponent-skill none --map KairosJunctionLE
 ```
+
+`--race` 和 `--enemy-race` 都是 `terran`、`protoss`、`zerg`。默认 Skill 是人族的 `tank`。神族或虫族要写成 `--skill none` 和 `--opponent-skill none`。两边可以分别用 `--model`、`--opponent-model`、`--api-base-url`、`--opponent-api-base-url` 指向不同模型。
 
 ```python
 from sc2bench_env import EpisodeConfig, VersusMatch, run_versus
