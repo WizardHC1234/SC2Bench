@@ -19,6 +19,36 @@ if TYPE_CHECKING:
 logger = logging.getLogger("sc2bench_env.backends.sharpy.bot")
 
 
+def pin_lockstep_step(bot: Any) -> None:
+    """Keep both versus clients on one step size.
+
+    Sharpy treats a repeated game loop as realtime and drops that client to
+    ``game_step = 1``. The other client stays on the configured size. A local
+    two-client game then simulates two different matches: each side keeps its
+    own buildings and stops seeing the opponent's army, and both can be told
+    they won.
+    """
+    step = int(bot.config["general"]["game_step_size"])
+    bot.realtime = False
+    client = getattr(bot, "client", None)
+    if client is not None:
+        client.game_step = step
+
+
+def reconcile_versus_result(own_result: Any, all_results: Any) -> tuple[str, Optional[str]]:
+    """A two-player game cannot award Victory to both sides."""
+    own = str(own_result)
+    if not all_results or len(all_results) < 2:
+        return own, None
+    names = []
+    for item in all_results.values():
+        text = getattr(item, "name", None) or str(item)
+        names.append(text.split(".")[-1])
+    if names and all(name == "Victory" for name in names):
+        return "Result.Tie", "desync"
+    return own, None
+
+
 class BenchBot(KnowledgeBot):
     """Runs always-on Terran tactics plus platform-submitted macro Acts."""
 
@@ -86,9 +116,21 @@ class BenchBot(KnowledgeBot):
             logger.exception("pre_step_execute failed")
             raise
 
+    async def on_before_start(self):
+        await super().on_before_start()
+        pin_lockstep_step(self)
+
+    async def on_step(self, iteration):
+        await super().on_step(iteration)
+        # Undo a realtime flip before python-sc2 sends this client's RequestStep.
+        pin_lockstep_step(self)
+
     async def on_end(self, game_result) -> None:
+        result_text, end_reason = reconcile_versus_result(
+            game_result, getattr(getattr(self, "client", None), "_game_result", None),
+        )
         try:
-            self.bridge.on_game_end(str(game_result))
+            self.bridge.on_game_end(result_text, end_reason=end_reason)
         finally:
             await super().on_end(game_result)
 

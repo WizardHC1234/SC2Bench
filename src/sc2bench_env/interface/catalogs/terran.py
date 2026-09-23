@@ -435,13 +435,13 @@ TERRAN_TARGETS: Tuple[TargetSpec, ...] = (
     _combat(
         "attack",
         description=(
-            "Bind dispatchable home army and attack the chosen zone. Backend handles local micro, transport and safety withdrawal; no automatic map search or reinforcements."
+            "Bind dispatchable home army and attack the chosen zone. Backend handles local micro and transport; no automatic map search or reinforcements."
         ),
     ),
     _combat(
         "defend",
         description=(
-            "Bind home army and hold a zone's defensive point without chasing enemies or attacking structures; persists without attack's task-level power retreat. Fails immediately if requested "
+            "Bind home army and hold a zone's defensive point without chasing enemies or attacking structures. Fails immediately if requested "
             "counts exceed idle availability. Does not auto-reinforce."
         ),
     ),

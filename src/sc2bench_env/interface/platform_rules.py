@@ -83,7 +83,7 @@ ZERG_GAME_RULES = """- Minerals and gas pay for buildings, units and research. C
 # Action-local behavior is exposed through each Action tool's schema.
 COMBAT_DISPATCH_RULES = "units atomically dispatches requested free units from group_0; insufficient units reject without waiting or partial dispatch."
 COMBAT_RETARGET_RULES = "group retargets survivors without changing membership or adding replacements; group_0 is invalid, and repeating the same style and target creates no group."
-COMBAT_STYLE_RULES = "attack advances and engages, then returns survivors home after the target zone is reached and continuously confirmed clear; defend holds a friendly area without cross-map pursuit or attacking structures until changed or retreated. Backend micro may withdraw a group for safety. Acceptance does not prove arrival, success or target clearance; use retreat for an immediate return order."
+COMBAT_STYLE_RULES = "attack advances and engages, then returns survivors home after the target zone is reached and continuously confirmed clear; defend holds a friendly area without cross-map pursuit or attacking structures until changed or retreated. Acceptance does not prove arrival, success or target clearance; use retreat for an immediate return order."
 
 ACTION_RULES = {
     "build": "Build one additional structure or add-on; placement is automatic, and Command Centers expand. Refineries require a free geyser at a ready owned town hall. Completes when construction starts and an unfinished structure appears.",

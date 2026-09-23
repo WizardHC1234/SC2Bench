@@ -211,13 +211,16 @@ class _Bridge:
                     self.notify.set()
             return self.blocking_decisions and not self.advance_allowed.is_set()
 
-    def on_game_end(self, result: str) -> None:
+    def on_game_end(self, result: str, end_reason: Optional[str] = None) -> None:
         with self.lock:
             # client.leave() may produce Defeat/Tie after an artificial cutoff.
             # Preserve the actual cause; genuine runtime errors still take priority.
             if not self.snapshot.terminated or result.startswith("error:"):
                 self.snapshot.result = result
-                self.snapshot.end_reason = "backend_error" if result.startswith("error:") else "game_ended"
+                if result.startswith("error:"):
+                    self.snapshot.end_reason = "backend_error"
+                else:
+                    self.snapshot.end_reason = end_reason or "game_ended"
             self.snapshot.terminated = True
             self.decision_reached.set()
             self.ready.set()

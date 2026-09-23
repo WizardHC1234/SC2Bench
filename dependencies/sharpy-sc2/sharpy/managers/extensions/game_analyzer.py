@@ -314,6 +314,9 @@ class GameAnalyzer(ManagerBase, IGameAnalyzer):
         return AirArmy.NoAir
 
     async def on_end(self, game_result: Result):
+        # start() assigns this. A failed startup still calls on_end.
+        if not hasattr(self, "lost_units_manager"):
+            return
         own_types: List[UnitTypeId] = []
         own_types_left: Dict[UnitTypeId, int] = {}
         enemy_types: List[UnitTypeId] = []

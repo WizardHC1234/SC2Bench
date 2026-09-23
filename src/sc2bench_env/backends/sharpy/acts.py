@@ -494,9 +494,7 @@ class ActCombatMission(ActBase):
     Stim / Tank / heal come from MicroRules. Banshee cloak is platform micro.
     Transport is a local execution decision, not an Agent-selected style.
     Passengers stay mission-owned and count toward alive composition.
-
-    Geometry and local-power ratios use first-edition engineering defaults;
-    see combat_styles.py. They are not empirically optimal values.
+    A losing fight does not end the mission; the Agent orders retreat.
     """
 
     def __init__(self, style: str, zone_id: str, units: Mapping[str, int]):
@@ -512,7 +510,6 @@ class ActCombatMission(ActBase):
         self.phase: str = "fight"
         self._micro_rules = None
         self._micro_started = False
-        self._below_ratio_since: Optional[float] = None
         self._hold_point: Optional[Point2] = None
         self._load_started_at: Optional[float] = None
         self._unload_started_at: Optional[float] = None
@@ -537,7 +534,6 @@ class ActCombatMission(ActBase):
         self._command_revision = revision
         self.style, self.zone_id = style, zone_id
         self._hold_point = None
-        self._below_ratio_since = None
         self.failure_reason = None
         self._transport_attempted = False
         self._unload_here = False
@@ -648,29 +644,6 @@ class ActCombatMission(ActBase):
                                              and gather.distance_to(center) <= leash else center)
             self._micro_rules.hold_position = True
 
-    def _local_power_ratio(self, free_units, around: Point2) -> float:
-        from sc2bench_env.backends.sharpy.combat_styles import (
-            PROVISIONAL_LOCAL_BATTLE_RADIUS,
-        )
-        radius = PROVISIONAL_LOCAL_BATTLE_RADIUS
-        local_own = [unit for unit in free_units if unit.distance_to(around) <= radius]
-        # should_attack answers whether an OWN unit should join an attack, not
-        # whether an enemy can threaten this composition. Include visible static
-        # defense and armed workers, but never snapshot/memory enemies.
-        enemies = list(self.ai.enemy_units) + list(self.ai.enemy_structures)
-        threats = [enemy for enemy in enemies
-                   if self._is_visible_enemy(enemy)
-                   and enemy.distance_to(around) <= radius
-                   and any(self._can_hit(enemy, unit) for unit in local_own)]
-        if not threats:
-            return float("inf")
-        foe_power = sum(self.unit_values.power(enemy) for enemy in threats)
-        if foe_power <= 1e-6:
-            return float("inf")
-        own_power = sum(self.unit_values.power(unit) for unit in local_own
-                        if any(self._can_hit(unit, enemy) for enemy in threats))
-        return float(own_power) / float(foe_power)
-
     @staticmethod
     def _is_visible_enemy(enemy) -> bool:
         return (bool(getattr(enemy, "is_visible", False))
@@ -685,31 +658,6 @@ class ActCombatMission(ActBase):
         # Sharpy real_range handles flying targets, radii and unit-specific ranges.
         # Its spell-range overrides do not imply an active weapon.
         return has_active_weapon(attacker) and self.unit_values.real_range(attacker, target) > 0
-
-    def _maybe_start_withdraw(self, free_units, around: Point2) -> bool:
-        from sc2bench_env.backends.sharpy.combat_styles import (
-            PROVISIONAL_RETREAT_CONFIRM_SECONDS,
-            PROVISIONAL_RETREAT_RATIO,
-        )
-
-        if self.style != "attack":
-            return False
-        threshold = PROVISIONAL_RETREAT_RATIO.get(self.style)
-        if threshold is None:
-            return False
-        ratio = self._local_power_ratio(free_units, around)
-        now = float(self.ai.time)
-        if ratio < threshold:
-            if self._below_ratio_since is None:
-                self._below_ratio_since = now
-            elif now - self._below_ratio_since >= PROVISIONAL_RETREAT_CONFIRM_SECONDS:
-                self.phase = "withdrawing"
-                self._return_reason = "withdrawn"
-                self._below_ratio_since = None
-                return True
-        else:
-            self._below_ratio_since = None
-        return False
 
     def _run_withdraw(self, free_units) -> bool:
         from sc2bench_env.backends.sharpy.combat_styles import (
@@ -1123,11 +1071,6 @@ class ActCombatMission(ActBase):
 
         if self.phase == "withdrawing":
             return self._run_withdraw(free)
-
-        focus = free.center if free.exists else target
-        if self.phase == "fight" and free.exists and not cargo_tags:
-            if self._maybe_start_withdraw(free, focus):
-                return self._run_withdraw(free)
 
         _, zone = self._resolve_zone()
         if self.style == "defend" and zone is not None:

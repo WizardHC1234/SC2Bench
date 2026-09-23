@@ -8,16 +8,6 @@ are retained for compatibility with existing callers.
 
 from __future__ import annotations
 
-from typing import Dict, Optional
-
-# Local-power ratios (own/enemy). Lower = more willing to stay.
-PROVISIONAL_RETREAT_RATIO: Dict[str, float] = {
-    "attack": 0.65,  # retain the previous committed-attack safety threshold
-    # defend holds the zone; task-level power retreat is not used.
-}
-
-PROVISIONAL_RETREAT_CONFIRM_SECONDS = 2.0
-PROVISIONAL_LOCAL_BATTLE_RADIUS = 28.0
 PROVISIONAL_DEFEND_LEASH = 1.25  # × zone radius
 TRANSPORT_STANDOFF = 8.0
 TRANSPORT_MIN_TRAVEL = 24.0

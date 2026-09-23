@@ -62,7 +62,7 @@ python examples/llm_vs_llm.py --dry-run
 
 ## 范围与记录
 
-当前支持我方人族、神族和虫族、内置 AI 对手，以及这些种族之间的 Agent 对战。Runner 可配置串行或多局并行。默认阻塞决策，保留连续模式；超时未分胜负记平局。平台不内置策略、Skill、Memory 或训练算法，不自动建补给站、水晶塔或领主，也不选择下一进攻目标。RL 适配尚未实现。神族星核能量和虫族虫后能量只出现在观测里，还没有单独的施放动作。
+当前支持我方人族、神族和虫族、内置 AI 对手，以及这些种族之间的 Agent 对战。Runner 可配置串行或多局并行。默认阻塞决策，保留连续模式；超时未分胜负记平局。平台不内置策略、Skill、Memory 或训练算法，不自动建补给站、水晶塔或领主，也不选择下一进攻目标，也不会因为局部战力偏低就撤回进攻编队。撤回由 Agent 发出 `retreat`。RL 适配尚未实现。神族 `chrono_boost`、虫族 `inject_larva` 和 `spawn_creep_tumor` 由 Agent 显式发出，底层选择施放目标，不会自动施放。
 
 并行使用独立进程，`max_parallel` 设置同时进行的对局上限。仅使用核心包时需加装 `.[parallel]`，`.[llm]` 已包含并行依赖；详见 [Agent 接入](docs/agent_integration.md)。
 
@@ -76,6 +76,4 @@ python examples/llm_vs_llm.py --dry-run
 | Agent、Runner、记录和评估用法 | [Agent 接入](docs/agent_integration.md) |
 | 动作、观测和执行规则 | [动作接口](docs/interface.md) |
 
-[进度](PROGRESS.md) · [计划](PLATFORM_PLAN.md)
-
-开发检查：`python -m pip install -e '.[dev]'`，然后 `python -m pytest -q`。默认测试不启动游戏或调用模型。
+开发依赖：`python -m pip install -e '.[dev]'`。
