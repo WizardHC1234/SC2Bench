@@ -26,6 +26,8 @@ from sc2bench_env.backends.sharpy.acts import (
     ActScoutRoute,
 )
 from sc2bench_env.backends.sharpy.defense import PlanZoneDefenseSafe
+from sc2bench_env.backends.sharpy.defense_placement import DEFENSE_KINDS, DefensiveGridBuilding
+from sc2bench_env.backends.sharpy.bunker import PlanBunkerDefense
 from sc2bench_env.backends.sharpy.gather import PlanHomeGather
 from sc2bench_env.backends.sharpy.races.base import RaceAdapter
 from sc2bench_env.interface.action_catalog import TargetSpec, get_target, targets_for_action
@@ -216,6 +218,24 @@ def combat_unit_types(name: str) -> Tuple[UnitTypeId, ...]:
     return tuple(type_id for type_id in UnitTypeId if _TYPE_ALIASES.get(type_id.name) == name)
 
 
+class SupplyDepotBuilding(GridBuilding):
+    """Count lowered depots as the same building, or each lower starts another."""
+
+    def get_count(self, unit_type, include_pending=True, include_killed=False, include_not_ready=True) -> int:
+        if unit_type != UnitTypeId.SUPPLYDEPOT:
+            return super().get_count(unit_type, include_pending, include_killed, include_not_ready)
+        forms = {UnitTypeId.SUPPLYDEPOT, UnitTypeId.SUPPLYDEPOTLOWERED, UnitTypeId.SUPPLYDEPOTDROP}
+        count = self.ai.structures.of_type(forms).amount
+        for worker in self.ai.workers:
+            for order in getattr(worker, "orders", ()) or ():
+                ability = getattr(getattr(order, "ability", None), "id", None)
+                text = str(getattr(ability, "name", ability))
+                if "SUPPLYDEPOT" in text and "LOWER" not in text and "RAISE" not in text:
+                    count += 1
+                    break
+        return count
+
+
 class TerranTech(Tech):
     def solve_ability(self):
         # Generic remaps collapse distinct weapon research levels. Dispatch
@@ -350,6 +370,10 @@ class TerranAdapter(RaceAdapter):
             unit_type = BUILDINGS.get(task.target)
             if unit_type is None:
                 raise ValueError(f"unsupported terran build target: {task.target}")
+            if task.target in DEFENSE_KINDS:
+                return DefensiveGridBuilding(unit_type, to_count, task.target)
+            if task.target == "supply_depot":
+                return SupplyDepotBuilding(unit_type, to_count)
             return GridBuilding(unit_type, to_count)
         if task.action == "train":
             _require_catalog("train", task.target)
@@ -429,6 +453,13 @@ class TerranAdapter(RaceAdapter):
         spec = get_target(target, race="terran")
         return spec is not None and spec.action == "build" and spec.kind in {"building", "addon"}
 
+    def train_unit_type(self, name: str) -> Optional[UnitTypeId]:
+        pair = UNITS.get(name)
+        return None if pair is None else pair[0]
+
+    def combat_forms(self, name: str) -> Tuple[UnitTypeId, ...]:
+        return combat_unit_types(name)
+
     def create_tactics(self) -> BuildOrder:
         # Phase 1: AutoDepot() stays OFF. Supply is entirely agent-owned via
         # {"action":"build","target":"supply_depot"}. Optional non-benchmark
@@ -444,6 +475,7 @@ class TerranAdapter(RaceAdapter):
                 Repair(),
                 ContinueBuilding(),
                 PlanHomeGather(self),
+                PlanBunkerDefense(self),
             ]
         )
 

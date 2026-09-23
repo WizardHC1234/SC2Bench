@@ -22,8 +22,8 @@ logger = logging.getLogger("sc2bench_env.backends.sharpy.bot")
 class BenchBot(KnowledgeBot):
     """Runs always-on Terran tactics plus platform-submitted macro Acts."""
 
-    def __init__(self, bridge: "_Bridge", adapter: Any):
-        super().__init__("SC2Bench")
+    def __init__(self, bridge: "_Bridge", adapter: Any, name: str = "SC2Bench"):
+        super().__init__(name)
         # Scope noise filtering to this bot, not shared Sharpy/global log sinks.
         self.knowledge.log_manager = BenchLogManager()
         self.bridge = bridge
@@ -161,7 +161,9 @@ class BenchBot(KnowledgeBot):
             task_id = task.get("task_id")
             if not task_id:
                 continue
-            if task.get("action") in {"scan", "call_mule", "upgrade", "scout"} and task.get(
+            if task.get("action") in {
+                "scan", "call_mule", "chrono_boost", "inject_larva", "spawn_creep_tumor", "upgrade", "scout",
+            } and task.get(
                 "_act_done"
             ) and not (task.get("_execution_error") or task.get("_error")):
                 completed[str(task_id)] = 1

@@ -1,8 +1,8 @@
 """Single-source decision field rules for Schema + parser.
 
-Owns required / optional / forbidden fields for each action verb and each
-wait condition. `decision_json_schema()` and `parse_decision()` both consume
-these definitions so they cannot drift apart.
+Owns required / optional / forbidden fields for each action verb.
+`decision_json_schema()` and `parse_decision()` both consume these definitions
+so they cannot drift apart.
 """
 
 from __future__ import annotations
@@ -14,13 +14,16 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 from sc2bench_env.interface.action_catalog import (
     ACTION_VERBS,
     COMBAT_STYLES,
-    WAIT_CONDITIONS,
     decision_examples,
     known_target_names,
 )
 
 from sc2bench_env.interface.races import require_supported_own_race
 from sc2bench_env.interface.observations import WORKER_UNIT_NAMES
+from sc2bench_env.interface.tools import (
+    LEGACY_ACTION_FORMAT_ERROR,
+    parse_normalized_tool_call,
+)
 
 ZONE_PATTERN = r"^zone_[A-Za-z0-9_]+$"
 # Townhall object ids currently exposed as cc_<n>.
@@ -44,17 +47,6 @@ class VerbFieldRule:
         return frozenset(("action",) + self.required + self.optional)
 
 
-@dataclass(frozen=True)
-class WaitConditionRule:
-    name: str
-    required: Tuple[str, ...] = ()
-    optional: Tuple[str, ...] = ()
-
-    @property
-    def allowed_params(self) -> frozenset[str]:
-        return frozenset(self.required + self.optional)
-
-
 VERB_FIELD_RULES: Dict[str, VerbFieldRule] = {
     "build": VerbFieldRule("build", required=("target",)),
     "train": VerbFieldRule("train", required=("target", "count")),
@@ -62,41 +54,15 @@ VERB_FIELD_RULES: Dict[str, VerbFieldRule] = {
     "cancel": VerbFieldRule("cancel", required=("target_action", "target")),
     "scan": VerbFieldRule("scan", required=("target",)),
     "call_mule": VerbFieldRule("call_mule"),
+    "chrono_boost": VerbFieldRule("chrono_boost"),
+    "inject_larva": VerbFieldRule("inject_larva"),
+    "spawn_creep_tumor": VerbFieldRule("spawn_creep_tumor"),
     "scout": VerbFieldRule("scout", required=("route",)),
     "upgrade": VerbFieldRule("upgrade", required=("target", "to")),
     "combat": VerbFieldRule("combat", required=("style", "target"), optional=("units", "group")),
     "retreat": VerbFieldRule("retreat", required=("group",)),
-    "wait": VerbFieldRule("wait", optional=("any_of", "all_of")),
+    "advance": VerbFieldRule("advance", required=("seconds",)),
 }
-
-WAIT_CONDITION_RULES: Dict[str, WaitConditionRule] = {
-    "interval": WaitConditionRule("interval", optional=("seconds",)),
-    "resource_at_least": WaitConditionRule(
-        "resource_at_least", required=("resource", "amount")
-    ),
-    "supply_left_at_most": WaitConditionRule("supply_left_at_most", required=("amount",)),
-    "unit_count_at_least": WaitConditionRule(
-        "unit_count_at_least", required=("unit", "count")
-    ),
-    "building_count_at_least": WaitConditionRule(
-        "building_count_at_least", required=("building", "count")
-    ),
-    "scan_ready": WaitConditionRule("scan_ready", optional=("count",)),
-    "game_time_at_least": WaitConditionRule("game_time_at_least", required=("seconds",)),
-    "zone_under_attack": WaitConditionRule("zone_under_attack", required=("zone",)),
-}
-
-
-def _assert_wait_rules_cover_catalog() -> None:
-    missing = [name for name in WAIT_CONDITIONS if name not in WAIT_CONDITION_RULES]
-    extra = [name for name in WAIT_CONDITION_RULES if name not in WAIT_CONDITIONS]
-    if missing or extra:
-        raise RuntimeError(
-            f"WAIT_CONDITION_RULES drift: missing={missing} extra={extra}"
-        )
-
-
-_assert_wait_rules_cover_catalog()
 
 
 class DecisionSchemaError(ValueError):
@@ -131,32 +97,35 @@ def require_fields(raw: Mapping[str, Any], rule: VerbFieldRule) -> None:
 
 
 def validate_entry_fields(raw: Mapping[str, Any], *, index: int, race: str = "terran") -> str:
-    """Validate allowlisted fields for one decision entry; return its action verb."""
+    """Validate one NormalizedToolCall; return its action verb."""
     try:
         require_supported_own_race(race)
     except ValueError as exc:
         raise DecisionSchemaError(str(exc)) from exc
-    if not isinstance(raw, Mapping):
-        raise DecisionSchemaError(f"entry[{index}] must be an object")
-    reject_forbidden_global_fields(raw, where=f"entry[{index}]")
-    action = raw.get("action")
-    if not isinstance(action, str) or not action.strip():
-        raise DecisionSchemaError(f"entry[{index}].action must be a non-empty string")
-    verb = action.strip().lower()
+    try:
+        call = parse_normalized_tool_call(raw, index=index)
+    except ValueError as exc:
+        raise DecisionSchemaError(str(exc)) from exc
+    try:
+        internal = call.to_internal_entry()
+    except ValueError as exc:
+        raise DecisionSchemaError(f"entry[{index}]: {exc}") from exc
+    reject_forbidden_global_fields(internal, where=f"entry[{index}]")
+    verb = call.name.strip().lower()
+    if verb == "wait":
+        raise DecisionSchemaError(
+            "wait is no longer supported; end with "
+            '{"name":"advance","arguments":{"seconds":<positive_number>}}'
+        )
     rule = VERB_FIELD_RULES.get(verb)
     if rule is None:
         raise DecisionSchemaError(
-            f"unsupported action {action!r}; allowed={list(ACTION_VERBS)}"
+            f"unsupported action {call.name!r}; allowed={list(ACTION_VERBS)}"
         )
-    # Normalize check against lowercase verb key presence of `action`.
-    reject_unknown_fields(raw, rule)
-    require_fields(raw, rule)
-    _validate_entry_values(raw, verb=verb, index=index, race=race)
+    reject_unknown_fields(internal, rule)
+    require_fields(internal, rule)
+    _validate_entry_values(internal, verb=verb, index=index, race=race)
     return verb
-
-
-def _is_nonneg_int(value: Any) -> bool:
-    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
 
 
 def _is_positive_int(value: Any) -> bool:
@@ -177,7 +146,12 @@ def _validate_entry_values(raw: Mapping[str, Any], *, verb: str, index: int, rac
         if normalized in {"orbital_command", "planetary_fortress"}:
             raise DecisionSchemaError(
                 f"use upgrade with a structures[].id to morph {normalized}; "
-                'example: {"action":"upgrade","target":"cc_0","to":"orbital_command"}'
+                'example: {"name":"upgrade","arguments":{"target":"cc_0","to":"orbital_command"}}'
+            )
+        if normalized in {"lair", "hive"}:
+            raise DecisionSchemaError(
+                f"use upgrade with a structures[].id to morph {normalized}; "
+                '{"name":"upgrade","arguments":{"target":"cc_0","to":"lair"}}'
             )
         if normalized not in known_target_names("build", race=race):
             raise DecisionSchemaError(
@@ -276,108 +250,29 @@ def _validate_entry_values(raw: Mapping[str, Any], *, verb: str, index: int, rac
                 raise DecisionSchemaError(
                     f"{where}.units[{unit_name!r}] must be a positive integer"
                 )
-
-
-def validate_wait_condition_fields(raw: Mapping[str, Any], *, where: str) -> str:
-    if not isinstance(raw, Mapping):
-        raise DecisionSchemaError(f"{where} must be an object")
-    if "condition" not in raw:
-        raise DecisionSchemaError(f"{where} missing required field 'condition'")
-    condition = raw.get("condition")
-    if not isinstance(condition, str) or not condition.strip():
-        raise DecisionSchemaError(f"{where}.condition must be a non-empty string")
-    name = condition.strip().lower()
-    rule = WAIT_CONDITION_RULES.get(name)
-    if rule is None:
-        raise DecisionSchemaError(
-            f"unsupported wait condition {condition!r}; allowed={list(WAIT_CONDITIONS)}"
-        )
-    allowed = frozenset({"condition"}) | rule.allowed_params
-    unknown = _unknown_keys(raw, allowed)
-    if unknown:
-        raise DecisionSchemaError(
-            f"{name} rejects unknown fields {unknown}; allowed={sorted(allowed)}"
-        )
-    missing = [key for key in rule.required if key not in raw]
-    if missing:
-        raise DecisionSchemaError(f"{name} missing required fields {missing}")
-    _validate_wait_condition_values(raw, name=name, where=where)
-    return name
-
-
-def _validate_wait_condition_values(
-    raw: Mapping[str, Any], *, name: str, where: str
-) -> None:
-    if name == "interval":
+    elif verb == "advance":
         seconds = raw.get("seconds")
-        if seconds is not None and (not _is_number(seconds) or seconds <= 0):
+        if not _is_number(seconds) or seconds <= 0:
             raise DecisionSchemaError(f"{where}.seconds must be a positive number")
-    elif name == "resource_at_least":
-        if raw.get("resource") not in {"minerals", "vespene"}:
-            raise DecisionSchemaError(f"{where}.resource must be minerals or vespene")
-        if not _is_nonneg_int(raw.get("amount")):
-            raise DecisionSchemaError(f"{where}.amount must be a non-negative int")
-    elif name == "supply_left_at_most":
-        if not _is_nonneg_int(raw.get("amount")):
-            raise DecisionSchemaError(f"{where}.amount must be a non-negative int")
-    elif name == "unit_count_at_least":
-        unit = raw.get("unit")
-        if not isinstance(unit, str) or not unit.strip():
-            raise DecisionSchemaError(f"{where}.unit must be a non-empty string")
-        if not _is_nonneg_int(raw.get("count")):
-            raise DecisionSchemaError(f"{where}.count must be a non-negative int")
-    elif name == "building_count_at_least":
-        building = raw.get("building")
-        if not isinstance(building, str) or not building.strip():
-            raise DecisionSchemaError(f"{where}.building must be a non-empty string")
-        if not _is_nonneg_int(raw.get("count")):
-            raise DecisionSchemaError(f"{where}.count must be a non-negative int")
-    elif name == "scan_ready":
-        count = raw.get("count")
-        if count is not None and not _is_positive_int(count):
-            raise DecisionSchemaError(f"{where}.count must be a positive int when provided")
-    elif name == "game_time_at_least":
-        seconds = raw.get("seconds")
-        if not _is_number(seconds) or seconds < 0:
-            raise DecisionSchemaError(f"{where}.seconds must be a non-negative number")
-    elif name == "zone_under_attack":
-        zone = raw.get("zone")
-        if not isinstance(zone, str) or not re.match(ZONE_PATTERN, zone.strip().lower()):
-            raise DecisionSchemaError(f"{where}.zone must be a zone_id")
 
 
 def validate_batch_shape(raw_actions: Sequence[Mapping[str, Any]] | None, *, race: str = "terran") -> None:
     """Batch-level rules that JSON Schema items alone cannot express."""
     if raw_actions is None:
-        raise DecisionSchemaError("decision must be a JSON array ending with wait")
+        raise DecisionSchemaError("decision must be a JSON array ending with advance")
     if not isinstance(raw_actions, Sequence) or isinstance(raw_actions, (str, bytes)):
         raise DecisionSchemaError("decision must be a JSON array")
     if len(raw_actions) < 1:
-        raise DecisionSchemaError("decision must include a trailing wait")
+        raise DecisionSchemaError("decision must include a trailing advance")
 
     verbs: List[str] = []
     for index, entry in enumerate(raw_actions):
         verbs.append(validate_entry_fields(entry, index=index, race=race))
-        if verbs[-1] == "wait":
-            _validate_wait_payload(entry, index=index)
 
-    if verbs[-1] != "wait":
-        raise DecisionSchemaError("decision must end with exactly one wait action")
-    if any(verb == "wait" for verb in verbs[:-1]):
-        raise DecisionSchemaError("wait is only allowed as the final decision entry")
-
-
-def _validate_wait_payload(raw: Mapping[str, Any], *, index: int) -> None:
-    for key in ("any_of", "all_of"):
-        if key not in raw:
-            continue
-        value = raw[key]
-        if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
-            raise DecisionSchemaError(f"entry[{index}].{key} must be an array")
-        for cond_index, item in enumerate(value):
-            validate_wait_condition_fields(
-                item, where=f"entry[{index}].{key}[{cond_index}]"
-            )
+    if verbs[-1] != "advance":
+        raise DecisionSchemaError("decision must end with exactly one advance action")
+    if any(verb == "advance" for verb in verbs[:-1]):
+        raise DecisionSchemaError("advance is only allowed as the final decision entry")
 
 
 def _string_enum(values: Sequence[str]) -> Dict[str, Any]:
@@ -392,124 +287,91 @@ def _structure_id_string() -> Dict[str, Any]:
     return {"type": "string", "pattern": STRUCTURE_ID_PATTERN}
 
 
-def wait_condition_json_schema() -> Dict[str, Any]:
-    """oneOf schema for a single wait condition object."""
-    branches: List[Dict[str, Any]] = []
-
-    def branch(
-        name: str,
-        properties: Dict[str, Any],
-        required: Sequence[str],
-    ) -> Dict[str, Any]:
-        props = {"condition": {"type": "string", "const": name}}
-        props.update(properties)
-        return {
-            "type": "object",
-            "required": ["condition", *required],
-            "properties": props,
-            "additionalProperties": False,
-        }
-
-    branches.append(
-        branch(
-            "interval",
-            {"seconds": {"type": "number", "exclusiveMinimum": 0}},
-            required=(),
-        )
-    )
-    branches.append(
-        branch(
-            "resource_at_least",
-            {
-                "resource": {"type": "string", "enum": ["minerals", "vespene"]},
-                "amount": {"type": "integer", "minimum": 0},
+def action_tool_argument_schema(verb: str) -> Tuple[Dict[str, Any], Tuple[str, ...]]:
+    """Compact argument schema for one Action Tool. No catalog enums."""
+    rule = VERB_FIELD_RULES[verb]
+    properties: Dict[str, Any] = {
+        "build": {"target": {"type": "string"}},
+        "train": {
+            "target": {"type": "string"},
+            "count": {"type": "integer", "minimum": 1},
+        },
+        "research": {"target": {"type": "string"}},
+        "cancel": {
+            "target_action": {"type": "string", "enum": ["build", "train", "research"]},
+            "target": {"type": "string"},
+        },
+        "scan": {"target": {"type": "string"}},
+        "call_mule": {},
+        "chrono_boost": {},
+        "inject_larva": {},
+        "spawn_creep_tumor": {},
+        "scout": {
+            "route": {
+                "description": 'ordered zone_id array, or the string "all"',
+                "oneOf": [
+                    {"type": "string", "const": "all"},
+                    {"type": "array", "minItems": 1, "items": {"type": "string"}},
+                ],
+            }
+        },
+        "upgrade": {
+            "target": {"type": "string", "description": "structure ID from Observation"},
+            "to": {"type": "string", "description": "morph name"},
+        },
+        "combat": {
+            "style": {"type": "string", "enum": list(COMBAT_STYLES)},
+            "target": {"type": "string"},
+            "units": {
+                "type": "object",
+                "description": "free unit name to count, dispatched from group_0",
+                "additionalProperties": {"type": "integer", "minimum": 1},
             },
-            required=("resource", "amount"),
-        )
-    )
-    branches.append(
-        branch(
-            "supply_left_at_most",
-            {"amount": {"type": "integer", "minimum": 0}},
-            required=("amount",),
-        )
-    )
-    branches.append(
-        branch(
-            "unit_count_at_least",
-            {
-                "unit": {"type": "string", "minLength": 1},
-                "count": {"type": "integer", "minimum": 0},
-            },
-            required=("unit", "count"),
-        )
-    )
-    branches.append(
-        branch(
-            "building_count_at_least",
-            {
-                "building": {"type": "string", "minLength": 1},
-                "count": {"type": "integer", "minimum": 0},
-            },
-            required=("building", "count"),
-        )
-    )
-    branches.append(
-        branch(
-            "scan_ready",
-            {"count": {"type": "integer", "minimum": 1}},
-            required=(),
-        )
-    )
-    branches.append(
-        branch(
-            "game_time_at_least",
-            {"seconds": {"type": "number", "minimum": 0}},
-            required=("seconds",),
-        )
-    )
-    branches.append(
-        branch(
-            "zone_under_attack",
-            {"zone": _zone_string()},
-            required=("zone",),
-        )
-    )
-    return {"oneOf": branches}
+            "group": {"type": "string", "description": "existing outbound group ID"},
+        },
+        "retreat": {"group": {"type": "string", "description": "existing outbound group ID"}},
+        "advance": {"seconds": {"type": "number", "exclusiveMinimum": 0}},
+    }[verb]
+    return properties, rule.required
 
 
-def _verb_object_schema(
+def _tool_call_object_schema(
     verb: str,
     *,
     properties: Dict[str, Any],
     required: Sequence[str],
 ) -> Dict[str, Any]:
-    props = {"action": {"type": "string", "const": verb}}
-    props.update(properties)
     return {
         "type": "object",
-        "required": ["action", *required],
-        "properties": props,
+        "required": ["name", "arguments"],
+        "properties": {
+            "name": {"type": "string", "const": verb},
+            "arguments": {
+                "type": "object",
+                "properties": properties,
+                "required": list(required),
+                "additionalProperties": False,
+            },
+        },
         "additionalProperties": False,
     }
 
 
 def decision_json_schema(*, race: str = "terran") -> Dict[str, Any]:
-    """Platform-owned JSON Schema for one model decision array (draft-07)."""
+    """Platform-owned JSON Schema for one NormalizedToolCall array (draft-07)."""
     require_supported_own_race(race)
     build_targets = list(known_target_names("build", race=race))
     train_targets = list(known_target_names("train", race=race))
     research_targets = list(known_target_names("research", race=race))
     morph_targets = list(known_target_names("upgrade", race=race))
-    wait_cond = wait_condition_json_schema()
 
     item_schemas = [
-        _verb_object_schema(
+        _tool_call_object_schema(
             "build",
             properties={"target": _string_enum(build_targets)},
             required=("target",),
         ),
-        _verb_object_schema(
+        _tool_call_object_schema(
             "train",
             properties={
                 "target": _string_enum(train_targets),
@@ -517,12 +379,12 @@ def decision_json_schema(*, race: str = "terran") -> Dict[str, Any]:
             },
             required=("target", "count"),
         ),
-        _verb_object_schema(
+        _tool_call_object_schema(
             "research",
             properties={"target": _string_enum(research_targets)},
             required=("target",),
         ),
-        _verb_object_schema(
+        _tool_call_object_schema(
             "cancel",
             properties={
                 "target_action": {"type": "string", "enum": ["build", "train", "research"]},
@@ -530,13 +392,16 @@ def decision_json_schema(*, race: str = "terran") -> Dict[str, Any]:
             },
             required=("target_action", "target"),
         ),
-        _verb_object_schema(
+        _tool_call_object_schema(
             "scan",
             properties={"target": _zone_string()},
             required=("target",),
         ),
-        _verb_object_schema("call_mule", properties={}, required=()),
-        _verb_object_schema(
+        _tool_call_object_schema("call_mule", properties={}, required=()),
+        _tool_call_object_schema("chrono_boost", properties={}, required=()),
+        _tool_call_object_schema("inject_larva", properties={}, required=()),
+        _tool_call_object_schema("spawn_creep_tumor", properties={}, required=()),
+        _tool_call_object_schema(
             "scout",
             properties={
                 "route": {"oneOf": [
@@ -546,7 +411,7 @@ def decision_json_schema(*, race: str = "terran") -> Dict[str, Any]:
             },
             required=("route",),
         ),
-        _verb_object_schema(
+        _tool_call_object_schema(
             "upgrade",
             properties={
                 "target": _structure_id_string(),
@@ -554,18 +419,18 @@ def decision_json_schema(*, race: str = "terran") -> Dict[str, Any]:
             },
             required=("target", "to"),
         ),
-        _verb_object_schema(
+        _tool_call_object_schema(
             "retreat",
             properties={"group": {"type": "string", "pattern": GROUP_PATTERN}},
             required=("group",),
         ),
-        _verb_object_schema(
+        _tool_call_object_schema(
             "combat",
             properties={"style": _string_enum(list(COMBAT_STYLES)), "target": _zone_string(),
                         "group": {"type": "string", "pattern": GROUP_PATTERN}},
             required=("style", "target", "group"),
         ),
-        _verb_object_schema(
+        _tool_call_object_schema(
             "combat",
             properties={
                 "style": _string_enum(list(COMBAT_STYLES)),
@@ -578,14 +443,18 @@ def decision_json_schema(*, race: str = "terran") -> Dict[str, Any]:
             },
             required=("style", "target", "units"),
         ),
-        _verb_object_schema(
-            "wait",
-            properties={
-                "any_of": {"type": "array", "items": wait_cond},
-                "all_of": {"type": "array", "items": wait_cond},
-            },
-            required=(),
+        _tool_call_object_schema(
+            "advance",
+            properties={"seconds": {"type": "number", "exclusiveMinimum": 0}},
+            required=("seconds",),
         ),
+    ]
+    item_schemas = [
+        schema for schema in item_schemas
+        if schema["properties"]["name"]["const"] not in {
+            "scan", "call_mule", "chrono_boost", "inject_larva", "spawn_creep_tumor", "upgrade",
+        }
+        or known_target_names(schema["properties"]["name"]["const"], race=race)
     ]
 
     return {
@@ -596,11 +465,10 @@ def decision_json_schema(*, race: str = "terran") -> Dict[str, Any]:
         "items": {"oneOf": item_schemas},
         "examples": list(decision_examples(race=race)),
         "x-sc2bench-batch-rules": {
-            "trailing_wait_required": True,
-            "wait_only_at_end": True,
+            "trailing_advance_required": True,
+            "advance_only_at_end": True,
             "action_id_forbidden_in_model_json": True,
             "retry_ids_via": "Environment.step(..., retry_ids=[...])",
-            "no_nested_wait_combinators": True,
         },
         "x-sc2bench-targets": {
             "build": build_targets,
@@ -608,7 +476,6 @@ def decision_json_schema(*, race: str = "terran") -> Dict[str, Any]:
             "research": research_targets,
             "upgrade.to": morph_targets,
         },
-        "x-sc2bench-wait-conditions": list(WAIT_CONDITIONS),
     }
 
 
@@ -619,8 +486,6 @@ def schema_accepts_entry(raw: Mapping[str, Any], *, race: str = "terran") -> Opt
     """
     try:
         validate_entry_fields(raw, index=0, race=race)
-        if str(raw.get("action", "")).lower() == "wait":
-            _validate_wait_payload(raw, index=0)
         return None
     except DecisionSchemaError as exc:
         return str(exc)

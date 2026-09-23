@@ -1,7 +1,7 @@
-"""Builtin SC2 difficulty names, matching Commander's ten enum levels.
+"""SC2 difficulty names, matching Commander's ten enum levels.
 
 This registry is platform-owned and does not import Commander or SC2.
-Canonical episode/suite IDs use short names; builtin_ remains an input alias.
+Episode and suite IDs use the short names below.
 """
 
 DIFFICULTY_ENUM_NAMES = {
@@ -26,12 +26,10 @@ _ALIASES = {"vision": "cheatvision", "money": "cheatmoney", "insane": "cheatinsa
 
 
 def normalize_opponent(value: str) -> str:
-    """Return a short ID; accept legacy prefixes and reviewed aliases only."""
+    """Return a short ID; accept reviewed aliases only."""
     if not isinstance(value, str):
         raise ValueError("opponent must be a difficulty name")
     name = value.strip().lower()
-    if name.startswith("builtin_"):
-        name = name[len("builtin_"):]
     canonical = _ALIASES.get(name, name)
     if canonical not in DIFFICULTY_ENUM_NAMES:
         raise ValueError(f"unsupported opponent {value!r}; expected one of {BUILTIN_OPPONENTS}")

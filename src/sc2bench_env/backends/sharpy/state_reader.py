@@ -24,17 +24,42 @@ def _townhall_count(buildings: Dict[str, int], targets) -> Optional[int]:
     return None if targets is None else sum(int(buildings.get(key, 0)) for key in targets)
 
 
-def _add_loaded_passenger_counts(own_units, adapter, counts) -> None:
-    """Count living cargo once, even on a visible/loaded transition frame."""
-    counted_tags = {int(unit.tag) for unit in own_units}
-    for transport in own_units:
-        for passenger in getattr(transport, "passengers", []) or []:
-            if int(passenger.tag) in counted_tags:
+def _structure_type_name(structure) -> str:
+    return str(getattr(getattr(structure, "type_id", None), "name", "")).upper()
+
+
+def _count_new_passengers(
+    carriers,
+    *,
+    adapter,
+    units: Dict[str, int],
+    unavailable_army: Dict[str, int],
+    ready_unit_tags: Dict[str, List[int]],
+    counted_tags: set,
+    garrison: Dict[str, int] | None = None,
+) -> None:
+    """Add passengers that are not already present as on-map units."""
+    garrison_tags: set[int] = set()
+    for carrier in carriers:
+        for passenger in getattr(carrier, "passengers", []) or []:
+            tag = getattr(passenger, "tag", None)
+            if tag is None:
                 continue
-            counted_tags.add(int(passenger.tag))
-            name = adapter.normalize_unit_name(passenger.type_id.name)
-            if name is not None:
-                _bump(counts, name)
+            tag = int(tag)
+            type_name = getattr(getattr(passenger, "type_id", None), "name", "")
+            name = adapter.normalize_unit_name(type_name)
+            if name is None:
+                continue
+            if garrison is not None and _structure_type_name(carrier) == "BUNKER" and tag not in garrison_tags:
+                garrison_tags.add(tag)
+                _bump(garrison, name)
+            if tag in counted_tags:
+                continue
+            counted_tags.add(tag)
+            _bump(units, name)
+            ready_unit_tags.setdefault(name, []).append(tag)
+            if name not in {"scv", "probe", "drone", "mule"}:
+                _bump(unavailable_army, name)
 
 
 def _visible_weapon_enemies(ai) -> List[Any]:
@@ -221,19 +246,23 @@ def read_snapshot(
                 if target:
                     _bump(workers_en_route, target)
 
-    # Loaded passengers disappear from ai.units but are still living units.
-    # Keep totals consistent with mission alive/assigned counts during transport.
-    _add_loaded_passenger_counts(ai.units, adapter, units)
+    # Loaded passengers and bunker Marines disappear from ai.units but remain living.
     visible_tags = {int(unit.tag) for unit in ai.units}
-    counted_cargo_tags = set(visible_tags)
-    for transport in ai.units:
-        for passenger in getattr(transport, "passengers", []) or []:
-            name = adapter.normalize_unit_name(passenger.type_id.name)
-            if name is not None:
-                ready_unit_tags.setdefault(name, []).append(int(passenger.tag))
-                if name not in {"scv", "probe", "drone", "mule"} and int(passenger.tag) not in counted_cargo_tags:
-                    _bump(unavailable_army, name)
-            counted_cargo_tags.add(int(passenger.tag))
+    bunker_garrison: Dict[str, int] = {}
+    bunkers = [
+        structure for structure in getattr(ai, "structures", []) or []
+        if _structure_type_name(structure) == "BUNKER"
+        and float(getattr(structure, "build_progress", 1) or 0) >= 1
+    ]
+    _count_new_passengers(
+        list(ai.units) + bunkers,
+        adapter=adapter,
+        units=units,
+        unavailable_army=unavailable_army,
+        ready_unit_tags=ready_unit_tags,
+        counted_tags=set(visible_tags),
+        garrison=bunker_garrison,
+    )
 
     for structure in ai.structures.ready:
         for order in structure.orders:
@@ -291,6 +320,14 @@ def read_snapshot(
         zone_rows.append(row)
         base_resources.append(registry.resources.read_zone(ai, zone))
     zones = registry.sync_from_centers(centers)
+    group0_zone_id = None
+    group0_home = getattr(ai, "bench_group0_home_point", None)
+    if group0_home is not None and observed_zones:
+        index = min(
+            range(len(observed_zones)),
+            key=lambda i: observed_zones[i].center_location.distance_to(group0_home),
+        )
+        group0_zone_id = zones[index]
 
     own_entities = list(getattr(ai, "units", None) or []) + list(
         getattr(ai, "structures", None) or []
@@ -384,7 +421,9 @@ def read_snapshot(
             "ready_unit_tags": ready_unit_tags,
             "building_entity_tags": building_entity_tags,
             "unavailable_army": unavailable_army,
+            "bunker_garrison": bunker_garrison,
             "group0_engaged": bool(getattr(ai, "bench_group0_engaged", False)),
+            "group0_zone_id": group0_zone_id,
             "base_count": base_count,
             "upgrades": sorted(set(upgrades)),
             "zones": zones,

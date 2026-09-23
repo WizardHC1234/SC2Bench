@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from typing import Any, List, Optional
 
 
@@ -25,8 +25,23 @@ class ActionReceipt:
     group: Optional[str] = None
 
     def to_dict(self) -> dict[str, Any]:
-        payload = asdict(self)
-        return {key: value for key, value in payload.items() if value is not None}
+        arguments: dict[str, Any] = {}
+        for key in ("target", "count", "target_action", "style", "group"):
+            value = getattr(self, key)
+            if value is not None:
+                arguments[key] = value
+        payload: dict[str, Any] = {
+            "name": self.action,
+            "arguments": arguments,
+            "result": self.result,
+        }
+        if self.reason is not None:
+            payload["reason"] = self.reason
+        if self.action_id is not None:
+            payload["action_id"] = self.action_id
+        if self.details is not None:
+            payload["details"] = self.details
+        return payload
 
 
 @dataclass

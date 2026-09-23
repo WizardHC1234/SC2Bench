@@ -1,49 +1,57 @@
-"""Read and reconstruct a compact SC2Bench episode."""
+"""Read an episode's configuration, prompt, result, and saved session."""
 from __future__ import annotations
 
 import json
-import hashlib
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional, Tuple
+
+
+def parse_episode_text(text: str) -> Tuple[Dict[str, Any], str, Optional[Dict[str, Any]]]:
+    """Split episode.txt into configuration, the platform prompt, and an optional result."""
+    marker = "\n\nPlatform prompt\n"
+    config_marker = "\nConfiguration and versions\n"
+    if marker not in text or config_marker not in text:
+        raise ValueError("Missing episode configuration")
+    head, rest = text.split(marker, 1)
+    metadata = json.loads(head.split(config_marker, 1)[1])
+    if not isinstance(metadata, dict):
+        raise ValueError("Invalid episode configuration")
+    count = metadata.get("platform_prompt_char_count")
+    if type(count) is not int or count < 0 or count > len(rest):
+        raise ValueError("Invalid platform prompt length")
+    prompt = rest[:count]
+    tail = rest[count:]
+    result_marker = "\n\nResult\n"
+    summary = None
+    if tail.startswith(result_marker):
+        summary = json.loads(tail[len(result_marker):])
+        if not isinstance(summary, dict):
+            raise ValueError("Invalid episode result")
+    return metadata, prompt, summary
 
 
 def read_episode(directory: str | Path) -> Dict[str, Any]:
     path = Path(directory)
-    compact = path / "interactions.jsonl"
-    rows = [json.loads(line) for line in compact.read_text(encoding="utf-8").splitlines()]
-    if not rows or rows[0].get("type") != "episode_start":
-        raise ValueError("Missing episode_start in interactions.jsonl")
-    metadata = {key: value for key, value in rows[0].items()
-                if key not in {"type", "platform_prompt_sha256", "platform_prompt_char_count"}}
-    prompt_part = (path / "episode.txt").read_text(encoding="utf-8").split("\n\nPlatform prompt\n", 1)[1]
-    prompt = prompt_part[:rows[0]["platform_prompt_char_count"]]
-    if hashlib.sha256(prompt.encode("utf-8")).hexdigest() != rows[0]["platform_prompt_sha256"]:
-        raise ValueError("episode.txt platform prompt does not match interactions.jsonl")
-    system_messages = {rows[0]["platform_prompt_sha256"]: prompt}
-    system_messages.update({row["id"]: row["content"] for row in rows if row.get("type") == "system_message"})
-    steps = []
-    interactions = []
-    for row in rows[1:]:
-        if row.get("type") == "system_message":
-            continue
-        entry = dict(row)
-        interaction = entry.pop("agent_interaction", None)
-        steps.append(entry)
-        if interaction is not None:
-            for messages in (interaction.get("input", {}).get("messages"),
-                             interaction.get("messages_transcript")):
-                if not isinstance(messages, list):
-                    continue
-                for message in messages:
-                    if isinstance(message, dict) and "content_ref" in message:
-                        message["content"] = system_messages[message.pop("content_ref")]
-            interactions.append(interaction)
+    metadata, prompt, summary = parse_episode_text(
+        (path / "episode.txt").read_text(encoding="utf-8"))
+    session_path = path / "session.json"
+    if session_path.is_file():
+        session = json.loads(session_path.read_text(encoding="utf-8"))
+        if not isinstance(session, dict) or not isinstance(session.get("messages"), list):
+            raise ValueError("Invalid session.json")
+        session.setdefault("tools", None)
+    else:
+        session = {
+            "episode_id": metadata.get("episode_id"),
+            "model": None,
+            "result": None,
+            "tools": None,
+            "messages": [],
+        }
     return {
         "metadata": metadata,
         "platform_prompt": prompt,
-        "steps": steps,
-        "interactions": interactions,
-        "summary": next(({key: value for key, value in row.items()
-                          if key not in {"type", "observation"}}
-                         for row in reversed(steps) if row.get("type") == "end"), None),
+        "summary": summary,
+        "session": session,
+        "messages": session["messages"],
     }

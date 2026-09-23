@@ -1,5 +1,7 @@
 """Terran production observations; no commands or strategic decisions."""
 
+from sharpy.plans.acts.act_unit import MAX_TRAIN_QUEUE
+
 
 # Preserve existing observation text decoding and priority. Runtime research
 # ability IDs, when available, take precedence over the legacy text hints.
@@ -85,6 +87,7 @@ def read_production_capacity(ai, adapter):
         grounded = [s for s in parents if getattr(s, "is_flying", None) is False]
         unknown = any(not isinstance(getattr(s, "is_flying", None), bool) for s in parents)
         capacity = occupied = free = tech_free = tech_hosts = reactor_hosts = 0
+        queue_capacity = queued_orders = free_queue_positions = 0
         for parent in grounded:
             tag = getattr(parent, "add_on_tag", None)
             addon = addons.get(tag)
@@ -99,13 +102,18 @@ def read_production_capacity(ai, adapter):
             capacity += slots
             occupied += busy
             free += slots - busy
+            queue_capacity += MAX_TRAIN_QUEUE
+            queued_orders += min(MAX_TRAIN_QUEUE, len(orders))
+            free_queue_positions += max(0, MAX_TRAIN_QUEUE - len(orders))
             tech_free += (slots - busy) if techlab else 0
             tech_hosts += int(techlab)
             reactor_hosts += int(reactor)
         row = {"facility": facility, "ready_grounded": len(grounded),
                "techlab_hosts": tech_hosts, "reactor_hosts": reactor_hosts,
                "capacity": capacity, "occupied_slots": occupied,
-               "free_slots": free, "free_techlab_slots": tech_free}
+               "free_slots": free, "free_techlab_slots": tech_free,
+               "queue_capacity": queue_capacity, "queued_orders": queued_orders,
+               "free_queue_positions": free_queue_positions}
         if unknown:
             row.update({key: None for key in row if key != "facility"})
         rows.append(row)

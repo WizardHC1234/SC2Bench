@@ -55,8 +55,14 @@ class MicroMedivacsSupport(MicroStep):
 
     def unit_solve_combat(self, unit: Unit, current_command: Action) -> Action:
         if self.move_type in {MoveType.DefensiveRetreat, MoveType.PanicRetreat}:
-            # Do not turn a mission retreat into healing/escorting troops that
-            # have not retreated yet (or unrelated troops elsewhere).
+            # Boost away from anti-air. Healing would walk back into that fire.
+            threats = [
+                enemy for enemy in getattr(self, "enemies_near_by", ()) or ()
+                if getattr(enemy, "can_attack_air", False) and enemy.distance_to(unit) <= 10
+            ]
+            ability = AbilityId.EFFECT_MEDIVACIGNITEAFTERBURNERS
+            if threats and self.cd_manager.is_ready(unit.tag, ability):
+                return Action(None, False, ability)
             return Action(current_command.position if current_command.position is not None else self.original_target, False)
         healable = self.group.ground_units.filter(self._is_healable)
         if unit.energy >= self.HEAL_ENERGY_FLOOR and healable:
@@ -111,6 +117,7 @@ class MissionMicroRules(MicroRules):
         super().__init__()
         self.boundary = None
         self.return_point = None
+        self.hold_position = False
 
     async def start(self, knowledge):
         await super().start(knowledge)
@@ -129,18 +136,56 @@ class MissionMicroRules(MicroRules):
     def guard_action(self, unit, command):
         if self.boundary is None or self.return_point is None:
             return command
+        # A spell already in range is not a chase. Defend used to replace EMP,
+        # Lock On, Matrix and Yamato with a move back to the hold point.
+        if self._keep_local_cast(unit, command):
+            return command
         outside = not self.boundary(unit.position)
         target_outside = command.position is not None and not self.boundary(command.position)
         if outside or target_outside:
-            from sc2bench_env.backends.sharpy.terran_micro import IMMOBILE_RELEASE
-            if unit.type_id in IMMOBILE_RELEASE:
-                return Action(None, False, IMMOBILE_RELEASE[unit.type_id])
+            from sc2bench_env.backends.sharpy.protoss_micro import IMMOBILE_RELEASE as protoss_release
+            from sc2bench_env.backends.sharpy.terran_micro import IMMOBILE_RELEASE as terran_release
+            from sc2bench_env.backends.sharpy.zerg_micro import IMMOBILE_RELEASE as zerg_release
+            release = terran_release.get(unit.type_id, protoss_release.get(unit.type_id, zerg_release.get(unit.type_id)))
+            if release is not None:
+                return Action(None, False, release)
+            return Action(self.return_point, False)
+        if self.hold_position:
+            target = getattr(command, "target", None)
+            # Keep self-cast / form-change abilities such as Stim and Siege.
+            if target is None and getattr(command, "ability", None) is not None:
+                return command
+            # Fire only when the selected non-structure unit is already inside
+            # weapon range. Never walk after it and never attack structures.
+            if (command.is_attack and target is not None
+                    and hasattr(target, "position")
+                    and not bool(getattr(target, "is_structure", False))):
+                try:
+                    attack_range = float(self.unit_values.real_range(unit, target))
+                    if attack_range > 0 and unit.distance_to(target) <= attack_range:
+                        return command
+                except (AttributeError, TypeError, ValueError):
+                    pass
             return Action(self.return_point, False)
         return command
 
+    def _keep_local_cast(self, unit, command) -> bool:
+        ability = getattr(command, "ability", None)
+        if ability is None:
+            return False
+        if "TACTICALJUMP" in str(ability).upper():
+            return True
+        position = command.position
+        if position is None:
+            return bool(self.boundary(unit.position))
+        try:
+            return float(unit.distance_to(position)) <= 12
+        except (AttributeError, TypeError, ValueError):
+            return False
+
 
 def build_combat_micro_rules() -> MicroRules:
-    """Default Sharpy micro plus platform Banshee / Medivac / sieged-tank handlers."""
+    """Sharpy micro plus platform handlers for the supported races."""
     from sharpy.combat.terran import MicroTanks
 
     rules = MissionMicroRules()
@@ -152,11 +197,12 @@ def build_combat_micro_rules() -> MicroRules:
     rules.unit_micros[UnitTypeId.BANSHEE] = MicroBanshee()
     rules.unit_micros[UnitTypeId.MEDIVAC] = MicroMedivacsSupport()
     from sc2bench_env.backends.sharpy.terran_micro import (
-        MicroGhost, MicroCyclone, MicroThor, MicroWidowMine, MicroLiberatorSafe,
+        MicroGhost, MicroCyclone, MicroHellionSafe, MicroThor, MicroWidowMine, MicroLiberatorSafe,
         MicroVikingSafe, MicroRavenSupport, MicroBattlecruiserSafe,
     )
     for types, micro in (
         ((UnitTypeId.GHOST,), MicroGhost()), ((UnitTypeId.CYCLONE,), MicroCyclone()),
+        ((UnitTypeId.HELLION, UnitTypeId.HELLIONTANK), MicroHellionSafe()),
         ((UnitTypeId.THOR, UnitTypeId.THORAP), MicroThor()),
         ((UnitTypeId.WIDOWMINE, UnitTypeId.WIDOWMINEBURROWED), MicroWidowMine()),
         ((UnitTypeId.LIBERATOR, UnitTypeId.LIBERATORAG), MicroLiberatorSafe()),
@@ -166,4 +212,43 @@ def build_combat_micro_rules() -> MicroRules:
     ):
         for unit_type in types:
             rules.unit_micros[unit_type] = micro
+    from sc2bench_env.backends.sharpy.protoss_micro import (
+        MicroCarrierSafe, MicroDarkTemplarSafe, MicroMothership, MicroObserverSafe,
+        MicroOracleSafe, MicroWarpPrismSafe,
+    )
+    observer = MicroObserverSafe()
+    prism = MicroWarpPrismSafe()
+    rules.unit_micros[UnitTypeId.OBSERVER] = observer
+    rules.unit_micros[UnitTypeId.OBSERVERSIEGEMODE] = observer
+    rules.unit_micros[UnitTypeId.WARPPRISM] = prism
+    rules.unit_micros[UnitTypeId.WARPPRISMPHASING] = prism
+    rules.unit_micros[UnitTypeId.ORACLE] = MicroOracleSafe()
+    rules.unit_micros[UnitTypeId.DARKTEMPLAR] = MicroDarkTemplarSafe()
+    rules.unit_micros[UnitTypeId.CARRIER] = MicroCarrierSafe()
+    rules.unit_micros[UnitTypeId.MOTHERSHIP] = MicroMothership()
+    from sc2bench_env.backends.sharpy.zerg_micro import (
+        MicroBanelingSafe, MicroOverseerSafe, MicroRoachSafe, MicroViperSafe,
+    )
+    roach = MicroRoachSafe()
+    baneling = MicroBanelingSafe()
+    rules.unit_micros[UnitTypeId.ROACH] = roach
+    rules.unit_micros[UnitTypeId.ROACHBURROWED] = roach
+    rules.unit_micros[UnitTypeId.BANELING] = baneling
+    rules.unit_micros[UnitTypeId.BANELINGBURROWED] = baneling
+    rules.unit_micros[UnitTypeId.VIPER] = MicroViperSafe()
+    overseer = MicroOverseerSafe()
+    rules.unit_micros[UnitTypeId.OVERSEER] = overseer
+    rules.unit_micros[UnitTypeId.OVERSEERSIEGEMODE] = overseer
+    for source, forms in (
+        (UnitTypeId.LURKERMP, (UnitTypeId.LURKERMPBURROWED,)),
+        (UnitTypeId.INFESTOR, (UnitTypeId.INFESTORBURROWED,)),
+        (UnitTypeId.RAVAGER, (UnitTypeId.RAVAGERBURROWED,)),
+        (UnitTypeId.QUEEN, (UnitTypeId.QUEENBURROWED,)),
+        (UnitTypeId.SWARMHOSTMP, (UnitTypeId.SWARMHOSTBURROWEDMP,)),
+    ):
+        handler = rules.unit_micros.get(source)
+        if handler is None:
+            continue
+        for form in forms:
+            rules.unit_micros[form] = handler
     return rules

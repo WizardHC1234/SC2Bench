@@ -65,6 +65,9 @@ class _Bridge:
     replay_path: Optional[Path] = None
     seen_entity_tags: set = field(default_factory=set)
     entity_tracking_started: bool = False
+    # Versus games share one notify event and wake the other bot on game end.
+    companions: List[Any] = field(default_factory=list)
+    notify: Optional[threading.Event] = None
 
     def get_macro_specs(self) -> List[Dict[str, Any]]:
         with self.lock:
@@ -82,6 +85,15 @@ class _Bridge:
             self.leave_requested = True
             # Closing must wake a game waiting for its next agent decision.
             self.advance_allowed.set()
+            self._signal_companions()
+
+    def _signal_companions(self) -> None:
+        """Wake the other bot without taking its lock."""
+        for other in list(self.companions):
+            other.advance_allowed.set()
+            other.decision_reached.set()
+        if self.notify is not None:
+            self.notify.set()
 
     def wait_for_decision(self) -> None:
         """Wait outside the bridge lock; the caller can submit/close meanwhile."""
@@ -154,7 +166,7 @@ class _Bridge:
                     continue
                 if action == "scan":
                     ready = int(self.act_completed.get(task_id, 0))
-                elif action in {"call_mule", "upgrade", "scout", "combat"}:
+                elif action in {"call_mule", "chrono_boost", "inject_larva", "spawn_creep_tumor", "upgrade", "scout", "combat"}:
                     ready = int(self.act_completed.get(task_id, 0))
                 elif action == "build":
                     # Build action completes when the unfinished entity appears.
@@ -183,6 +195,8 @@ class _Bridge:
             if self.snapshot.terminated:
                 self.advance_allowed.set()
                 self.decision_reached.set()
+                if self.notify is not None:
+                    self.notify.set()
             elif self.active_trigger is not None and trigger_satisfied(
                 self.active_trigger,
                 snapshot=self.snapshot,
@@ -193,6 +207,8 @@ class _Bridge:
                     # Freeze at the published snapshot BEFORE waking step().
                     self.advance_allowed.clear()
                 self.decision_reached.set()
+                if self.notify is not None:
+                    self.notify.set()
             return self.blocking_decisions and not self.advance_allowed.is_set()
 
     def on_game_end(self, result: str) -> None:
@@ -207,6 +223,7 @@ class _Bridge:
             self.ready.set()
             self.stopped.set()
             self.advance_allowed.set()
+            self._signal_companions()
 
 
 class SharpyBackend(Backend):
@@ -330,6 +347,46 @@ class SharpyBackend(Backend):
                     self._bridge.peak_ready.pop(task_id, None)
                     self._bridge.last_reported_completed.pop(task_id, None)
 
+    def prepare_for_versus(self, config: EpisodeConfig) -> None:
+        """Set up this side of a shared game without launching SC2."""
+        require_supported_own_race(config.race)
+        if not config.blocking_decisions:
+            raise ValueError("versus matches require blocking decisions")
+        self.close_episode()
+        self._config = config
+        self._bridge = _Bridge()
+        self._bridge.blocking_decisions = True
+        self._bridge.max_game_time = config.game_time_limit_seconds
+        self._bridge.replay_path = self._replay_path
+        self._bridge.zone_registry.reset()
+        self._bridge.structure_registry.reset()
+        self._game_error = None
+        _ensure_runtime_paths()
+        from sc2bench_env.backends.sharpy.races import get_adapter
+        self._adapter = get_adapter(config.race)
+
+    def is_waiting(self) -> bool:
+        with self._bridge.lock:
+            return (self._bridge.ready.is_set() and not self._bridge.advance_allowed.is_set()
+                    and not self._bridge.snapshot.terminated)
+
+    def release(self, trigger: DecisionTrigger) -> None:
+        """Arm this side's next pause and let its bot continue. Do not wait."""
+        with self._bridge.lock:
+            if self._bridge.snapshot.terminated or self._bridge.stopped.is_set():
+                self._bridge.advance_allowed.set()
+                if self._bridge.notify is not None:
+                    self._bridge.notify.set()
+                return
+            now = self._bridge.snapshot.game_time_seconds
+            self._bridge.active_trigger = trigger
+            self._bridge.wait_started_at = now
+            self._bridge.target_time = now + float(trigger.interval_seconds)
+            if trigger.max_game_time_seconds is not None:
+                self._bridge.max_game_time = trigger.max_game_time_seconds
+            self._bridge.decision_reached.clear()
+            self._bridge.advance_allowed.set()
+
     def run_until(self, trigger: DecisionTrigger) -> bool:
         with self._bridge.lock:
             if self._bridge.snapshot.terminated or self._bridge.stopped.is_set():
@@ -414,7 +471,7 @@ class SharpyBackend(Backend):
                         state = DemandState.IN_PROGRESS
                     else:
                         state = DemandState.WAITING_TO_START
-                elif action in {"scan", "call_mule"}:
+                elif action in {"scan", "call_mule", "chrono_boost", "inject_larva", "spawn_creep_tumor"}:
                     if peak >= 1:
                         state = DemandState.COMPLETED
                         waiting_for = None
@@ -548,7 +605,7 @@ class SharpyBackend(Backend):
                 maps.get(self._config.map_name),
                 [
                     Bot(race, bot),
-                    _create_builtin_opponent(self._config),
+                    _create_computer_opponent(self._config),
                 ],
                 **kwargs,
             )
@@ -592,7 +649,7 @@ def _parse_race(name: str) -> "Race":
     return mapping[key]
 
 
-def _create_builtin_opponent(config: EpisodeConfig):
+def _create_computer_opponent(config: EpisodeConfig):
     from sc2.player import Computer
     return Computer(_parse_race(config.enemy_race), _parse_difficulty(config.opponent),
                     ai_build=_parse_ai_build(config.enemy_style))

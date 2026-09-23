@@ -8,7 +8,7 @@ are retained for compatibility with existing callers.
 
 from __future__ import annotations
 
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional
 
 # Local-power ratios (own/enemy). Lower = more willing to stay.
 PROVISIONAL_RETREAT_RATIO: Dict[str, float] = {
@@ -27,6 +27,7 @@ WITHDRAW_WOUNDED_HEALTH = 0.35
 PROVISIONAL_WITHDRAW_ARRIVAL = 10.0
 DROP_LOAD_TIMEOUT_SECONDS = 10.0
 DROP_UNLOAD_TIMEOUT_SECONDS = 10.0
+TARGET_CLEAR_CONFIRM_SECONDS = 3.0
 
 
 def available_for_mission(unit, roles, reserved_tags) -> bool:
@@ -48,6 +49,8 @@ def available_for_mission(unit, roles, reserved_tags) -> bool:
 def style_move_type_name(style: str) -> str:
     return {
         "attack": "Assault",
+        # This Sharpy version has no MoveType.Hold. MissionMicroRules supplies
+        # equivalent hold behavior after Assault micro proposes each command.
         "defend": "Assault",
     }.get(style, "Assault")
 
@@ -64,23 +67,3 @@ def transport_drop_point(zone_center, own_start, *, standoff: float = TRANSPORT_
 
 def defend_leash_radius(zone_radius: float, leash_factor: float = PROVISIONAL_DEFEND_LEASH) -> float:
     return max(8.0, float(zone_radius) * leash_factor)
-
-
-def defend_engage_target(
-    zone_center,
-    zone_radius: float,
-    enemy_position,
-    gather_point,
-    *,
-    leash_factor: float = PROVISIONAL_DEFEND_LEASH,
-) -> Tuple[object, bool]:
-    """Return (move_target, chasing).
-
-    If the enemy is outside the defend leash, stop chasing and return to gather.
-    """
-    leash = defend_leash_radius(zone_radius, leash_factor)
-    if enemy_position is None:
-        return gather_point or zone_center, False
-    if enemy_position.distance_to(zone_center) > leash:
-        return gather_point or zone_center, False
-    return enemy_position, True

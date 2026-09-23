@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 from pathlib import Path
 from typing import Any, Dict, Iterable
+
+from sc2bench_env.recording.reader import parse_episode_text
 
 
 _OUTCOMES = {
@@ -16,7 +19,7 @@ _OUTCOMES = {
 
 
 class Evaluator:
-    """First-edition objective metrics, based on episode_start and end rows."""
+    """First-edition objective metrics, based on episode.txt configuration and result."""
 
     @staticmethod
     def evaluate_batch(summary_path: str | Path) -> Dict[str, Any]:
@@ -38,11 +41,11 @@ class Evaluator:
             directory = saved.get("record_directory")
             if directory is None:
                 # Environment creation failures have no episode artifact to reread.
-                creation_failed = (saved.get("status") == "failed" and
-                                   saved.get("end_reason") == "environment_creation_error")
-                row = {**saved, "status": "failed" if creation_failed else "incomplete",
+                launch_failed = (saved.get("status") == "failed" and
+                                 saved.get("end_reason") in {"environment_creation_error", "worker_error"})
+                row = {**saved, "status": "failed" if launch_failed else "incomplete",
                        "outcome": "unfinished", "result": None,
-                       "end_reason": "environment_creation_error" if creation_failed else None,
+                       "end_reason": saved["end_reason"] if launch_failed else None,
                        "decision_count": None, "rejected_count": None,
                        "game_time_seconds": None, "wall_time_seconds": None,
                        "audit_status": "no_episode_record"}
@@ -63,10 +66,11 @@ class Evaluator:
                            "rejected_count": None, "game_time_seconds": None,
                            "wall_time_seconds": None, "audit_status": "record_error",
                            "audit_error_type": type(error).__name__}
-                for field in ("index", "case_id", "repetition", "record_directory", "error_type"):
+                for field in ("index", "case_id", "repetition", "record_directory", "error_type",
+                              "worker_pid", "worker_exitcode"):
                     if field in saved:
                         row[field] = saved[field]
-                # Runtime version was supplied by Runner, not stored in episode_start.
+                # Runtime version was supplied by Runner, not stored in episode.txt.
                 if "runtime_versions" in saved:
                     row["indexed_runtime_versions"] = saved["runtime_versions"]
             episodes.append(row)
@@ -88,23 +92,10 @@ class Evaluator:
     @staticmethod
     def evaluate_episode(record_directory: str | Path) -> Dict[str, Any]:
         directory = Path(record_directory).resolve()
-        start = None
-        end = None
-        with (directory / "interactions.jsonl").open("r", encoding="utf-8") as stream:
-            for line in stream:
-                row = json.loads(line)
-                if not isinstance(row, dict):
-                    raise ValueError("Invalid episode record row")
-                if row.get("type") == "episode_start":
-                    if start is not None:
-                        raise ValueError("Duplicate episode_start")
-                    start = row
-                elif row.get("type") == "end":
-                    if end is not None:
-                        raise ValueError("Duplicate episode end")
-                    end = row
-        if start is None:
-            raise ValueError("Missing episode_start")
+        start, prompt, end = parse_episode_text(
+            (directory / "episode.txt").read_text(encoding="utf-8"))
+        if "episode_id" not in start or "backend" not in start or "config" not in start:
+            raise ValueError("Missing episode configuration")
         status = end["status"] if end is not None else "incomplete"
         if end is not None:
             if status not in {"completed", "interrupted", "failed"}:
@@ -124,7 +115,7 @@ class Evaluator:
             "backend": start["backend"],
             "config": start["config"],
             "versions": start.get("versions"),
-            "platform_prompt_sha256": start.get("platform_prompt_sha256"),
+            "platform_prompt_sha256": hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
             "status": status,
             "outcome": _OUTCOMES.get(result, "unfinished") if status == "completed" else "unfinished",
             "result": result if status == "completed" else None,

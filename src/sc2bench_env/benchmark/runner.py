@@ -1,4 +1,4 @@
-"""Serial episodes for external agents; no built-in policy or model calls."""
+"""Serial or bounded parallel episodes; no built-in policy or model calls."""
 
 from __future__ import annotations
 
@@ -17,8 +17,8 @@ from sc2bench_env.env import Environment
 from sc2bench_env.interface.config import EpisodeConfig
 from sc2bench_env.interface.feedback import Feedback
 from sc2bench_env.interface.observations import Observation
-from sc2bench_env.recording.trajectory import TrajectoryRecorder, _versions
-from sc2bench_env.paths import record_reference, resolve_record_dir, resolve_results_dir
+from sc2bench_env.recording.trajectory import _versions
+from sc2bench_env.paths import resolve_record_dir
 
 
 def _platform_fingerprint() -> str:
@@ -38,6 +38,8 @@ class AgentInput:
     observation: Observation
     feedback: Optional[Feedback]
     platform_messages: list[dict[str, str]]
+    tool_schemas: tuple[dict[str, Any], ...] = ()
+    call_tool: Optional[Callable[..., dict[str, Any]]] = None
 
 class AgentStopped(RuntimeError):
     """An external Agent's deliberate stop, distinct from an unexpected error."""
@@ -86,22 +88,21 @@ def _snapshot_agent_metadata(value: Optional[Mapping[str, Any]]) -> Optional[dic
 
 
 class BenchmarkRunner:
-    """Run a list of configurations sequentially, isolating each episode."""
+    """Run isolated episodes, serial by default or in fresh spawn processes."""
 
     def __init__(
         self, *, backend_factory: Callable[[], Any] = lambda: "sharpy",
         record_dir: Optional[str | Path] = None,
-        results_dir: Optional[str | Path] = None,
     ) -> None:
         self.backend_factory = backend_factory
         self.record_dir = resolve_record_dir(record_dir)
-        self.results_dir = resolve_results_dir(results_dir, record_dir=self.record_dir)
 
     def run(
         self, configs: Sequence[EpisodeConfig] | BenchmarkSuite,
         agent_factory: Callable[[], Callable[[AgentInput], AgentTurn | Any]],
         *, max_decisions: Optional[int] = None,
         agent_metadata: Optional[Mapping[str, Any]] = None,
+        max_parallel: int = 1,
     ) -> Dict[str, Any]:
         suite = configs if isinstance(configs, BenchmarkSuite) else None
         if suite is not None:
@@ -117,11 +118,15 @@ class BenchmarkRunner:
             raise ValueError("Provide at least one episode and a positive max_decisions")
         if any(not isinstance(config, EpisodeConfig) for config in configs):
             raise TypeError("Every benchmark configuration must be an EpisodeConfig")
+        if type(max_parallel) is not int or max_parallel < 1:
+            raise ValueError("max_parallel must be a positive integer")
+        configs = list(configs)
         frozen_agent_metadata = _snapshot_agent_metadata(agent_metadata)
-        self.results_dir.mkdir(parents=True, exist_ok=True)
+        payload = None
+        if max_parallel > 1:
+            from sc2bench_env.benchmark.parallel import serialize_factories
+            payload = serialize_factories(self.backend_factory, agent_factory)
         batch_id = uuid4().hex
-        stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-        output_path = self.results_dir / f"run_{stamp}_{batch_id}.json"
         batch: Dict[str, Any] = {
             "schema_version": "0.3", "batch_id": batch_id,
             "started_at": datetime.now(timezone.utc).isoformat(),
@@ -131,10 +136,14 @@ class BenchmarkRunner:
                        "episode_count": len(configs)} if suite is not None else None),
             "platform_versions": _versions(),
             "platform_source_sha256": _platform_fingerprint(),
-            "output_paths": {"record_dir": str(self.record_dir), "results_dir": str(self.results_dir)},
+            "output_paths": {"record_dir": str(self.record_dir)},
             "planned_configs": [config.to_dict() for config in configs],
             "execution_policy": {
                 "order": "case_major" if suite is not None else "supplied_order",
+                "mode": "parallel" if max_parallel > 1 else "serial",
+                "max_parallel": max_parallel,
+                "process_per_episode": max_parallel > 1,
+                "result_order": "planned_order",
                 "fresh_agent_per_episode": True,
                 "automatic_episode_reruns": False,
                 "time_limit_outcome": "tie",
@@ -145,16 +154,14 @@ class BenchmarkRunner:
             "termination_counts": {},
             "episodes": [], "aggregate": Evaluator.summarize([]),
         }
-        TrajectoryRecorder._write_atomic(output_path, batch)
-        for index, config in enumerate(configs, start=1):
-            row = self._run_one(config, agent_factory, max_decisions)
+
+        def save_result(index: int, row: Dict[str, Any]) -> None:
             row["index"] = index
             if plan is not None:
                 row["case_id"] = plan[index - 1]["case_id"]
                 row["repetition"] = plan[index - 1]["repetition"]
-            if row.get("record_directory") is not None:
-                row["record_directory"] = record_reference(row["record_directory"], self.results_dir)
             batch["episodes"].append(row)
+            batch["episodes"].sort(key=lambda item: item["index"])
             batch["aggregate"] = Evaluator.summarize(batch["episodes"])
             batch["termination_counts"] = Evaluator.termination_counts(batch["episodes"])
             if suite is not None:
@@ -167,16 +174,28 @@ class BenchmarkRunner:
                     }
                     for case in suite.to_dict()["cases"]
                 }
-            TrajectoryRecorder._write_atomic(output_path, batch)
+        try:
+            if payload is None:
+                for index, config in enumerate(configs, start=1):
+                    save_result(index, self._run_one(config, agent_factory, max_decisions))
+            else:
+                from sc2bench_env.benchmark.parallel import run_parallel
+                run_parallel(configs, payload, self.record_dir, max_decisions,
+                             max_parallel, save_result)
+        except BaseException as error:
+            batch["status"] = "interrupted" if isinstance(error, (KeyboardInterrupt, SystemExit)) else "failed"
+            batch["ended_at"] = datetime.now(timezone.utc).isoformat()
+            batch["error_type"] = type(error).__name__
+            raise
         batch["status"] = "completed"
         batch["ended_at"] = datetime.now(timezone.utc).isoformat()
-        TrajectoryRecorder._write_atomic(output_path, batch)
-        return {**batch, "summary_path": str(output_path)}
+        return batch
 
     def _run_one(
         self, config: EpisodeConfig,
         agent_factory: Callable[[], Callable[[AgentInput], AgentTurn | Any]],
         max_decisions: int,
+        *, cancel_event: Any = None, record_callback: Optional[Callable[[Path], None]] = None,
     ) -> Dict[str, Any]:
         env: Optional[Environment] = None
         error_type = None
@@ -184,13 +203,24 @@ class BenchmarkRunner:
         runtime_versions = {"game_version": None}
         try:
             env = Environment(self.backend_factory(), record_dir=self.record_dir)
+            env._record_started_callback = record_callback
             observation = env.reset(config)
             record_directory = env.record_path
             runtime_versions = {"game_version": env.backend.snapshot().info.get("game_version")}
             agent = agent_factory()
             feedback = None
             for _ in range(max_decisions):
-                response = agent(AgentInput(observation, feedback, env.get_context()))
+                if cancel_event is not None and cancel_event.is_set():
+                    env.close(end_reason="caller_interrupted")
+                    break
+                response = agent(AgentInput(
+                    observation, feedback, env.get_context(),
+                    tool_schemas=tuple(env.tool_schemas()),
+                    call_tool=env.call_tool,
+                ))
+                if cancel_event is not None and cancel_event.is_set():
+                    env.close(end_reason="caller_interrupted")
+                    break
                 turn = response if isinstance(response, AgentTurn) else AgentTurn(response)
                 if turn.stop_after_call_failures and not turn.call_failures:
                     raise ValueError("Cannot stop for a call failure without a failure record")

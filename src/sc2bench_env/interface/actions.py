@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Union
 
 from sc2bench_env.interface.action_catalog import COMBAT_STYLES, known_target_names
@@ -17,8 +17,8 @@ from sc2bench_env.interface.decision_rules import (
     DecisionSchemaError,
     validate_batch_shape,
     validate_entry_fields,
-    validate_wait_condition_fields,
 )
+from sc2bench_env.interface.tools import parse_normalized_tool_call
 
 _ZONE_TARGET_RE = re.compile(ZONE_PATTERN)
 _STRUCTURE_ID_RE = re.compile(STRUCTURE_ID_PATTERN)
@@ -31,6 +31,9 @@ GAME_ACTIONS = frozenset(
         "cancel",
         "scan",
         "call_mule",
+        "chrono_boost",
+        "inject_larva",
+        "spawn_creep_tumor",
         "scout",
         "upgrade",
         "combat",
@@ -44,37 +47,25 @@ class ActionValidationError(ValueError):
 
 
 @dataclass(frozen=True)
-class WaitCondition:
-    condition: str
-    params: Dict[str, Any] = field(default_factory=dict)
+class AdvanceAction:
+    """Trailing command: run the game for a positive number of seconds."""
 
-    def to_dict(self) -> dict[str, Any]:
-        payload = {"condition": self.condition}
-        payload.update(self.params)
-        return payload
-
-
-@dataclass(frozen=True)
-class WaitAction:
-    any_of: tuple[WaitCondition, ...] = ()
-    all_of: tuple[WaitCondition, ...] = ()
+    seconds: float
 
     @property
     def action(self) -> str:
-        return "wait"
+        return "advance"
 
     def to_dict(self) -> dict[str, Any]:
-        payload: dict[str, Any] = {"action": "wait"}
-        if self.any_of:
-            payload["any_of"] = [item.to_dict() for item in self.any_of]
-        if self.all_of:
-            payload["all_of"] = [item.to_dict() for item in self.all_of]
-        return payload
+        return {"action": "advance", "seconds": self.seconds}
+
+    def to_tool_call(self) -> dict[str, Any]:
+        return {"name": "advance", "arguments": {"seconds": self.seconds}}
 
 
 @dataclass(frozen=True)
 class GameAction:
-    """One high-level command before the trailing wait."""
+    """One high-level command before the trailing advance."""
 
     action: str
     target: Optional[str] = None
@@ -118,8 +109,8 @@ class GameAction:
             return f"train {self.target} {self.count}"
         if self.action == "cancel":
             return f"cancel {self.target_action} {self.target}"
-        if self.action == "call_mule":
-            return "call_mule"
+        if self.action in {"call_mule", "chrono_boost", "inject_larva", "spawn_creep_tumor"}:
+            return self.action
         if self.action == "combat":
             units = self.units or {}
             composition = " ".join(f"{name} {count}" for name, count in sorted(units.items()))
@@ -128,16 +119,21 @@ class GameAction:
             return f"{self.action} {self.target}"
         return self.action
 
+    def to_tool_call(self) -> dict[str, Any]:
+        payload = self.to_dict()
+        name = payload.pop("action")
+        return {"name": name, "arguments": payload}
 
-DecisionAction = Union[GameAction, WaitAction]
+
+DecisionAction = Union[GameAction, AdvanceAction]
 
 
 @dataclass(frozen=True)
 class DecisionBatch:
-    """Validated decision: ordered game actions + mandatory trailing wait."""
+    """Validated decision: ordered game actions + mandatory trailing advance."""
 
     actions: tuple[GameAction, ...]
-    wait: WaitAction
+    advance: AdvanceAction
     raw: tuple[dict[str, Any], ...] = ()
     normalizations: tuple[dict[str, Any], ...] = ()
 
@@ -145,7 +141,7 @@ class DecisionBatch:
         return list(self.actions)
 
     def to_dicts(self) -> List[dict[str, Any]]:
-        return [action.to_dict() for action in self.actions] + [self.wait.to_dict()]
+        return [action.to_tool_call() for action in self.actions] + [self.advance.to_tool_call()]
 
 
 def _require_str(value: Any, field_name: str) -> str:
@@ -165,108 +161,48 @@ def _validate_race(race: str) -> None:
         raise ActionValidationError(str(exc)) from exc
 
 
-def _parse_wait_condition(raw: Mapping[str, Any]) -> WaitCondition:
+def _internal_entry(raw: Mapping[str, Any], *, index: int = 0, race: str = "terran") -> dict[str, Any]:
     try:
-        condition = validate_wait_condition_fields(raw, where="wait condition")
-    except DecisionSchemaError as exc:
-        raise _as_validation_error(exc) from exc
-
-    params = {key: value for key, value in raw.items() if key != "condition"}
-    if condition == "interval":
-        seconds = params.get("seconds")
-        if seconds is not None and (
-            not isinstance(seconds, (int, float)) or isinstance(seconds, bool) or seconds <= 0
-        ):
-            raise ActionValidationError("interval.seconds must be a positive number")
-    elif condition == "resource_at_least":
-        resource = params.get("resource")
-        amount = params.get("amount")
-        if resource not in {"minerals", "vespene"}:
-            raise ActionValidationError("resource_at_least.resource must be minerals or vespene")
-        if not isinstance(amount, int) or isinstance(amount, bool) or amount < 0:
-            raise ActionValidationError("resource_at_least.amount must be a non-negative int")
-    elif condition == "supply_left_at_most":
-        amount = params.get("amount")
-        if not isinstance(amount, int) or isinstance(amount, bool) or amount < 0:
-            raise ActionValidationError("supply_left_at_most.amount must be a non-negative int")
-    elif condition == "unit_count_at_least":
-        unit = params.get("unit")
-        count = params.get("count")
-        if not isinstance(unit, str) or not unit.strip():
-            raise ActionValidationError("unit_count_at_least.unit must be a non-empty string")
-        if not isinstance(count, int) or isinstance(count, bool) or count < 0:
-            raise ActionValidationError("unit_count_at_least.count must be a non-negative int")
-        params["unit"] = unit.strip().lower()
-    elif condition == "building_count_at_least":
-        building = params.get("building")
-        count = params.get("count")
-        if not isinstance(building, str) or not building.strip():
-            raise ActionValidationError(
-                "building_count_at_least.building must be a non-empty string"
-            )
-        if not isinstance(count, int) or isinstance(count, bool) or count < 0:
-            raise ActionValidationError("building_count_at_least.count must be a non-negative int")
-        params["building"] = building.strip().lower()
-    elif condition == "scan_ready":
-        count = params.get("count")
-        if count is not None and (
-            not isinstance(count, int) or isinstance(count, bool) or count < 1
-        ):
-            raise ActionValidationError("scan_ready.count must be a positive int when provided")
-    elif condition == "game_time_at_least":
-        seconds = params.get("seconds")
-        if not isinstance(seconds, (int, float)) or isinstance(seconds, bool) or seconds < 0:
-            raise ActionValidationError("game_time_at_least.seconds must be a non-negative number")
-    elif condition == "zone_under_attack":
-        zone = params.get("zone")
-        if not isinstance(zone, str) or not _ZONE_TARGET_RE.match(zone.strip().lower()):
-            raise ActionValidationError("zone_under_attack.zone must be a zone_id")
-        params["zone"] = zone.strip().lower()
-    else:
-        raise ActionValidationError(f"unsupported wait condition {condition!r}")
-    return WaitCondition(condition=condition, params=params)
+        call = parse_normalized_tool_call(raw, index=index)
+        internal = call.to_internal_entry()
+    except ValueError as exc:
+        raise ActionValidationError(str(exc)) from exc
+    internal, _ = normalize_target_aliases(internal, index=index, race=race)
+    return internal
 
 
-def parse_wait_action(raw: Mapping[str, Any], *, race: str = "terran") -> WaitAction:
+def parse_advance_action(raw: Mapping[str, Any], *, race: str = "terran") -> AdvanceAction:
     try:
         verb = validate_entry_fields(raw, index=0, race=race)
     except DecisionSchemaError as exc:
         raise _as_validation_error(exc) from exc
-    if verb != "wait":
-        raise ActionValidationError("trailing action must be wait")
-
-    any_raw = raw.get("any_of", [])
-    all_raw = raw.get("all_of", [])
-    if any_raw is None:
-        any_raw = []
-    if all_raw is None:
-        all_raw = []
-    if not isinstance(any_raw, Sequence) or isinstance(any_raw, (str, bytes)):
-        raise ActionValidationError("wait.any_of must be a sequence")
-    if not isinstance(all_raw, Sequence) or isinstance(all_raw, (str, bytes)):
-        raise ActionValidationError("wait.all_of must be a sequence")
-    any_of = tuple(_parse_wait_condition(item) for item in any_raw)
-    all_of = tuple(_parse_wait_condition(item) for item in all_raw)
-    if not any_of and not all_of:
-        # Bare wait: advance by the episode decision interval.
-        any_of = (WaitCondition(condition="interval", params={"seconds": None}),)
-    return WaitAction(any_of=any_of, all_of=all_of)
+    if verb != "advance":
+        raise ActionValidationError("trailing action must be advance")
+    internal = _internal_entry(raw, race=race)
+    seconds = internal.get("seconds")
+    if not isinstance(seconds, (int, float)) or isinstance(seconds, bool) or seconds <= 0:
+        raise ActionValidationError("advance.seconds must be a positive number")
+    return AdvanceAction(seconds=float(seconds))
 
 
 def parse_game_action(raw: Mapping[str, Any], *, race: str = "terran") -> GameAction:
     if not isinstance(raw, Mapping):
         raise ActionValidationError("action must be a mapping")
     _validate_race(race)
-    raw, _ = normalize_target_aliases(raw, race=race)
+    raw = _internal_entry(raw, race=race)
     try:
-        action = validate_entry_fields(raw, index=0, race=race)
+        rebuilt = {
+            "name": raw["action"],
+            "arguments": {key: value for key, value in raw.items() if key != "action"},
+        }
+        action = validate_entry_fields(rebuilt, index=0, race=race)
     except DecisionSchemaError as exc:
         raise _as_validation_error(exc) from exc
-    if action == "wait":
-        raise ActionValidationError("wait must appear only as the trailing decision entry")
+    if action in {"advance", "wait"}:
+        raise ActionValidationError("advance must appear only as the trailing decision entry")
     if action not in GAME_ACTIONS:
         raise ActionValidationError(
-            f"unsupported action {action!r}; allowed={sorted(GAME_ACTIONS | {'wait'})}"
+            f"unsupported action {action!r}; allowed={sorted(GAME_ACTIONS | {'advance'})}"
         )
 
     if action == "build":
@@ -274,7 +210,7 @@ def parse_game_action(raw: Mapping[str, Any], *, race: str = "terran") -> GameAc
         if target in {"orbital_command", "planetary_fortress"}:
             raise ActionValidationError(
                 f"use upgrade with a structures[].id to morph {target}; "
-                'example: {"action":"upgrade","target":"cc_0","to":"orbital_command"}'
+                'example: {"name":"upgrade","arguments":{"target":"cc_0","to":"orbital_command"}}'
             )
         if target not in known_target_names("build", race=race):
             raise ActionValidationError(
@@ -314,13 +250,17 @@ def parse_game_action(raw: Mapping[str, Any], *, race: str = "terran") -> GameAc
         )
 
     if action == "scan":
+        if not known_target_names("scan", race=race):
+            raise ActionValidationError("scan is not available for this race")
         target = _require_str(raw.get("target"), "target").lower()
         if not _ZONE_TARGET_RE.match(target):
             raise ActionValidationError("scan target must be a stable zone_id")
         return GameAction(action="scan", target=target, count=1)
 
-    if action == "call_mule":
-        return GameAction(action="call_mule")
+    if action in {"call_mule", "chrono_boost", "inject_larva", "spawn_creep_tumor"}:
+        if not known_target_names(action, race=race):
+            raise ActionValidationError(f"{action} is not available for this race")
+        return GameAction(action=action)
 
     if action == "scout":
         route = raw.get("route")
@@ -390,7 +330,12 @@ def parse_game_action(raw: Mapping[str, Any], *, race: str = "terran") -> GameAc
 
 
 def parse_decision(raw_actions: Sequence[Mapping[str, Any]] | None, *, race: str = "terran") -> DecisionBatch:
-    """Parse one Agent decision. Requires a trailing wait and rejects invalid batches."""
+    """Parse one Agent decision of NormalizedToolCall objects. Requires a trailing advance."""
+    return parse_tool_decision(raw_actions, race=race)
+
+
+def parse_tool_decision(raw_actions: Sequence[Mapping[str, Any]] | None, *, race: str = "terran") -> DecisionBatch:
+    """Parse a NormalizedToolCall batch. Rejects the legacy flat action format."""
     _validate_race(race)
     normalized = raw_actions
     normalizations = []
@@ -398,8 +343,17 @@ def parse_decision(raw_actions: Sequence[Mapping[str, Any]] | None, *, race: str
         normalized = []
         for index, entry in enumerate(raw_actions):
             if isinstance(entry, Mapping):
-                entry, changes = normalize_target_aliases(entry, index=index, race=race)
+                try:
+                    call = parse_normalized_tool_call(entry, index=index)
+                    internal = call.to_internal_entry()
+                except ValueError as exc:
+                    raise ActionValidationError(str(exc)) from exc
+                internal, changes = normalize_target_aliases(internal, index=index, race=race)
                 normalizations.extend(changes)
+                entry = {
+                    "name": internal["action"],
+                    "arguments": {key: value for key, value in internal.items() if key != "action"},
+                }
             normalized.append(entry)
     try:
         validate_batch_shape(normalized, race=race)
@@ -409,8 +363,8 @@ def parse_decision(raw_actions: Sequence[Mapping[str, Any]] | None, *, race: str
     assert raw_actions is not None
     raw_dicts: List[dict[str, Any]] = [dict(item) for item in raw_actions]
     game_actions = tuple(parse_game_action(entry, race=race) for entry in normalized[:-1])
-    wait = parse_wait_action(normalized[-1], race=race)
-    return DecisionBatch(actions=game_actions, wait=wait, raw=tuple(raw_dicts),
+    advance = parse_advance_action(normalized[-1], race=race)
+    return DecisionBatch(actions=game_actions, advance=advance, raw=tuple(raw_dicts),
                          normalizations=tuple(normalizations))
 
 
@@ -418,7 +372,7 @@ def attach_retry_ids(
     batch: DecisionBatch,
     retry_ids: Sequence[Optional[str]] | None,
 ) -> DecisionBatch:
-    """Attach harness-owned retry ids to parsed game actions (not the trailing wait)."""
+    """Attach harness-owned retry ids to parsed game actions (not the trailing advance)."""
     if not retry_ids:
         return batch
     if len(retry_ids) != len(batch.actions):
@@ -444,7 +398,7 @@ def attach_retry_ids(
                 group=action.group,
             )
         )
-    return DecisionBatch(actions=tuple(attached), wait=batch.wait, raw=batch.raw,
+    return DecisionBatch(actions=tuple(attached), advance=batch.advance, raw=batch.raw,
                          normalizations=batch.normalizations)
 
 
@@ -460,7 +414,7 @@ def parse_action(raw: Mapping[str, Any] | GameAction, *, race: str = "terran") -
 
 
 def parse_actions(raw_actions: Sequence[Mapping[str, Any] | GameAction] | None, *, race: str = "terran") -> List[GameAction]:
-    """Parse game actions only (no wait). Prefer parse_decision for Agent input."""
+    """Parse game actions only (no trailing advance). Prefer parse_decision for Agent input."""
     _validate_race(race)
     if raw_actions is None:
         return []

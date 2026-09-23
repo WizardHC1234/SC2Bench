@@ -187,14 +187,14 @@ TERRAN_TARGETS: Tuple[TargetSpec, ...] = (
     ),
     _building(
         "barracks",
-        description="Build one Barracks.",
+        description="Produces Terran infantry and can host one Tech Lab or Reactor.",
         minerals=150,
         seconds=46,
         prerequisites=("supply_depot",),
     ),
     _building(
         "factory",
-        description="Build one Factory.",
+        description="Produces Terran vehicles and can host one Tech Lab or Reactor.",
         minerals=150,
         vespene=100,
         seconds=43,
@@ -202,7 +202,7 @@ TERRAN_TARGETS: Tuple[TargetSpec, ...] = (
     ),
     _building(
         "starport",
-        description="Build one Starport.",
+        description="Produces Terran air and flying support units and can host one Tech Lab or Reactor.",
         minerals=150,
         vespene=100,
         seconds=36,
@@ -210,14 +210,14 @@ TERRAN_TARGETS: Tuple[TargetSpec, ...] = (
     ),
     _building(
         "engineering_bay",
-        description="Build one Engineering Bay.",
+        description="Unlocks infantry upgrades, Missile Turrets, Sensor Towers and the Planetary Fortress morph.",
         minerals=125,
         seconds=25,
         prerequisites=("command_center",),
     ),
     _building(
         "armory",
-        description="Build one Armory.",
+        description="Unlocks Hellbats, Thors, vehicle/ship upgrades and higher infantry upgrade levels.",
         minerals=150,
         vespene=50,
         seconds=46,
@@ -225,20 +225,20 @@ TERRAN_TARGETS: Tuple[TargetSpec, ...] = (
     ),
     _building(
         "refinery",
-        description="Build one Refinery on a legal vespene geyser. This platform currently also requires an owned ready townhall; that is a platform restriction, not a game tech prerequisite.",
+        description="Provides vespene mining capacity on a legal geyser; worker assignment is automatic. This platform also requires an owned ready townhall, which is a platform restriction rather than a game tech prerequisite.",
         minerals=75,
         seconds=21,
         prerequisites=("command_center",),
     ),
     _building(
         "command_center",
-        description="Expand by building one Command Center at a legal site chosen by Sharpy.",
+        description="Expands to a legal resource site chosen by Sharpy, adds mining capacity, trains SCVs and can morph into an Orbital Command or Planetary Fortress.",
         minerals=400,
         seconds=71,
     ),
     _addon(
         "barracks_techlab",
-        description="Add a Tech Lab to a Barracks.",
+        description="Attaches to one Barracks and unlocks its advanced units and research; it does not add a second production slot.",
         minerals=50,
         vespene=25,
         seconds=18,
@@ -246,7 +246,7 @@ TERRAN_TARGETS: Tuple[TargetSpec, ...] = (
     ),
     _addon(
         "barracks_reactor",
-        description="Add a Reactor to a Barracks.",
+        description="Attaches to one Barracks and permits two simultaneous compatible non-Tech-Lab unit queues.",
         minerals=50,
         vespene=50,
         seconds=36,
@@ -254,7 +254,7 @@ TERRAN_TARGETS: Tuple[TargetSpec, ...] = (
     ),
     _addon(
         "factory_techlab",
-        description="Add a Tech Lab to a Factory.",
+        description="Attaches to one Factory and unlocks its advanced units and research; it does not add a second production slot.",
         minerals=50,
         vespene=25,
         seconds=18,
@@ -262,7 +262,7 @@ TERRAN_TARGETS: Tuple[TargetSpec, ...] = (
     ),
     _addon(
         "factory_reactor",
-        description="Add a Reactor to a Factory.",
+        description="Attaches to one Factory and permits two simultaneous compatible non-Tech-Lab unit queues.",
         minerals=50,
         vespene=50,
         seconds=36,
@@ -270,7 +270,7 @@ TERRAN_TARGETS: Tuple[TargetSpec, ...] = (
     ),
     _addon(
         "starport_techlab",
-        description="Add a Tech Lab to a Starport.",
+        description="Attaches to one Starport and unlocks its advanced units and research; it does not add a second production slot.",
         minerals=50,
         vespene=25,
         seconds=18,
@@ -278,7 +278,7 @@ TERRAN_TARGETS: Tuple[TargetSpec, ...] = (
     ),
     _addon(
         "starport_reactor",
-        description="Add a Reactor to a Starport.",
+        description="Attaches to one Starport and permits two simultaneous compatible non-Tech-Lab unit queues.",
         minerals=50,
         vespene=50,
         seconds=36,
@@ -286,7 +286,7 @@ TERRAN_TARGETS: Tuple[TargetSpec, ...] = (
     ),
     _unit(
         "scv",
-        description="Train SCVs from a Command Center / Orbital / Planetary.",
+        description="Worker. Gathers resources, constructs Terran buildings and repairs mechanical units and structures; not army-dispatchable.",
         minerals=50,
         seconds=12,
         supply=1,
@@ -295,7 +295,7 @@ TERRAN_TARGETS: Tuple[TargetSpec, ...] = (
     ),
     _unit(
         "marine",
-        description="Train Marines from Barracks.",
+        description="General-purpose infantry. Attacks ground and air; Stimpack and Combat Shield improve combat performance after research.",
         minerals=50,
         seconds=18,
         supply=1,
@@ -303,7 +303,7 @@ TERRAN_TARGETS: Tuple[TargetSpec, ...] = (
     ),
     _unit(
         "marauder",
-        description="Train Marauders from Barracks with a Tech Lab.",
+        description="Armored infantry. Attacks ground with bonus damage against armored targets; Concussive Shells can slow targets after research.",
         minerals=100,
         vespene=25,
         seconds=21,
@@ -313,7 +313,7 @@ TERRAN_TARGETS: Tuple[TargetSpec, ...] = (
     ),
     _unit(
         "siege_tank",
-        description="Train Siege Tanks from Factory with a Tech Lab.",
+        description="Armored ground artillery. Tank mode is mobile; siege mode has long-range ground splash but cannot move. Mode is backend-controlled.",
         minerals=150,
         vespene=125,
         seconds=32,
@@ -323,7 +323,7 @@ TERRAN_TARGETS: Tuple[TargetSpec, ...] = (
     ),
     _unit(
         "medivac",
-        description="Train Medivacs from Starport.",
+        description="Flying support with no weapon. Heals biological units and transports infantry; healing and transport are backend-controlled.",
         minerals=100,
         vespene=100,
         seconds=30,
@@ -332,7 +332,7 @@ TERRAN_TARGETS: Tuple[TargetSpec, ...] = (
     ),
     _unit(
         "banshee",
-        description="Train Banshees from Starport with a Tech Lab.",
+        description="Flying tactical aircraft that attacks ground only. Can cloak after Cloaking Field research; cloak use is backend-controlled.",
         minerals=150,
         vespene=100,
         seconds=43,
@@ -342,7 +342,7 @@ TERRAN_TARGETS: Tuple[TargetSpec, ...] = (
     ),
     _research(
         "stimpack",
-        description="Research Stimpack at Barracks Tech Lab.",
+        description="Enables backend-controlled Stimpack for Marines and Marauders, temporarily increasing movement and attack speed at a health cost.",
         minerals=100,
         vespene=100,
         seconds=100,
@@ -350,7 +350,7 @@ TERRAN_TARGETS: Tuple[TargetSpec, ...] = (
     ),
     _research(
         "combat_shield",
-        description="Research Combat Shield at Barracks Tech Lab.",
+        description="Permanently increases Marine health.",
         minerals=100,
         vespene=100,
         seconds=79,
@@ -358,7 +358,7 @@ TERRAN_TARGETS: Tuple[TargetSpec, ...] = (
     ),
     _research(
         "concussive_shells",
-        description="Research Concussive Shells at Barracks Tech Lab.",
+        description="Makes Marauder attacks temporarily slow affected ground targets.",
         minerals=50,
         vespene=50,
         seconds=43,
@@ -366,7 +366,7 @@ TERRAN_TARGETS: Tuple[TargetSpec, ...] = (
     ),
     _research(
         "cloaking_field",
-        description="Research Banshee Cloaking Field at Starport Tech Lab.",
+        description="Enables backend-controlled Banshee cloaking, which consumes Banshee energy and requires enemy detection to reveal.",
         minerals=100,
         vespene=100,
         seconds=79,
@@ -374,7 +374,7 @@ TERRAN_TARGETS: Tuple[TargetSpec, ...] = (
     ),
     _research(
         "infantry_weapons_1",
-        description="Research Infantry Weapons Level 1 at Engineering Bay.",
+        description="Increases attack damage for Terran infantry.",
         minerals=100,
         vespene=100,
         seconds=114,
@@ -382,7 +382,7 @@ TERRAN_TARGETS: Tuple[TargetSpec, ...] = (
     ),
     _research(
         "infantry_armor_1",
-        description="Research Infantry Armor Level 1 at Engineering Bay.",
+        description="Increases armor for Terran infantry.",
         minerals=100,
         vespene=100,
         seconds=114,
@@ -390,7 +390,7 @@ TERRAN_TARGETS: Tuple[TargetSpec, ...] = (
     ),
     _morph(
         "orbital_command",
-        description="Morph a specific Command Center to Orbital Command via upgrade.",
+        description="Morphs a Command Center into a town hall that retains SCV production, generates energy and enables Scanner Sweep and MULE calls.",
         minerals=150,
         seconds=25,
         morph_from="command_center",
@@ -398,7 +398,7 @@ TERRAN_TARGETS: Tuple[TargetSpec, ...] = (
     ),
     _morph(
         "planetary_fortress",
-        description="Morph a specific Command Center to Planetary Fortress via upgrade.",
+        description="Morphs a Command Center into an armored town hall with a ground weapon; it retains SCV production but has no Orbital energy abilities.",
         minerals=150,
         vespene=150,
         seconds=36,
@@ -408,7 +408,7 @@ TERRAN_TARGETS: Tuple[TargetSpec, ...] = (
     _ability(
         "scan",
         action="scan",
-        description="Cast one Scanner Sweep within a stable zone_id: prefer the zone's HeatMap hotspot when available, otherwise its center. Requires one ready Orbital Command with at least 50 energy.",
+        description="Cast one Scanner Sweep for temporary vision and detection in a limited area of a stable zone_id: prefer the zone's HeatMap hotspot when available, otherwise its center. Requires one ready Orbital Command with at least 50 energy.",
         seconds=1,
         energy=50,
         prerequisites=("orbital_command",),
@@ -417,7 +417,7 @@ TERRAN_TARGETS: Tuple[TargetSpec, ...] = (
     _ability(
         "call_mule",
         action="call_mule",
-        description="Call down one MULE at a ready own base not marked under attack; the backend chooses the base with most remaining minerals. Requires one ready Orbital Command with at least 50 energy.",
+        description="Call down one temporary MULE that automatically mines minerals at a ready own base not marked under attack; the backend chooses the base with most remaining minerals. Requires one ready Orbital Command with at least 50 energy.",
         seconds=1,
         energy=50,
         prerequisites=("orbital_command",),
@@ -441,7 +441,7 @@ TERRAN_TARGETS: Tuple[TargetSpec, ...] = (
     _combat(
         "defend",
         description=(
-            "Bind home army and defend a zone with bounded chasing; persists without attack's task-level power retreat. Fails immediately if requested "
+            "Bind home army and hold a zone's defensive point without chasing enemies or attacking structures; persists without attack's task-level power retreat. Fails immediately if requested "
             "counts exceed idle availability. Does not auto-reinforce."
         ),
     ),
@@ -450,34 +450,34 @@ TERRAN_TARGETS: Tuple[TargetSpec, ...] = (
 # Complete multiplayer roster. Hellbat is directly trainable with an Armory;
 # other alternate combat forms are aliases of their trainable base unit.
 TERRAN_TARGETS += (
-    _building("ghost_academy", description="Build one Ghost Academy.", minerals=150, vespene=50, seconds=29, prerequisites=("barracks",)),
-    _building("fusion_core", description="Build one Fusion Core.", minerals=150, vespene=150, seconds=46, prerequisites=("starport",)),
-    _building("bunker", description="Build one Bunker.", minerals=100, seconds=29, prerequisites=("barracks",)),
-    _building("missile_turret", description="Build one Missile Turret.", minerals=100, seconds=18, prerequisites=("engineering_bay",)),
-    _building("sensor_tower", description="Build one Sensor Tower.", minerals=100, vespene=50, seconds=18, prerequisites=("engineering_bay",)),
-    _unit("reaper", description="Train Reapers from Barracks.", minerals=50, vespene=50, supply=1, seconds=32, producer="barracks"),
-    _unit("ghost", description="Train Ghosts from a Barracks with Tech Lab and a ready Ghost Academy.", minerals=150, vespene=125, supply=3, seconds=29, producer="barracks", prerequisites=("barracks_techlab", "ghost_academy")),
-    _unit("hellion", description="Train Hellions from Factory.", minerals=100, supply=2, seconds=21, producer="factory"),
-    _unit("hellbat", description="Train Hellbats directly from Factory with a ready Armory. Hellion/Hellbat forms are reported separately; the backend preserves the requested form.", minerals=100, supply=2, seconds=21, producer="factory", prerequisites=("armory",)),
-    _unit("widow_mine", description="Train Widow Mines from Factory; burrowing is controlled by the backend.", minerals=75, vespene=25, supply=2, seconds=21, producer="factory"),
-    _unit("cyclone", description="Train Cyclones from Factory with a Tech Lab.", minerals=150, vespene=100, supply=3, seconds=32, producer="factory", prerequisites=("factory_techlab",)),
-    _unit("thor", description="Train Thors from Factory with a Tech Lab and a ready Armory.", minerals=300, vespene=200, supply=6, seconds=43, producer="factory", prerequisites=("factory_techlab", "armory")),
-    _unit("viking", description="Train Vikings from Starport; fighter/assault modes share one unit identity and are backend-controlled.", minerals=125, vespene=75, supply=2, seconds=30, producer="starport"),
-    _unit("liberator", description="Train Liberators from Starport; defender mode is backend-controlled.", minerals=150, vespene=125, supply=3, seconds=43, producer="starport"),
-    _unit("raven", description="Train Ravens from Starport with a Tech Lab.", minerals=100, vespene=150, supply=2, seconds=34, producer="starport", prerequisites=("starport_techlab",)),
-    _unit("battlecruiser", description="Train Battlecruisers from Starport with a Tech Lab and a ready Fusion Core.", minerals=400, vespene=300, supply=6, seconds=64, producer="starport", prerequisites=("starport_techlab", "fusion_core")),
-    _research("personal_cloaking", description="Research Ghost Personal Cloaking at Ghost Academy.", minerals=150, vespene=150, seconds=86, researched_at="ghost_academy"),
-    _research("infernal_pre_igniter", description="Research Infernal Pre-Igniter at Factory Tech Lab.", minerals=100, vespene=100, seconds=79, researched_at="factory_techlab"),
-    _research("drilling_claws", description="Research Drilling Claws at Factory Tech Lab with an Armory.", minerals=75, vespene=75, seconds=79, researched_at="factory_techlab", prerequisites=("factory_techlab", "armory")),
-    _research("mag_field_accelerator", description="Research Cyclone Mag-Field Accelerator at Factory Tech Lab.", minerals=100, vespene=100, seconds=100, researched_at="factory_techlab"),
-    _research("smart_servos", description="Research Smart Servos at Factory Tech Lab with an Armory.", minerals=100, vespene=100, seconds=79, researched_at="factory_techlab", prerequisites=("factory_techlab", "armory")),
-    _research("hyperflight_rotors", description="Research Banshee Hyperflight Rotors at Starport Tech Lab.", minerals=125, vespene=125, seconds=79, researched_at="starport_techlab"),
-    _research("yamato_cannon", description="Research Battlecruiser Weapon Refit (Yamato Cannon) at Fusion Core.", minerals=150, vespene=150, seconds=100, researched_at="fusion_core"),
-    _research("advanced_ballistics", description="Research Liberator Advanced Ballistics at Fusion Core.", minerals=150, vespene=150, seconds=79, researched_at="fusion_core"),
-    _research("caduceus_reactor", description="Research Medivac Caduceus Reactor at Fusion Core.", minerals=100, vespene=100, seconds=50, researched_at="fusion_core"),
-    _research("interference_matrix", description="Research Raven Interference Matrix at Starport Tech Lab.", minerals=50, vespene=50, seconds=57, researched_at="starport_techlab"),
-    _research("hi_sec_auto_tracking", description="Research building weapon range at Engineering Bay.", minerals=100, vespene=100, seconds=57, researched_at="engineering_bay"),
-    _research("neosteel_armor", description="Research Neosteel Armor at Engineering Bay.", minerals=150, vespene=150, seconds=100, researched_at="engineering_bay"),
+    _building("ghost_academy", description="Unlocks Ghost production and Ghost cloak research; nuclear strike is not exposed by this platform.", minerals=150, vespene=50, seconds=29, prerequisites=("barracks",)),
+    _building("fusion_core", description="Unlocks Battlecruiser production and advanced Battlecruiser, Liberator and Medivac research.", minerals=150, vespene=150, seconds=46, prerequisites=("starport",)),
+    _building("bunker", description="Defensive garrison. The backend loads free home Marines into a completed bunker; there is no load or unload action.", minerals=100, seconds=29, prerequisites=("barracks",)),
+    _building("missile_turret", description="Static anti-air weapon and detector for cloaked or burrowed enemies; cannot attack ground.", minerals=100, seconds=18, prerequisites=("engineering_bay",)),
+    _building("sensor_tower", description="Shows enemy movement in its in-game sensor radius through fog, but has no weapon and is not a detector; SC2Bench does not expose sensor contacts in Observation.", minerals=100, vespene=50, seconds=18, prerequisites=("engineering_bay",)),
+    _unit("reaper", description="Fast ground raider that attacks ground and is effective against light targets.", minerals=50, vespene=50, supply=1, seconds=32, producer="barracks"),
+    _unit("ghost", description="Specialist infantry that attacks ground and air. Backend uses cloak, EMP and Steady Targeting when available; nuclear strike is not exposed.", minerals=150, vespene=125, supply=3, seconds=29, producer="barracks", prerequisites=("barracks_techlab", "ghost_academy")),
+    _unit("hellion", description="Fast vehicle with a line ground attack that is effective against light targets.", minerals=100, supply=2, seconds=21, producer="factory"),
+    _unit("hellbat", description="Durable short-range ground flamethrower effective against groups of light units. Trains directly in this form; no manual transform action.", minerals=100, supply=2, seconds=21, producer="factory", prerequisites=("armory",)),
+    _unit("widow_mine", description="Burrowing ambusher that can hit ground or air with splash damage and a cooldown. Burrowing is backend-controlled.", minerals=75, vespene=25, supply=2, seconds=21, producer="factory"),
+    _unit("cyclone", description="Mobile vehicle that attacks ground and air; Lock On is backend-controlled.", minerals=150, vespene=100, supply=3, seconds=32, producer="factory", prerequisites=("factory_techlab",)),
+    _unit("thor", description="Heavy armored vehicle that attacks ground and air; anti-air weapon mode is backend-controlled.", minerals=300, vespene=200, supply=6, seconds=43, producer="factory", prerequisites=("factory_techlab", "armory")),
+    _unit("viking", description="Flying fighter effective against armored air units; fighter and landed assault modes share one identity and are backend-controlled.", minerals=125, vespene=75, supply=2, seconds=30, producer="starport"),
+    _unit("liberator", description="Flying unit that attacks air in mobile mode and ground units in deployed mode. Mode is backend-controlled; deployed fire does not hit structures.", minerals=150, vespene=125, supply=3, seconds=43, producer="starport"),
+    _unit("raven", description="Flying detector and support caster with no basic weapon. Supported abilities are cast by the backend.", minerals=100, vespene=150, supply=2, seconds=34, producer="starport", prerequisites=("starport_techlab",)),
+    _unit("battlecruiser", description="Heavy flying capital ship that attacks ground and air. Yamato Cannon is used by the backend after research.", minerals=400, vespene=300, supply=6, seconds=64, producer="starport", prerequisites=("starport_techlab", "fusion_core")),
+    _research("personal_cloaking", description="Enables backend-controlled Ghost cloaking, which consumes Ghost energy and requires enemy detection to reveal.", minerals=150, vespene=150, seconds=86, researched_at="ghost_academy"),
+    _research("infernal_pre_igniter", description="Increases Hellion and Hellbat damage against light units.", minerals=100, vespene=100, seconds=79, researched_at="factory_techlab"),
+    _research("drilling_claws", description="Makes Widow Mines burrow and unburrow faster; burrowing remains backend-controlled.", minerals=75, vespene=75, seconds=79, researched_at="factory_techlab", prerequisites=("factory_techlab", "armory")),
+    _research("mag_field_accelerator", description="Improves Cyclone Lock On against armored targets; Lock On remains backend-controlled.", minerals=100, vespene=100, seconds=100, researched_at="factory_techlab"),
+    _research("smart_servos", description="Speeds Viking transformation. Hellion and Hellbat stay separate train targets; this platform does not auto-morph them.", minerals=100, vespene=100, seconds=79, researched_at="factory_techlab", prerequisites=("factory_techlab", "armory")),
+    _research("hyperflight_rotors", description="Increases Banshee movement speed.", minerals=125, vespene=125, seconds=79, researched_at="starport_techlab"),
+    _research("yamato_cannon", description="Enables backend-controlled Yamato Cannon for Battlecruisers, a high-damage single-target ability.", minerals=150, vespene=150, seconds=100, researched_at="fusion_core"),
+    _research("advanced_ballistics", description="Increases the attack range of Liberators in deployed anti-ground mode.", minerals=150, vespene=150, seconds=79, researched_at="fusion_core"),
+    _research("caduceus_reactor", description="Improves Medivac energy regeneration for sustained biological-unit healing.", minerals=100, vespene=100, seconds=50, researched_at="fusion_core"),
+    _research("interference_matrix", description="Enables backend-controlled Raven Interference Matrix, which temporarily disables an enemy mechanical or psionic unit.", minerals=50, vespene=50, seconds=57, researched_at="starport_techlab"),
+    _research("hi_sec_auto_tracking", description="Increases the attack range of applicable Terran defensive structures.", minerals=100, vespene=100, seconds=57, researched_at="engineering_bay"),
+    _research("neosteel_armor", description="Increases armor for Terran structures.", minerals=150, vespene=150, seconds=100, researched_at="engineering_bay"),
 )
 
 
@@ -493,7 +493,9 @@ def _weapon_levels(prefix: str, label: str, building: str, *, infantry: bool = F
             if infantry:
                 requirements += ("armory",)
         result.append(_research(
-            f"{prefix}_{level}", description=f"Research {label} Level {level} at {building}.",
+            f"{prefix}_{level}", description=(
+                f"Increases {label.lower()} to level {level} for the affected Terran units."
+            ),
             minerals=cost, vespene=cost, seconds=seconds,
             researched_at=building, prerequisites=requirements,
         ))
@@ -510,10 +512,8 @@ for _prefix, _label, _building_name in (
     TERRAN_TARGETS += _weapon_levels(_prefix, _label, _building_name, infantry=_prefix.startswith("infantry"))
 
 _TARGET_TABLE_LEGEND = (
-    "Costs: minerals/vespene per item; supply is population consumed, not supply capacity provided.",
-    "Times: approximate game seconds per item from start to ready/finished; exclude resource/queue/travel waits and interruptions, not action completion. Multiple producers/Reactor slots run in parallel.",
-    "Prerequisites must be ready/finished. facility is a common prerequisite; rows add to it. none means no extra.",
-    "command_center accepts Orbital/Planetary townhalls. Add-ons need a grounded available parent and legal space.",
+    "M/G, supply and time are per item; time excludes waiting.",
+    "Builder/producer/facility/source is required; extra lists other prerequisites. command_center includes its morphs.",
 )
 
 _TARGET_NOTES = {
@@ -524,10 +524,85 @@ _TARGET_NOTES = {
     ),
 }
 
+_PROMPT_DESCRIPTIONS = {
+    "supply_depot": "Adds 8 supply.",
+    "barracks": "Infantry producer; supports Tech Lab/Reactor.",
+    "factory": "Vehicle producer; supports Tech Lab/Reactor.",
+    "starport": "Air producer; supports Tech Lab/Reactor.",
+    "engineering_bay": "Infantry upgrades and static-defense tech.",
+    "armory": "Advanced vehicle/air tech and upgrades.",
+    "refinery": "Gas mining structure.",
+    "command_center": "Expansion, SCV production and mining capacity.",
+    "barracks_techlab": "Barracks advanced units/research.",
+    "barracks_reactor": "Two parallel eligible Barracks slots.",
+    "factory_techlab": "Factory advanced units/research.",
+    "factory_reactor": "Two parallel eligible Factory slots.",
+    "starport_techlab": "Starport advanced units/research.",
+    "starport_reactor": "Two parallel eligible Starport slots.",
+    "ghost_academy": "Ghost production and cloak research.",
+    "fusion_core": "Battlecruiser and advanced air tech.",
+    "bunker": "Infantry garrison defense.",
+    "missile_turret": "Static anti-air and detector.",
+    "sensor_tower": "Detects movement in fog; no weapon/detection.",
+    "scv": "Worker: mines, builds and repairs.",
+    "marine": "Infantry; attacks ground and air.",
+    "marauder": "Armored infantry; attacks ground only.",
+    "siege_tank": "Ground artillery; automatic siege mode.",
+    "medivac": "Flying healer/transport; no weapon.",
+    "banshee": "Flying ground attacker; cloak after research.",
+    "reaper": "Fast anti-light ground raider.",
+    "ghost": "Infantry caster; attacks ground/air.",
+    "hellion": "Fast line-area ground attacker.",
+    "hellbat": "Durable short-range anti-light unit.",
+    "widow_mine": "Burrowed splash attack against ground/air.",
+    "cyclone": "Mobile ground/air attacker with Lock On.",
+    "thor": "Heavy ground/air vehicle.",
+    "viking": "Anti-air fighter; automatic landed form.",
+    "liberator": "Air attack; deployed mode attacks ground units.",
+    "raven": "Flying detector/support caster; no weapon.",
+    "battlecruiser": "Heavy flying ground/air attacker.",
+    "stimpack": "Marine/Marauder speed and attack-speed ability.",
+    "combat_shield": "Increases Marine health.",
+    "concussive_shells": "Marauder attacks slow ground targets.",
+    "cloaking_field": "Enables Banshee cloak.",
+    "infantry_weapons_1": "Infantry attack level 1.",
+    "infantry_armor_1": "Infantry armor level 1.",
+    "personal_cloaking": "Enables Ghost cloak.",
+    "infernal_pre_igniter": "Hellion/Hellbat bonus vs light.",
+    "drilling_claws": "Faster Widow Mine burrow/unburrow.",
+    "mag_field_accelerator": "Improves Cyclone Lock On vs armored.",
+    "smart_servos": "Faster Viking transformation. Hellion and Hellbat are not auto-morphed.",
+    "hyperflight_rotors": "Increases Banshee speed.",
+    "yamato_cannon": "Enables Battlecruiser Yamato Cannon.",
+    "advanced_ballistics": "Increases deployed Liberator range.",
+    "caduceus_reactor": "Improves Medivac energy regeneration.",
+    "interference_matrix": "Enables Raven Interference Matrix.",
+    "hi_sec_auto_tracking": "Increases defensive-structure range.",
+    "neosteel_armor": "Increases structure armor.",
+    "orbital_command": "Town hall with energy, Scan and MULE.",
+    "planetary_fortress": "Armored town hall with ground weapon.",
+    "scan": "Temporary local vision and detection.",
+    "call_mule": "Temporary mineral-gathering MULE.",
+    "scout": "SCV route; all sweeps non-own expansions.",
+}
+
+for _prefix, _label in (
+    ("infantry_weapons", "Infantry attack"),
+    ("infantry_armor", "Infantry armor"),
+    ("vehicle_weapons", "Vehicle attack"),
+    ("ship_weapons", "Ship attack"),
+    ("vehicle_ship_armor", "Vehicle/ship armor"),
+):
+    for _level in (1, 2, 3):
+        _PROMPT_DESCRIPTIONS.setdefault(f"{_prefix}_{_level}", f"{_label} level {_level}.")
+
+_PROMPT_DESCRIPTIONS = MappingProxyType(_PROMPT_DESCRIPTIONS)
+
 
 CATALOG = CatalogData(
     race="terran",
     targets=TERRAN_TARGETS,
     table_legend=_TARGET_TABLE_LEGEND,
     target_notes=MappingProxyType(_TARGET_NOTES),
+    prompt_descriptions=_PROMPT_DESCRIPTIONS,
 )

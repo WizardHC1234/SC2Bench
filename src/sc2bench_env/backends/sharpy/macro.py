@@ -17,7 +17,9 @@ def _estimate_cost(task: Dict[str, Any], *, race: str = "terran") -> Dict[str, f
     action = str(task.get("action") or "")
     target = str(task.get("target") or "")
     to = str(task.get("to") or "")
-    key = to if action == "upgrade" else (action if action in {"scan", "call_mule", "scout"} else target)
+    key = to if action == "upgrade" else (
+        action if action in {"scan", "call_mule", "chrono_boost", "inject_larva", "spawn_creep_tumor", "scout"} else target
+    )
     if action == "combat":
         key = str(task.get("style") or "")
     spec = get_target(key, race=race)
@@ -35,7 +37,7 @@ def _catalog_key(task: Dict[str, Any]) -> str:
     action = str(task.get("action") or "")
     if action == "upgrade":
         return str(task.get("to") or "")
-    if action in {"scan", "call_mule", "scout"}:
+    if action in {"scan", "call_mule", "chrono_boost", "inject_larva", "spawn_creep_tumor", "scout"}:
         return action
     if action == "combat":
         return str(task.get("style") or "")
@@ -199,7 +201,7 @@ class ActOngoingMacroTasks(ActBase):
             if task.get("action") == "combat":
                 act.update_order(str(task["style"]), str(task["target"]),
                                  bool(task.get("withdrawing")), int(task.get("command_revision", 0)))
-            if task.get("action") in {"scan", "call_mule"}:
+            if task.get("action") in {"scan", "call_mule", "chrono_boost", "inject_larva", "spawn_creep_tumor"}:
                 if getattr(act, "_done", False):
                     # Keep the acknowledged one-shot visible until TaskManager
                     # collects it, even if its cast left the Orbital below 50.

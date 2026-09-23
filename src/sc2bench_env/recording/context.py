@@ -9,8 +9,9 @@ from sc2bench_env.interface.platform_rules import DECISION_REQUEST
 
 def platform_messages(
     prompt: str, observation: Dict[str, Any], feedback: Optional[Dict[str, Any]] = None,
+    previous: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, str]]:
-    user = "[Current Observation]\n" + observation_text(observation)
+    user = "[Current Observation]\n" + observation_text(observation, previous=previous)
     if feedback is not None:
         user += "\n\n[Previous Feedback]\n" + render_feedback_text(
             feedback, shown_events=observation.get("recent_events", []))

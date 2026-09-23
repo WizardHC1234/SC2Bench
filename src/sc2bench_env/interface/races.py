@@ -4,7 +4,7 @@ Configuring an enemy race does not enable that race for our own production.
 Add an own race only after its catalog, executor and observations are connected.
 """
 
-SUPPORTED_OWN_RACES = ("terran",)
+SUPPORTED_OWN_RACES = ("terran", "protoss", "zerg")
 ENEMY_RACES = ("terran", "protoss", "zerg", "random")
 
 

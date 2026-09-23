@@ -17,7 +17,8 @@ class PlanZoneDefenseSafe(PlanZoneDefense):
 
     def _mission_reserved_tags(self) -> set:
         return (set(getattr(self.ai, "bench_combat_tags", None) or ())
-                | set(getattr(self.ai, "bench_group0_tags", None) or ()))
+                | set(getattr(self.ai, "bench_group0_tags", None) or ())
+                | set(getattr(self.ai, "bench_bunker_tags", None) or ()))
 
     def _pick_local_scout_hunters(
         self,

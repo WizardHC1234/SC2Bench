@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import json
-import hashlib
 import os
 import platform
+import sys
+import threading
 import time
 import math
 import re
@@ -17,8 +18,94 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-TRAJECTORY_SCHEMA_VERSION = "0.5"
+TRAJECTORY_SCHEMA_VERSION = "0.6"
 _UNSET = object()
+_CONSOLE_GUARD = threading.Lock()
+_CONSOLE_SINKS: Dict[int, Dict[str, Any]] = {}
+_ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
+
+
+def _plain_console_text(data: Any) -> str:
+    text = data if isinstance(data, str) else str(data)
+    return _ANSI_ESCAPE.sub("", text)
+
+
+def _attach_console_log(stream: Any, handle: Any) -> None:
+    """Copy later writes on this stream into handle. The original stream still receives them."""
+    with _CONSOLE_GUARD:
+        sink = _CONSOLE_SINKS.get(id(stream))
+        if sink is None:
+            original = stream.write
+            handles: List[Any] = []
+
+            def write(data: Any, _original: Any = original, _handles: List[Any] = handles) -> Any:
+                result = _original(data)
+                text = _plain_console_text(data)
+                with _CONSOLE_GUARD:
+                    targets = list(_handles)
+                for target in targets:
+                    try:
+                        target.write(text)
+                        target.flush()
+                    except Exception:
+                        continue
+                return result
+
+            stream.write = write
+            sink = {"original": original, "write": write, "handles": handles}
+            _CONSOLE_SINKS[id(stream)] = sink
+        sink["handles"].append(handle)
+
+
+def _detach_console_log(stream: Any, handle: Any) -> None:
+    with _CONSOLE_GUARD:
+        sink = _CONSOLE_SINKS.get(id(stream))
+        if sink is None:
+            return
+        handles: List[Any] = sink["handles"]
+        if handle in handles:
+            handles.remove(handle)
+        if handles or stream.write is not sink["write"]:
+            if not handles:
+                _CONSOLE_SINKS.pop(id(stream), None)
+            return
+        stream.write = sink["original"]
+        _CONSOLE_SINKS.pop(id(stream), None)
+
+
+class _ConsoleLog:
+    """Episode copy of text written to the process console."""
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        self._handle: Any = None
+        self._streams: List[Any] = []
+
+    def start(self) -> None:
+        if self._handle is not None:
+            return
+        self._handle = self.path.open("a", encoding="utf-8", newline="")
+        streams: List[Any] = []
+        for stream in (sys.stdout, sys.stderr, sys.__stdout__, sys.__stderr__):
+            if stream is None or stream in streams or not hasattr(stream, "write"):
+                continue
+            streams.append(stream)
+            _attach_console_log(stream, self._handle)
+        self._streams = streams
+
+    def stop(self) -> None:
+        handle = self._handle
+        if handle is None:
+            return
+        self._handle = None
+        for stream in self._streams:
+            _detach_console_log(stream, handle)
+        self._streams = []
+        try:
+            handle.flush()
+            handle.close()
+        except Exception:
+            return
 
 
 def _utc_now() -> str:
@@ -34,8 +121,6 @@ def _episode_folder_name(config: Mapping[str, Any]) -> str:
         races.get(str(config.get("enemy_race", "")).lower(), "X"),
     )
     opponent = str(config.get("opponent", "opponent"))
-    if opponent.startswith("builtin_"):
-        opponent = opponent[len("builtin_"):]
     def safe_part(value: str) -> str:
         return re.sub(r"[^A-Za-z0-9_-]+", "_", value).strip("_-")[:40] or "unknown"
     return "_".join((stamp, matchup, safe_part(opponent),
@@ -87,17 +172,22 @@ class TrajectoryRecorder:
     _game_time: float = 0.0
     _decision_count: int = 0
     _rejected_count: int = 0
-    _interactions: List[Dict[str, Any]] = field(default_factory=list)
-    _system_messages: Dict[str, str] = field(default_factory=dict)
+    _model: Optional[str] = None
+    _session_messages: List[Any] = field(default_factory=list)
+    _session_tools: Optional[List[Any]] = None
     _episode_text: str = ""
+    _console_log: Optional[_ConsoleLog] = None
 
-    def start(self, root: str | Path, *, prompt: str, backend: str) -> Path:
+    def start(
+        self, root: str | Path, *, prompt: str, backend: str,
+        folder_name: Optional[str] = None,
+    ) -> Path:
         """Create an exclusive episode directory before starting the backend."""
         if self.directory is not None:
             raise RuntimeError("Recorder already started")
         root = Path(root).resolve()
         root.mkdir(parents=True, exist_ok=True)
-        name = _episode_folder_name(self.config)
+        name = folder_name or _episode_folder_name(self.config)
         suffix = 1
         while True:
             directory = root / (name if suffix == 1 else f"{name}_{suffix}")
@@ -117,6 +207,7 @@ class TrajectoryRecorder:
                 "config": self.config,
                 "versions": _versions(),
                 "timestamp_timezone": "UTC",
+                "platform_prompt_char_count": len(prompt),
             }
         self._episode_text = (
             "SC2Bench episode\n\n"
@@ -124,69 +215,53 @@ class TrajectoryRecorder:
             + json.dumps(_json_safe(metadata_payload), ensure_ascii=False, indent=2)
             + "\n\nPlatform prompt\n" + prompt + "\n"
         )
-        prompt_digest = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
-        self._system_messages[prompt_digest] = prompt
         self._write_atomic_text(self.directory / "episode.txt", self._episode_text + "\nStatus: in progress\n")
-        (self.directory / "interactions.jsonl").touch(exist_ok=False)
-        self._append({"type": "episode_start", **metadata_payload,
-                      "platform_prompt_char_count": len(prompt),
-                      "platform_prompt_sha256": prompt_digest},
-                     keep_in_memory=False)
+        self._write_session()
+        self._console_log = _ConsoleLog(self.directory / "log.txt")
+        self._console_log.start()
         return self.directory
 
-    def _record_interaction(
-        self, *, step_index: Optional[int], recorded_at: str, submitted_decision: Any,
-        agent_context: Optional[Dict[str, Any]],
-    ) -> Dict[str, Any]:
-        supplied = agent_context or {}
-        interaction = {
-            "step_index": step_index,
-            "recorded_at": recorded_at,
-            "input": {
-                "source": "agent" if "messages" in supplied else "not_supplied",
-                "messages": supplied.get("messages"),
-            },
-            "output": {
-                "assistant_content": supplied.get("assistant_content"),
-                "submitted_decision": submitted_decision,
-            },
-        }
-        if "text_observation" in supplied:
-            interaction["input"]["text_observation"] = supplied["text_observation"]
-        if "messages_transcript" in supplied:
-            interaction["messages_transcript"] = supplied["messages_transcript"]
-        # Keep usage/model/other harness metadata once, without recopying messages/output.
-        extra = {
-            key: value for key, value in supplied.items()
-            if key not in {"messages", "assistant_content", "text_observation", "messages_transcript"}
-        }
-        if extra:
-            interaction["metadata"] = extra
-        frozen = deepcopy(_json_safe(interaction))
-        self._interactions.append(frozen)
-        return frozen
+    def stop_console_log(self) -> None:
+        log = self._console_log
+        if log is not None:
+            log.stop()
 
-    def _compact_interaction(self, interaction: Dict[str, Any]) -> Dict[str, Any]:
-        """Store exact repeated system content once; keep per-call message order."""
-        compact = deepcopy(interaction)
-        for messages in (compact.get("input", {}).get("messages"),
-                         compact.get("messages_transcript")):
-            if not isinstance(messages, list):
-                continue
-            for message in messages:
-                if not isinstance(message, dict) or message.get("role") != "system":
-                    continue
-                content = message.get("content")
-                if not isinstance(content, str):
-                    continue
-                digest = hashlib.sha256(content.encode("utf-8")).hexdigest()
-                if digest not in self._system_messages:
-                    self._system_messages[digest] = content
-                    self._append({"type": "system_message", "id": digest, "content": content},
-                                 keep_in_memory=False)
-                message.pop("content")
-                message["content_ref"] = digest
-        return compact
+    def __del__(self) -> None:
+        try:
+            self.stop_console_log()
+        except Exception:
+            return
+
+    def _public_result(self) -> Optional[str]:
+        result = self.result
+        if not isinstance(result, str):
+            return None
+        return result.split(".", 1)[1] if result.startswith("Result.") else result
+
+    def _remember_session(self, agent_context: Optional[Dict[str, Any]]) -> None:
+        """Keep one session: the latest full message list the agent supplied."""
+        supplied = agent_context or {}
+        messages = supplied.get("messages") if "messages" in supplied else None
+        if isinstance(messages, list):
+            self._session_messages = deepcopy(_json_safe(messages))
+        tools = supplied.get("tools") if "tools" in supplied else None
+        if isinstance(tools, list):
+            self._session_tools = deepcopy(_json_safe(tools))
+        model = supplied.get("model")
+        if isinstance(model, str) and model:
+            self._model = model
+        self._write_session()
+
+    def _write_session(self) -> None:
+        if self.directory is None:
+            return
+        self._write_atomic(self.directory / "session.json", {
+            "episode_id": self.episode_id,
+            "model": self._model,
+            "result": self._public_result(),
+            "tools": self._session_tools,
+            "messages": self._session_messages,
+        })
 
     def record_agent_call_failure(self, agent_context: Dict[str, Any], *, game_time: float) -> None:
         """A failed external call is not a submitted/invalid environment decision."""
@@ -194,18 +269,8 @@ class TrajectoryRecorder:
             raise RuntimeError("Episode ended")
         recorded_at = _utc_now()
         self._game_time = float(game_time)
-        interaction = self._record_interaction(step_index=None, recorded_at=recorded_at,
-                                               submitted_decision=None, agent_context=agent_context)
-        interaction["type"] = "agent_call_failure"
+        self._remember_session(agent_context)
         self._append({
-            "type": "agent_call_failure", "recorded_at": recorded_at,
-            "step_index": None, "next_decision_index": self._decision_count + 1,
-            "game_time_seconds": self._game_time,
-            "error_type": agent_context.get("api_error_type", "unknown"),
-            "http_status": agent_context.get("api_http_status"),
-            "attempt": agent_context.get("api_attempt"),
-            "agent_interaction": self._compact_interaction(interaction),
-        }, memory_entry={
             "type": "agent_call_failure", "recorded_at": recorded_at,
             "step_index": None, "next_decision_index": self._decision_count + 1,
             "game_time_seconds": self._game_time,
@@ -240,21 +305,10 @@ class TrajectoryRecorder:
                     raise
                 time.sleep(0.02 * (2 ** attempt))
 
-    def _append(self, entry: Dict[str, Any], *, keep_in_memory: bool = True,
-                memory_entry: Optional[Dict[str, Any]] = None) -> None:
+    def _append(self, entry: Dict[str, Any]) -> None:
         if self.summary is not None:
             raise RuntimeError("Cannot append to a finalized trajectory")
-        line = json.dumps(_json_safe(entry), ensure_ascii=False, separators=(",", ":"), allow_nan=False)
-        if self.directory is not None:
-            with (self.directory / "interactions.jsonl").open("a", encoding="utf-8") as stream:
-                stream.write(line + "\n")
-                stream.flush()
-                os.fsync(stream.fileno())
-        if keep_in_memory:
-            # Preserve the public in-memory trajectory shape, without duplicating
-            # full agent inputs in this second copy.
-            self.steps.append(json.loads(json.dumps(_json_safe(
-                entry if memory_entry is None else memory_entry), ensure_ascii=False)))
+        self.steps.append(json.loads(json.dumps(_json_safe(entry), ensure_ascii=False)))
 
     def record_reset(self, observation: Dict[str, Any]) -> None:
         self._game_time = float((observation.get("game") or {}).get("game_time_seconds", 0))
@@ -306,13 +360,8 @@ class TrajectoryRecorder:
                 "terminated": terminated,
                 "info": info,
             }
-        interaction = self._record_interaction(
-            step_index=self._decision_count, recorded_at=recorded_at,
-            submitted_decision=submitted, agent_context=agent_context,
-        )
-        self._append({**trajectory_entry,
-                      "agent_interaction": self._compact_interaction(interaction)},
-                     memory_entry=trajectory_entry)
+        self._remember_session(agent_context)
+        self._append(trajectory_entry)
 
     def record_error(
         self, error: BaseException, *, phase: str, submitted_decision: Any = None,
@@ -330,15 +379,8 @@ class TrajectoryRecorder:
             "error": {"type": type(error).__name__, "message": str(error)},
         }
         if phase == "step":
-            interaction = self._record_interaction(
-                step_index=self._decision_count, recorded_at=recorded_at,
-                submitted_decision=submitted_decision, agent_context=agent_context,
-            )
-            self._append({**error_entry,
-                          "agent_interaction": self._compact_interaction(interaction)},
-                         memory_entry=error_entry)
-        else:
-            self._append(error_entry)
+            self._remember_session(agent_context)
+        self._append(error_entry)
 
     def finalize(
         self, result: Optional[str] = None, *, status: str = "completed",
@@ -378,6 +420,7 @@ class TrajectoryRecorder:
                 self._episode_text + "\nResult\n"
                 + json.dumps(_json_safe(summary), ensure_ascii=False, indent=2) + "\n",
             )
+            self._write_session()
         self.summary = summary
         return self.to_dict()
 
@@ -390,8 +433,3 @@ class TrajectoryRecorder:
             "result": self.result,
             "summary": deepcopy(self.summary),
         }
-
-    def write_json(self, path: str | Path) -> None:
-        target = Path(path)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        self._write_atomic(target, self.to_dict())

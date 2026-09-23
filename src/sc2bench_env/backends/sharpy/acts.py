@@ -6,6 +6,7 @@ from math import isfinite
 from typing import Dict, List, Mapping, Optional, Sequence
 
 from sc2.ids.ability_id import AbilityId
+from sc2.ids.buff_id import BuffId
 from sc2.ids.unit_typeid import UnitTypeId
 from sc2.position import Point2
 from sharpy.plans.acts import ActBase
@@ -15,6 +16,9 @@ from sc2bench_env.interface.scouting import ScoutRoute, order_expansions
 
 _MULE_ENERGY = float(get_target("call_mule", race="terran").energy)
 _SCAN_ENERGY = float(get_target("scan", race="terran").energy)
+_CHRONO_ENERGY = float(get_target("chrono_boost", race="protoss").energy)
+_INJECT_ENERGY = float(get_target("inject_larva", race="zerg").energy)
+_TUMOR_ENERGY = float(get_target("spawn_creep_tumor", race="zerg").energy)
 
 
 def available_orbitals(ai, energy: float = 0):
@@ -39,6 +43,16 @@ _UPGRADE_SPECS = {
         UnitTypeId.COMMANDCENTER,
         AbilityId.UPGRADETOPLANETARYFORTRESS_PLANETARYFORTRESS,
         UnitTypeId.PLANETARYFORTRESS,
+    ),
+    "lair": (
+        UnitTypeId.HATCHERY,
+        AbilityId.UPGRADETOLAIR_LAIR,
+        UnitTypeId.LAIR,
+    ),
+    "hive": (
+        UnitTypeId.LAIR,
+        AbilityId.UPGRADETOHIVE_HIVE,
+        UnitTypeId.HIVE,
     ),
 }
 
@@ -143,7 +157,8 @@ class ActMorphTownhall(ActBase):
             self._done = True
             return True
         if unit.type_id != from_type:
-            self.failure_reason = f"not_command_center:{self.structure_id}"
+            label = "not_command_center" if from_type == UnitTypeId.COMMANDCENTER else "wrong_structure"
+            self.failure_reason = f"{label}:{self.structure_id}"
             return True
         if not unit.is_ready:
             return False
@@ -155,6 +170,10 @@ class ActMorphTownhall(ActBase):
             self.to == "planetary_fortress"
             and self.ai.structures(UnitTypeId.ENGINEERINGBAY).ready.amount <= 0
         ):
+            return False
+        if self.to == "lair" and self.ai.structures(UnitTypeId.SPAWNINGPOOL).ready.amount <= 0:
+            return False
+        if self.to == "hive" and self.ai.structures(UnitTypeId.INFESTATIONPIT).ready.amount <= 0:
             return False
 
         unit(ability)
@@ -212,6 +231,147 @@ class ActCallMule(ActBase):
                 best_score = remaining
                 best = fields.random
         return best
+
+
+def _has_buff(unit, buff) -> bool:
+    return buff in (getattr(unit, "buffs", ()) or ())
+
+
+class ActChrono(ActBase):
+    """Spend one Nexus Chrono Boost on a structure the backend chooses."""
+
+    def __init__(self):
+        super().__init__()
+        self._done = False
+        self.failure_reason: Optional[str] = None
+
+    async def execute(self) -> bool:
+        if self._done or self.failure_reason:
+            return True
+        used = getattr(self.ai, "unit_tags_received_action", set())
+        nexuses = [
+            nexus for nexus in self.ai.structures(UnitTypeId.NEXUS).ready
+            if nexus.tag not in used and float(getattr(nexus, "energy", 0) or 0) >= _CHRONO_ENERGY
+        ]
+        if not nexuses:
+            return False
+        target = self._target()
+        if target is None:
+            self.failure_reason = "no_chrono_target"
+            return True
+        caster = min(nexuses, key=lambda nexus: nexus.distance_to(target))
+        if caster(AbilityId.EFFECT_CHRONOBOOSTENERGYCOST, target):
+            self._done = True
+            return True
+        return False
+
+    def _target(self):
+        skipped = {UnitTypeId.PYLON, UnitTypeId.ASSIMILATOR}
+        open_targets = []
+        for structure in self.ai.structures.ready:
+            if structure.type_id in skipped or _has_buff(structure, BuffId.CHRONOBOOSTENERGYCOST):
+                continue
+            open_targets.append(structure)
+        if not open_targets:
+            return None
+        working = [structure for structure in open_targets if getattr(structure, "orders", None)]
+        pool = working or open_targets
+        producing = [structure for structure in pool if structure.type_id != UnitTypeId.NEXUS]
+        return (producing or pool)[0]
+
+
+class ActInject(ActBase):
+    """Spend one Queen inject on a town hall that does not already have larva incoming."""
+
+    def __init__(self):
+        super().__init__()
+        self._done = False
+        self.failure_reason: Optional[str] = None
+
+    async def execute(self) -> bool:
+        if self._done or self.failure_reason:
+            return True
+        used = getattr(self.ai, "unit_tags_received_action", set())
+        queens = [
+            queen for queen in self.ai.units(UnitTypeId.QUEEN).ready
+            if queen.tag not in used and float(getattr(queen, "energy", 0) or 0) >= _INJECT_ENERGY
+        ]
+        if not queens:
+            return False
+        halls = [
+            hall for hall in self.ai.townhalls.ready
+            if not _has_buff(hall, BuffId.QUEENSPAWNLARVATIMER)
+        ]
+        if not halls:
+            self.failure_reason = "no_inject_target"
+            return True
+        queen, hall = min(
+            ((queen, hall) for queen in queens for hall in halls),
+            key=lambda pair: pair[0].distance_to(pair[1]),
+        )
+        if queen(AbilityId.EFFECT_INJECTLARVA, hall):
+            self._done = True
+            return True
+        return False
+
+
+class ActSpawnCreepTumor(ActBase):
+    """Plant one creep tumor. A burrowed tumor spreads first; otherwise a Queen does."""
+
+    def __init__(self):
+        super().__init__()
+        self._done = False
+        self.failure_reason: Optional[str] = None
+
+    async def execute(self) -> bool:
+        if self._done or self.failure_reason:
+            return True
+        used = getattr(self.ai, "unit_tags_received_action", set())
+        tumors = [
+            tumor for tumor in self.ai.structures(UnitTypeId.CREEPTUMORBURROWED).ready
+            if tumor.tag not in used
+        ]
+        for tumor in tumors:
+            point = self._ahead(tumor.position, 8)
+            if point is not None and tumor(AbilityId.BUILD_CREEPTUMOR_TUMOR, point):
+                self._done = True
+                return True
+        queens = [
+            queen for queen in self.ai.units(UnitTypeId.QUEEN).ready
+            if queen.tag not in used and float(getattr(queen, "energy", 0) or 0) >= _TUMOR_ENERGY
+        ]
+        if not queens:
+            return False
+        queen = queens[0]
+        point = self._ahead(queen.position, 5)
+        if point is None:
+            self.failure_reason = "no_creep_for_tumor"
+            return True
+        if queen(AbilityId.BUILD_CREEPTUMOR_QUEEN, point):
+            self._done = True
+            return True
+        return False
+
+    def _ahead(self, origin, distance: float):
+        """A creep point toward the enemy, or back on the town hall's creep."""
+        starts = list(getattr(self.ai, "enemy_start_locations", None) or [])
+        goal = starts[0] if starts else origin
+        candidates = [origin.towards(goal, step) for step in (distance, 3, 2)]
+        for hall in getattr(self.ai, "townhalls", ()) or ():
+            center = hall.position
+            candidates.append(center.towards(goal, 4))
+            candidates.append(center.towards(goal, 2))
+        has_creep = getattr(self.ai, "has_creep", None)
+        seen = set()
+        for point in candidates:
+            key = (round(float(point.x), 1), round(float(point.y), 1))
+            if key in seen:
+                continue
+            seen.add(key)
+            if callable(has_creep) and not has_creep(point):
+                continue
+            return point
+        return None
 
 
 class ActScoutRoute(ActBase):
@@ -366,6 +526,8 @@ class ActCombatMission(ActBase):
         self._transport_attempted = False
         self._unload_here = False
         self._withdraw_pickup_started = None
+        self._target_clear_since: Optional[float] = None
+        self._return_reason = "withdrawn"
         self._command_revision = -1
 
     def update_order(self, style: str, zone_id: str, withdrawing: bool, revision: int) -> None:
@@ -382,6 +544,8 @@ class ActCombatMission(ActBase):
         self._load_started_at = None
         self._unload_started_at = None
         self._withdraw_pickup_started = None
+        self._target_clear_since = None
+        self._return_reason = "withdrawn"
         self.transport_activity = "withdrawal" if withdrawing else "support"
         if withdrawing:
             self.phase = "withdrawing"
@@ -456,20 +620,11 @@ class ActCombatMission(ActBase):
         return center
 
     def _defend_target(self, zone_center: Point2, zone) -> Point2:
-        from sc2bench_env.backends.sharpy.combat_styles import defend_engage_target
-
         gather = getattr(zone, "gather_point", None) if zone is not None else None
-        radius = float(getattr(zone, "radius", 15.0) or 15.0) if zone is not None else 15.0
-        enemies = self.ai.enemy_units.closer_than(radius * 2.5, zone_center).filter(
-            lambda enemy: self._is_visible_enemy(enemy)
-        )
-        enemy_pos = None
-        if enemies.exists:
-            enemy_pos = enemies.closest_to(zone_center).position
-        target, _chasing = defend_engage_target(
-            zone_center, radius, enemy_pos, gather or zone_center
-        )
-        return target
+        # Defense holds a stable safe point. Enemy movement must never rewrite
+        # the objective and lure defenders across the map. MoveType.Hold handles
+        # firing at units in range without pursuing them or attacking structures.
+        return gather or zone_center
 
     def _configure_micro_boundary(self, zone) -> None:
         if self._micro_rules is None:
@@ -479,6 +634,7 @@ class ActCombatMission(ActBase):
         )
         self._micro_rules.boundary = None
         self._micro_rules.return_point = None
+        self._micro_rules.hold_position = False
         if self.phase == "withdrawing":
             return
         if self.style == "defend":
@@ -490,6 +646,7 @@ class ActCombatMission(ActBase):
             gather = getattr(zone, "gather_point", None)
             self._micro_rules.return_point = (gather if gather is not None
                                              and gather.distance_to(center) <= leash else center)
+            self._micro_rules.hold_position = True
 
     def _local_power_ratio(self, free_units, around: Point2) -> float:
         from sc2bench_env.backends.sharpy.combat_styles import (
@@ -547,6 +704,7 @@ class ActCombatMission(ActBase):
                 self._below_ratio_since = now
             elif now - self._below_ratio_since >= PROVISIONAL_RETREAT_CONFIRM_SECONDS:
                 self.phase = "withdrawing"
+                self._return_reason = "withdrawn"
                 self._below_ratio_since = None
                 return True
         else:
@@ -559,7 +717,7 @@ class ActCombatMission(ActBase):
         )
         from sharpy.interfaces.combat_manager import MoveType
 
-        home = self.ai.start_location
+        home = self._home_point()
         self.transport_activity = "withdrawal"
         self._configure_micro_boundary(None)
         if all(unit.distance_to(home) <= PROVISIONAL_WITHDRAW_ARRIVAL for unit in free_units):
@@ -572,7 +730,7 @@ class ActCombatMission(ActBase):
                 for medivac in loaded:
                     medivac(AbilityId.UNLOADALLAT_MEDIVAC, medivac.position)
                 return False
-            return self._release("withdrawn")
+            return self._release(self._return_reason)
         # Bounded local pickup: never march back to gather distant troops or
         # delay withdrawal indefinitely. Loaded carriers leave immediately.
         now = float(self.ai.time)
@@ -607,20 +765,64 @@ class ActCombatMission(ActBase):
             self.combat.execute(home, MoveType.DefensiveRetreat, rules)
         return False
 
-    def _unit_type_map(self) -> Dict[str, UnitTypeId]:
-        from sc2bench_env.backends.sharpy.races.terran import UNITS
+    def _home_point(self) -> Point2:
+        gather = getattr(self.ai, "bench_home_gather", None)
+        if gather is not None and callable(getattr(gather, "home_point", None)):
+            point = gather.home_point()
+            if point is not None:
+                return point
+        return self.ai.start_location
 
+    def _target_confirmed_clear(self, free_units, zone, target: Point2) -> bool:
+        """Confirm completion of an attack objective before returning home."""
+        from sc2bench_env.backends.sharpy.combat_styles import TARGET_CLEAR_CONFIRM_SECONDS
+
+        if self.style != "attack" or self.phase != "fight" or zone is None or not free_units.exists:
+            self._target_clear_since = None
+            return False
+        radius = max(_ARRIVAL_RADIUS, float(getattr(zone, "radius", 15.0) or 15.0))
+        positions = [unit.position for unit in free_units]
+        center = Point2((
+            sum(point.x for point in positions) / len(positions),
+            sum(point.y for point in positions) / len(positions),
+        ))
+        if center.distance_to(target) > radius:
+            self._target_clear_since = None
+            return False
+        is_visible = getattr(self.ai, "is_visible", None)
+        if not callable(is_visible) or not is_visible(target):
+            self._target_clear_since = None
+            return False
+        enemies = list(self.ai.enemy_units) + list(self.ai.enemy_structures)
+        if any(self._is_visible_enemy(enemy) and enemy.distance_to(target) <= radius
+               for enemy in enemies):
+            self._target_clear_since = None
+            return False
+        now = float(self.ai.time)
+        if self._target_clear_since is None:
+            self._target_clear_since = now
+            return False
+        return now - self._target_clear_since >= TARGET_CLEAR_CONFIRM_SECONDS
+
+    def _own_adapter(self):
+        adapter = getattr(self.ai, "adapter", None)
+        if adapter is not None and hasattr(adapter, "train_unit_type"):
+            return adapter
+        from sc2bench_env.backends.sharpy.races.terran import TerranAdapter
+
+        return TerranAdapter()
+
+    def _unit_type_map(self) -> Dict[str, UnitTypeId]:
+        adapter = self._own_adapter()
         mapping: Dict[str, UnitTypeId] = {}
         for name in self.units:
-            pair = UNITS.get(name)
-            if pair is not None:
-                mapping[name] = pair[0]
+            unit_type = adapter.train_unit_type(name)
+            if unit_type is not None:
+                mapping[name] = unit_type
         return mapping
 
     def _platform_name(self, unit_type: UnitTypeId) -> Optional[str]:
-        from sc2bench_env.backends.sharpy.races.terran import TerranAdapter
-
-        return TerranAdapter().normalize_unit_name(unit_type.name)
+        return self._own_adapter().normalize_unit_name(unit_type.name)
 
     def _bind_units(self) -> bool:
         from sc2bench_env.backends.sharpy.combat_styles import available_for_mission
@@ -633,8 +835,7 @@ class ActCombatMission(ActBase):
             if unit_type is None:
                 self.failure_reason = f"unsupported_unit:{name}"
                 return False
-            from sc2bench_env.backends.sharpy.races.terran import combat_unit_types
-            types = combat_unit_types(name)
+            types = self._own_adapter().combat_forms(name)
             candidates = []
             for type_id in types:
                 for unit in self.ai.units(type_id).ready:
@@ -806,7 +1007,7 @@ class ActCombatMission(ActBase):
             self.roles.set_tasks(UnitTask.Idle, free)
         for tag in list(self._tags):
             reserved.discard(tag)
-        if reason == "withdrawn":
+        if reason in {"withdrawn", "target_cleared"}:
             getattr(self.ai, "bench_group0_tags", set()).update(unit.tag for unit in free)
         self._tags = []
         self.end_reason = reason
@@ -933,6 +1134,11 @@ class ActCombatMission(ActBase):
             zone_center = zone.center_location
             target = self._defend_target(zone_center, zone)
         self._configure_micro_boundary(zone)
+
+        if self._target_confirmed_clear(free, zone, target):
+            self.phase = "withdrawing"
+            self._return_reason = "target_cleared"
+            return self._run_withdraw(free)
 
         # No style-selected drops. Decide from current owned units and contact.
         # A delayed LOAD result must not leave cargo trapped in heal/escort.

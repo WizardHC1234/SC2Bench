@@ -94,7 +94,8 @@ class MicroCyclone(GenericMicro):
             enemy = next((e for e in enemies if e.tag == lock[0]), None)
             if (enemy is not None and enemy.has_buff(BuffId.LOCKON)
                     and now < lock[1] and enemy.distance_to(unit) <= 15):
-                return Action(enemy.position.towards(unit.position, 7), False)
+                # Keep firing. A plain move cancels Lock On before it deals damage.
+                return Action(enemy, True)
             self.locks.pop(unit.tag, None)
         if unit.tag in self.pending_locks:
             return NoAction()  # Briefly await the engine, never pretend 14s success.
@@ -102,14 +103,30 @@ class MicroCyclone(GenericMicro):
                   and not getattr(e, "is_cloaked", False)]
         air = [e for e in enemies if e.is_flying and e.distance_to(unit) <= 7
                and not getattr(e, "is_cloaked", False)]
-        if ground and self.cd_manager.is_ready(unit.tag, AbilityId.LOCKON_LOCKON):
-            enemy = max(ground, key=lambda e: e.health)
+        # This client has one Lock On ability for ground and air.
+        targets = ground or air
+        if targets and self.cd_manager.is_ready(unit.tag, AbilityId.LOCKON_LOCKON):
+            enemy = max(targets, key=lambda e: e.health)
             self.pending_locks[unit.tag] = (enemy.tag, now + 1)
             return cast(self, unit, AbilityId.LOCKON_LOCKON, enemy)
-        if air and self.cd_manager.is_ready(unit.tag, AbilityId.LOCKONAIR_LOCKONAIR):
-            enemy = max(air, key=lambda e: e.health)
-            self.pending_locks[unit.tag] = (enemy.tag, now + 1)
-            return cast(self, unit, AbilityId.LOCKONAIR_LOCKONAIR, enemy)
+        return super().unit_solve_combat(unit, command)
+
+
+class MicroHellionSafe(GenericMicro):
+    """Hellbats fight; Hellions run. The morph stays unavailable without an Armory."""
+
+    def unit_solve_combat(self, unit, command):
+        hellbat = unit.type_id == UnitTypeId.HELLIONTANK
+        enemies = [enemy for enemy in self.enemies_near_by
+                   if visible_enemy(enemy) and not enemy.is_flying
+                   and not getattr(enemy, "is_structure", False)
+                   and enemy.distance_to(unit) <= 6]
+        if self.move_type in RETREAT or not enemies:
+            if hellbat and self.cd_manager.is_ready(unit.tag, AbilityId.MORPH_HELLION):
+                return cast(self, unit, AbilityId.MORPH_HELLION)
+            return Action(command.position if command.position is not None else self.original_target, False)
+        if not hellbat and self.cd_manager.is_ready(unit.tag, AbilityId.MORPH_HELLBAT):
+            return cast(self, unit, AbilityId.MORPH_HELLBAT)
         return super().unit_solve_combat(unit, command)
 
 
@@ -170,10 +187,11 @@ class MicroBattlecruiserSafe(MicroBattleCruisers):
                   for order in getattr(unit, "orders", [])]
         if any("TACTICALJUMP" in order for order in orders):
             return NoAction()  # Do not overwrite the real teleport wind-up.
+        health = getattr(unit, "health_percentage", 1.0)
+        if (health < 0.3
+                and self.cd_manager.is_ready(unit.tag, AbilityId.EFFECT_TACTICALJUMP)):
+            return cast(self, unit, AbilityId.EFFECT_TACTICALJUMP, self.ai.start_location)
         if self.move_type in RETREAT:
-            if (unit.health_percentage < 0.3
-                    and self.cd_manager.is_ready(unit.tag, AbilityId.EFFECT_TACTICALJUMP)):
-                return cast(self, unit, AbilityId.EFFECT_TACTICALJUMP, self.ai.start_location)
             return Action(command.position if command.position is not None else self.original_target, False)
         if any("YAMATO" in order for order in orders):
             return NoAction()  # Preserve charging; ordinary fire can cancel it.

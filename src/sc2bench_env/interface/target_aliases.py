@@ -39,7 +39,7 @@ def normalize_target_aliases(
     if canonical is None:
         return entry, ()
     entry["target"] = canonical
-    change = {"entry_index": index, "action": action, "field": "target",
+    change = {"entry_index": index, "name": action, "field": "target",
               "original": target, "canonical": canonical}
     if action == "cancel":
         change["target_action"] = verb

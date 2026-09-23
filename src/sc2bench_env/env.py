@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import time
 from pathlib import Path
-from typing import Any, Optional, Sequence, Tuple
+from typing import Any, Mapping, Optional, Sequence, Tuple
 from uuid import uuid4
 
 from sc2bench_env.backends.base import Backend
@@ -21,6 +21,7 @@ from sc2bench_env.interface.actions import (
 from sc2bench_env.interface.config import EpisodeConfig
 from sc2bench_env.interface.races import require_supported_own_race
 from sc2bench_env.interface.race_views import build_race_view
+from sc2bench_env.interface.briefing import available_targets, relevant_zone_ids
 from sc2bench_env.interface.feedback import Feedback
 from sc2bench_env.interface.observations import (
     EconomyView,
@@ -33,7 +34,7 @@ from sc2bench_env.interface.observations import (
 from sc2bench_env.recording.trajectory import TrajectoryRecorder
 from sc2bench_env.paths import resolve_record_dir
 from sc2bench_env.recording.context import platform_messages
-from sc2bench_env.runtime.scheduler import Scheduler, trigger_from_wait
+from sc2bench_env.runtime.scheduler import Scheduler, trigger_from_advance
 from sc2bench_env.runtime.task_manager import TaskManager
 
 logger = logging.getLogger(__name__)
@@ -72,7 +73,13 @@ class Environment:
         self._record_dir = resolve_record_dir(record_dir)
         self._closed = True
         self._last_observation: Optional[dict[str, Any]] = None
+        self._previous_observation: Optional[dict[str, Any]] = None
         self._last_feedback: Optional[dict[str, Any]] = None
+        self.latest_observation: Optional[Observation] = None
+        self.latest_feedback: Optional[Feedback] = None
+        self._pending_release: Optional[dict[str, Any]] = None
+        # Internal Runner hook: index the artifact before slow game startup.
+        self._record_started_callback = None
 
     def get_system_prompt(self) -> str:
         race = "terran"
@@ -90,6 +97,7 @@ class Environment:
         self.close()
         self.recorder = None
         self._last_observation = None
+        self._previous_observation = None
         self._last_feedback = None
         self.config = config
         self.task_manager.reset(race=config.race)
@@ -106,6 +114,8 @@ class Environment:
                     self._record_dir, prompt=self.get_system_prompt(),
                     backend=type(self.backend).__name__,
                 )
+                if self._record_started_callback is not None:
+                    self._record_started_callback(self.record_path)
             self.backend.set_replay_path(
                 self.record_path / "replay.SC2Replay" if self.record_path is not None else None
             )
@@ -116,14 +126,215 @@ class Environment:
         except BaseException as exc:
             self._record_failure(exc, phase="reset")
             raise
-        self._last_observation = observation.to_dict()
+        self._remember_observation(observation, keep_previous=False)
+        self.latest_observation = observation
         return observation
+
+    def open_player(
+        self, episode_config: EpisodeConfig, snapshot, *, folder_name: str,
+    ) -> Observation:
+        """Attach to a game VersusMatch already started. Does not launch a backend."""
+        if not isinstance(episode_config, EpisodeConfig):
+            raise TypeError("open_player requires an EpisodeConfig")
+        require_supported_own_race(episode_config.race)
+        if not self._closed:
+            raise RuntimeError("Environment is already open")
+        self.config = episode_config
+        self.task_manager.reset(race=episode_config.race)
+        self._closed = False
+        self._pending_release = None
+        self.latest_feedback = None
+        self._last_feedback = None
+        self._previous_observation = None
+        recorded = episode_config.to_dict()
+        recorded["opponent"] = "agent"
+        recorded["player_name"] = folder_name
+        if self._record_trajectory:
+            self.recorder = TrajectoryRecorder(episode_id=uuid4().hex, config=recorded)
+            self.recorder.start(
+                self._record_dir, prompt=self.get_system_prompt(),
+                backend="versus", folder_name=folder_name,
+            )
+        observation = self._build_observation(snapshot)
+        if self.recorder is not None:
+            self.recorder.record_reset(observation.to_dict())
+        self._remember_observation(observation, keep_previous=False)
+        self.latest_observation = observation
+        return observation
+
+    def release_decision(
+        self,
+        decision_json: Sequence[dict[str, Any]] | DecisionBatch | None,
+        *,
+        agent_context: Optional[dict[str, Any]] = None,
+    ) -> bool:
+        """Submit one side's decision and let that bot run. Return True if it stayed paused."""
+        if self._closed or self.config is None:
+            raise RuntimeError("Environment is closed; call reset() first")
+        if self._pending_release is not None:
+            raise RuntimeError("This side already has a decision in progress")
+        started = time.perf_counter()
+        submitted = list(decision_json.raw) if isinstance(decision_json, DecisionBatch) else decision_json
+        snapshot = self.backend.snapshot()
+        before = snapshot.game_time_seconds
+        if snapshot.terminated:
+            self._finish_terminal_snapshot(
+                snapshot, submitted=submitted, agent_context=agent_context, started=started, before=before,
+            )
+            return True
+        try:
+            batch = (decision_json if isinstance(decision_json, DecisionBatch)
+                     else parse_decision(decision_json, race=self.config.race))
+        except ActionValidationError as exc:
+            self._record_rejected_decision(
+                exc, snapshot, submitted=submitted, agent_context=agent_context,
+                started=started, before=before,
+            )
+            return True
+        baselines = {
+            action.identity(): snapshot.owned_count(action.action, action.target or "")
+            for action in batch.actions
+            if action.action in {"build", "train", "research", "scan"}
+        }
+        upgrades = set(snapshot.info.get("upgrades") or [])
+        researching_raw = snapshot.info.get("in_progress_research") or []
+        if isinstance(researching_raw, dict):
+            researching = {key for key, value in researching_raw.items() if value}
+        else:
+            researching = set(researching_raw)
+        receipts = self.task_manager.submit_decision(
+            batch, game_time=snapshot.game_time_seconds, baseline_owned=baselines,
+            known_upgrades=upgrades, researching=researching,
+            idle_army=self._idle_army_counts(snapshot),
+            bunker_garrison=snapshot.info.get("bunker_garrison"),
+        )
+        self.backend.submit(self.task_manager.active_demands())
+        trigger = trigger_from_advance(
+            batch.advance, max_game_time_seconds=self.config.game_time_limit_seconds,
+        )
+        self._pending_release = {
+            "started": started, "before": before, "submitted": submitted, "batch": batch,
+            "receipts": receipts, "agent_context": agent_context,
+        }
+        release = getattr(self.backend, "release", None)
+        if not callable(release):
+            raise RuntimeError("This backend cannot release one versus side")
+        release(trigger)
+        return False
+
+    def complete_pending(self) -> Optional[Tuple[Observation, Feedback, bool, dict[str, Any]]]:
+        """Record the observation for a decision whose bot has paused or ended."""
+        pending = self._pending_release
+        if pending is None or self.config is None:
+            return None
+        self._pending_release = None
+        updates = self.backend.collect_updates()
+        snapshot = self.backend.snapshot()
+        self.task_manager.apply_updates(updates, game_time=snapshot.game_time_seconds)
+        observation = self._build_observation(snapshot)
+        batch = pending["batch"]
+        feedback = Feedback(
+            receipts=pending["receipts"],
+            events=list(self.task_manager.recent_events[-8:]),
+            name_normalizations=list(batch.normalizations),
+        )
+        terminated = bool(snapshot.terminated)
+        info = {
+            "result": snapshot.result,
+            "end_reason": self._episode_end_reason(snapshot) if terminated else None,
+            "backend": snapshot.info.get("backend"),
+            "active_demands": len(self.task_manager.active_demands()),
+        }
+        if self.recorder is not None:
+            self.recorder.record_step(
+                actions=action_batch_to_dicts(batch),
+                submitted_decision=pending["submitted"],
+                observation=observation.to_dict(), feedback=feedback.to_dict(),
+                terminated=terminated, info=info,
+                game_time_before_seconds=pending["before"],
+                wall_time_seconds=time.perf_counter() - pending["started"],
+                agent_context=pending["agent_context"],
+            )
+            if terminated:
+                self._record_episode_end(snapshot)
+        self._remember_observation(observation)
+        self._last_feedback = feedback.to_dict()
+        self.latest_observation = observation
+        self.latest_feedback = feedback
+        return observation, feedback, terminated, info
+
+    def _record_rejected_decision(
+        self, exc: ActionValidationError, snapshot, *, submitted, agent_context, started, before,
+    ) -> None:
+        feedback = Feedback(receipts=[], events=[{"type": "decision_rejected", "reason": str(exc)}])
+        observation = self._build_observation(snapshot)
+        info = {
+            "error": str(exc), "backend": snapshot.info.get("backend"),
+            "result": snapshot.result,
+            "end_reason": self._episode_end_reason(snapshot) if snapshot.terminated else None,
+        }
+        if self.recorder is not None:
+            self.recorder.record_step(
+                actions=[], submitted_decision=submitted, accepted=False,
+                validation_error=str(exc), observation=observation.to_dict(),
+                feedback=feedback.to_dict(), terminated=snapshot.terminated, info=info,
+                game_time_before_seconds=before,
+                wall_time_seconds=time.perf_counter() - started, agent_context=agent_context,
+            )
+            if snapshot.terminated:
+                self._record_episode_end(snapshot)
+        self._remember_observation(observation)
+        self._last_feedback = feedback.to_dict()
+        self.latest_observation = observation
+        self.latest_feedback = feedback
+
+    def _finish_terminal_snapshot(
+        self, snapshot, *, submitted, agent_context, started, before,
+    ) -> None:
+        self.task_manager.apply_updates(self.backend.collect_updates(), game_time=before)
+        observation = self._build_observation(snapshot)
+        feedback = Feedback(events=[{
+            "type": "episode_ended", "reason": self._episode_end_reason(snapshot),
+        }])
+        info = {
+            "result": snapshot.result, "end_reason": self._episode_end_reason(snapshot),
+            "backend": snapshot.info.get("backend"), "decision_applied": False,
+            "active_demands": len(self.task_manager.active_demands()),
+        }
+        if self.recorder is not None:
+            self.recorder.record_step(
+                actions=[], submitted_decision=submitted, observation=observation.to_dict(),
+                feedback=feedback.to_dict(), terminated=True, info=info,
+                game_time_before_seconds=before,
+                wall_time_seconds=time.perf_counter() - started, agent_context=agent_context,
+            )
+            self._record_episode_end(snapshot)
+        self._remember_observation(observation)
+        self._last_feedback = feedback.to_dict()
+        self.latest_observation = observation
+        self.latest_feedback = feedback
 
     def get_context(self) -> list[dict[str, str]]:
         """Optional platform message template; external agents may customize it."""
         if self._last_observation is None:
             raise RuntimeError("Call reset() before requesting context")
-        return platform_messages(self.get_system_prompt(), self._last_observation, self._last_feedback)
+        return platform_messages(
+            self.get_system_prompt(), self._last_observation, self._last_feedback,
+            previous=self._previous_observation,
+        )
+
+    def tool_schemas(self) -> list[dict[str, Any]]:
+        from sc2bench_env.interface.tools import tool_schemas
+        race = self.config.race if self.config is not None else "terran"
+        return tool_schemas(race=race)
+
+    def call_tool(self, name: str, arguments: Optional[Mapping[str, Any]] = None) -> dict[str, Any]:
+        from sc2bench_env.interface.tools import execute_tool
+        if self._last_observation is None or self.config is None:
+            raise RuntimeError("Call reset() before using tools")
+        return execute_tool(
+            name, arguments, observation=self._last_observation, race=self.config.race,
+        )
 
     def record_agent_call_failure(self, agent_context: dict[str, Any]) -> dict[str, Any]:
         """Record an external harness failure without applying actions or waiting."""
@@ -137,8 +348,7 @@ class Environment:
         # Continuous mode may have progressed or ended during inference.
         self.task_manager.apply_updates(self.backend.collect_updates(),
                                         game_time=snapshot.game_time_seconds)
-        observation = self._build_observation(snapshot).to_dict()
-        self._last_observation = observation
+        observation = self._remember_observation(self._build_observation(snapshot))
         if snapshot.terminated:
             self._record_episode_end(snapshot, observation=observation)
         return {"terminated": snapshot.terminated, "result": snapshot.result,
@@ -190,6 +400,7 @@ class Environment:
                 # Cleanup must not replace the original startup/step failure.
                 pass
             self._closed = True
+            self._stop_console_log()
 
     def _step(
         self, decision_json: Sequence[dict[str, Any]] | DecisionBatch | None,
@@ -223,7 +434,7 @@ class Environment:
                     wall_time_seconds=time.perf_counter() - started, agent_context=agent_context,
                 )
                 self._record_episode_end(snapshot)
-            self._last_observation = observation.to_dict()
+            self._remember_observation(observation)
             self._last_feedback = feedback.to_dict()
             return observation, feedback, True, info
         try:
@@ -255,7 +466,7 @@ class Environment:
                 )
                 if snapshot.terminated:
                     self._record_episode_end(snapshot)
-            self._last_observation = observation.to_dict()
+            self._remember_observation(observation)
             self._last_feedback = feedback.to_dict()
             return observation, feedback, snapshot.terminated, info
 
@@ -277,11 +488,11 @@ class Environment:
             known_upgrades=upgrades,
             researching=researching,
             idle_army=self._idle_army_counts(snapshot),
+            bunker_garrison=snapshot.info.get("bunker_garrison"),
         )
         self.backend.submit(self.task_manager.active_demands())
-        trigger = trigger_from_wait(
-            batch.wait,
-            default_interval_seconds=self.config.decision_interval_seconds,
+        trigger = trigger_from_advance(
+            batch.advance,
             max_game_time_seconds=self.config.game_time_limit_seconds,
         )
         terminated = self.scheduler.run_until_next_decision(self.backend, trigger)
@@ -320,7 +531,7 @@ class Environment:
             if terminated or snapshot.terminated:
                 self._record_episode_end(snapshot)
 
-        self._last_observation = observation.to_dict()
+        self._remember_observation(observation)
         self._last_feedback = feedback.to_dict()
         return observation, feedback, bool(terminated or snapshot.terminated), info
 
@@ -357,8 +568,7 @@ class Environment:
                     self.task_manager.apply_updates(
                         self.backend.collect_updates(), game_time=snapshot.game_time_seconds,
                     )
-                    observation = self._build_observation(snapshot).to_dict()
-                    self._last_observation = observation
+                    observation = self._remember_observation(self._build_observation(snapshot))
                     self._record_episode_end(snapshot, observation=observation)
             self.backend.close_episode()
         except BaseException as exc:
@@ -374,6 +584,11 @@ class Environment:
                 self.recorder.finalize(status="interrupted", end_reason=end_reason)
         finally:
             self._closed = True
+            self._stop_console_log()
+
+    def _stop_console_log(self) -> None:
+        if self.recorder is not None:
+            self.recorder.stop_console_log()
 
     @property
     def record_path(self) -> Optional[Path]:
@@ -384,6 +599,15 @@ class Environment:
         if self.recorder is None:
             return None
         return self.recorder.to_dict()
+
+    def _remember_observation(self, observation, *, keep_previous: bool = True) -> dict[str, Any]:
+        payload = observation if isinstance(observation, dict) else observation.to_dict()
+        if keep_previous:
+            self._previous_observation = self._last_observation
+        else:
+            self._previous_observation = None
+        self._last_observation = payload
+        return payload
 
     def _build_observation(self, snapshot) -> Observation:
         assert self.config is not None
@@ -442,6 +666,18 @@ class Environment:
             supply_used=snapshot.supply_used,
             supply_cap=snapshot.supply_cap,
         )
+        topology = dict(snapshot.info.get("map_topology") or {})
+        relevant = relevant_zone_ids(
+            {"zone_state": zone_state, "map_topology": topology, "combat": combat,
+             "scouting": race_view.scouting},
+            self._previous_observation,
+        )
+        targets = available_targets(
+            race=self.config.race, building=building,
+            structures=list(snapshot.info.get("structures") or []),
+            research=research,
+            units=dict(snapshot.units),
+        )
         return Observation(
             game_time_seconds=snapshot.game_time_seconds,
             race=self.config.race,
@@ -461,7 +697,7 @@ class Environment:
                 supply_cap=snapshot.supply_cap,
                 supply_left=max(0, int(snapshot.supply_cap) - int(snapshot.supply_used)),
                 worker_count=worker_count,
-                ideal_worker_count=snapshot.info.get("ideal_worker_count"),
+                mining_worker_capacity=snapshot.info.get("ideal_worker_count"),
                 army_supply=army_supply,
                 mineral_income_per_minute=snapshot.info.get("mineral_income_per_minute"),
                 vespene_income_per_minute=snapshot.info.get("vespene_income_per_minute"),
@@ -473,7 +709,7 @@ class Environment:
                 base_resources=list(snapshot.info.get("base_resources") or []),
             ),
             zone_state=zone_state,
-            map_topology=dict(snapshot.info.get("map_topology") or {}),
+            map_topology=topology,
             production_priority=self.task_manager.production_priority_summary(),
             production=snapshot.info.get("production"),
             own_forces=self._own_forces_view(snapshot),
@@ -491,6 +727,8 @@ class Environment:
             zones=zones,
             **race_view.legacy_attributes,
             recent_events=list(self.task_manager.recent_events[-8:]),
+            available_targets=targets,
+            relevant_zone_ids=relevant,
             terminated=snapshot.terminated,
         )
 
@@ -513,6 +751,7 @@ class Environment:
         return split_own_forces(
             snapshot.units,
             assigned=self._assigned_army_counts(snapshot),
+            bunker_garrison=snapshot.info.get("bunker_garrison"),
         )
 
     def _idle_army_counts(self, snapshot) -> dict[str, int]:
@@ -559,10 +798,10 @@ class Environment:
                 summary[label]["end_reason"] = str(row["end_reason"])
         main_zone = next((z.get("zone_id") for z in snapshot.info.get("zone_state", [])
                           if z.get("zone_role") == "own_main"), None)
+        group0_zone = snapshot.info.get("group0_zone_id") or main_zone
         summary["group_0"] = {
-            "status": "active", "style": "defend", "target": main_zone,
+            "status": "active", "style": "defend", "target": group0_zone,
             "alive": {k: v for k, v in self._idle_army_counts(snapshot).items() if v > 0},
             "assigned": False, "phase": "engaging" if snapshot.info.get("group0_engaged") else "guarding",
         }
         return summary
-

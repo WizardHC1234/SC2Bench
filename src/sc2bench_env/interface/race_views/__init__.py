@@ -32,4 +32,12 @@ def build_race_view(
         from sc2bench_env.interface.race_views.terran import build_view
 
         return build_view(snapshot=snapshot, scout_demand=scout_demand)
+    if race == "protoss":
+        from sc2bench_env.interface.race_views.protoss import build_view
+
+        return build_view(snapshot=snapshot, scout_demand=scout_demand)
+    if race == "zerg":
+        from sc2bench_env.interface.race_views.zerg import build_view
+
+        return build_view(snapshot=snapshot, scout_demand=scout_demand)
     raise ValueError(f"No Observation view implemented for own race {race!r}")

@@ -7,6 +7,7 @@ from .act_base import ActBase
 from sharpy.interfaces import ILostUnitsManager, IIncomeCalculator
 
 REACTORS = {UnitTypeId.BARRACKSREACTOR, UnitTypeId.FACTORYREACTOR, UnitTypeId.STARPORTREACTOR, UnitTypeId.REACTOR}
+MAX_TRAIN_QUEUE = 5
 
 
 class ActUnit(ActBase):
@@ -91,15 +92,29 @@ class ActUnit(ActBase):
         unit_data = self.ai._game_data.units[self.unit_type.value]
         cost = self.ai._game_data.calculate_ability_cost(unit_data.creation_ability)
 
-        if self.builders.ready.exists and self.knowledge.can_afford(unit_data.creation_ability):
-            for builder in self.builders.ready:
+        ready_builders = self.builders.ready
+        if ready_builders.exists and self.knowledge.can_afford(unit_data.creation_ability):
+            # Spread a train demand across compatible producers instead of
+            # filling the first building's queue while other buildings sit
+            # idle. Reactor load is normalized by its two parallel lanes.
+            builders = sorted(
+                ready_builders,
+                key=lambda builder: (
+                    len(getattr(builder, "orders", []) or []) /
+                    max(1, self.parallel_slots(builder)),
+                    getattr(builder, "tag", 0),
+                ),
+            )
+            for builder in builders:
                 if self.has_order_ready(builder) and not builder.is_flying:
                     if builder.tag in self.ai.unit_tags_received_action:
                         # Skip to next builder
                         continue
 
                     if self._is_creation_ability_ready(builder.tag, unit_data.creation_ability.id):
-                        if builder.train(self.unit_type):
+                        # Use SC2's queue once all parallel lanes are occupied;
+                        # queue=False would replace the current production order.
+                        if self._issue_train(builder):
                             pos_formatted = f"({builder.position.x:.1f}, {builder.position.y:.1f})"
                             self.print(f"{self.unit_type.name} from {self.from_building.name} at {pos_formatted}")
                             return False  # Only one at a time
@@ -146,11 +161,18 @@ class ActUnit(ActBase):
         return cooldown_manager.is_ready(builder_tag, ability)
 
     def has_order_ready(self, builder: Unit) -> bool:
+        return len(builder.orders) < MAX_TRAIN_QUEUE
+
+    def _issue_train(self, builder: Unit):
+        queue = len(builder.orders) >= self.parallel_slots(builder)
+        return builder.train(self.unit_type, queue=queue)
+
+    def parallel_slots(self, builder: Unit) -> int:
         if builder.add_on_tag == 0:
-            return len(builder.orders) == 0
+            return 1
 
         add_on = self.cache.by_tag(builder.add_on_tag)
 
         if add_on.type_id in REACTORS:
-            return len(builder.orders) < 2
-        return len(builder.orders) == 0
+            return 2
+        return 1

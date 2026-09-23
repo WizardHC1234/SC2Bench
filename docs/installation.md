@@ -13,6 +13,8 @@ python -m sc2bench_env doctor --backend fake
 
 开发测试加装 `.[dev]`；使用 LLM 示例加装 `.[llm]`。模型客户端属于外部 Agent，不是核心环境依赖。
 
+多局并行加装 `.[parallel]`（cloudpickle 和 psutil）；`.[llm]` 与 `.[dev]` 已包含这两项。默认串行不需要并行依赖。
+
 ## Windows 实机
 
 当前已验证 Windows x64、CPython 3.9。先安装 SC2 客户端和地图，再从项目根安装：

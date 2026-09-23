@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from typing import Any, Optional
 
 from .opponents import normalize_opponent, require_enemy_style
@@ -21,10 +21,8 @@ class EpisodeConfig:
     enemy_race: str = "terran"
     map_name: str = "KairosJunctionLE"
     opponent: str = "easy"
-    decision_interval_seconds: float = 10.0
     game_time_limit_seconds: Optional[float] = 600.0
     seed: Optional[int] = None
-    extra: dict[str, Any] = field(default_factory=dict)
     # Freeze simulation between reset/step returns and the next valid decision.
     # False preserves the continuously running, asynchronous game mode.
     blocking_decisions: bool = True

@@ -54,3 +54,4 @@ class CatalogData:
     targets: Tuple[TargetSpec, ...]
     table_legend: Tuple[str, ...]
     target_notes: Mapping[str, Tuple[str, ...]]
+    prompt_descriptions: Mapping[str, str]

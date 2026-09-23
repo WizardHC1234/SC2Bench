@@ -30,15 +30,9 @@ def resolve_record_dir(path: Optional[str | Path] = None) -> Path:
     return Path(path).expanduser().resolve() if path is not None else default_output_root() / "records"
 
 
-def resolve_results_dir(path: Optional[str | Path] = None, *,
-                        record_dir: Optional[str | Path] = None) -> Path:
-    return Path(path).expanduser().resolve() if path is not None else resolve_record_dir(record_dir) / "runs"
-
-
 def default_paths() -> dict[str, str]:
     root = default_output_root()
-    return {"output_root": str(root), "record_dir": str(root / "records"),
-            "results_dir": str(root / "records" / "runs")}
+    return {"output_root": str(root), "record_dir": str(root / "records")}
 
 
 def record_reference(directory: str | Path, results_dir: str | Path) -> str:

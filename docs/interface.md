@@ -4,17 +4,17 @@
 
 ## 动作格式
 
-提交有序、扁平 JSON 数组，唯一 `wait` 必须在末尾。不使用参数嵌套，不添加任务 ID 或多余字段。
+提交规范化 Tool Call 数组，唯一 `advance` 必须在末尾，并填写正数游戏秒。
 
 ```json
 [
-  {"action": "build", "target": "barracks"},
-  {"action": "train", "target": "marine", "count": 8},
-  {"action": "wait", "any_of": [{"condition": "interval", "seconds": 30}]}
+  {"name": "build", "arguments": {"target": "barracks"}},
+  {"name": "train", "arguments": {"target": "marine", "count": 8}},
+  {"name": "advance", "arguments": {"seconds": 30}}
 ]
 ```
 
-示例仅说明格式，不注入平台提示词。无需新动作时返回 `[{"action":"wait"}]`。
+示例仅说明格式，不注入平台提示词。无需新动作时返回 `[{"name": "advance", "arguments": {"seconds": 5}}]`。
 
 ## 支持的动作
 
@@ -30,9 +30,11 @@
 | `scout` | `route` 为有序 Zone 数组，或字符串 `"all"` |
 | `combat` | `style/target` 加 `units` 创建编队，或加已有 `group` 改令 |
 | `retreat` | `group`；撤回编队，回家卸载后归并 |
-| `wait` | 可选 `any_of/all_of`；等待下一次决策 |
+| `advance` | 必填正数 `seconds`；推进指定游戏秒后返回下一次观测 |
 
-生产和科技的目标、成本、前提与参考耗时由 `interface.action_catalog` 生成，不另维护手抄目录。耗时是单项开始后到就绪的近似游戏秒，不含排队、资源等待和工人行走。
+生产和科技的目标、成本、前提与参考耗时由 Knowledge Tools（`query_unit_data`、`query_building_data`、`query_research_data`、`query_prerequisite_path`、`query_race_data`）从 Catalog 读取，不再写入固定系统提示词。耗时是单项开始后到就绪的近似游戏秒，不含排队、资源等待和工人行走。
+
+Agent 只提交规范化 Tool Call。Read / Knowledge 立即查询；Action Tools 进入本轮批次，最后以 `advance(seconds)` 提交。
 
 ### 生产与取消
 
@@ -46,28 +48,17 @@
 
 `combat.style` 仅支持 `attack/defend`，目标使用观测里的 Zone。首次派兵用 `units`；兵力不足整项拒绝，不部分派遣或自动等待。后续用观测返回的 `group` 改令，不同时提供 `units`。
 
-`group_0` 是家中默认防守和可派兵力池，不能直接改令。外出组不自动补员；新兵默认回家，需显式再次派遣。阵亡、撤回和当前运输状态在观测显示；执行中不表示交火或成功。运输、移动和交战微操由底层处理，不自动选择下一进攻目标。
+`group_0` 是默认防守和可派兵力池：二基地完成后驻守己方 natural，二基地未完成或失守时回退主基地，且不能直接改令。外出组不自动补员；新兵默认归入 `group_0`，需显式再次派遣。进攻组到达目标并连续确认该区域已清空后自动归队；`defend` 持续驻守，直到改令或撤回。阵亡、撤回和当前运输状态在观测显示；执行中不表示交火或成功。运输、移动和交战微操由底层处理，不自动选择下一进攻目标。
 
 `scout.route` 数组按序检查选定矿区；`"all"` 请求一轮非己方扩张矿区中心巡查。仅检查中心，不保证全区可见或敌人找全；探员死亡失败，不自动替换，新侦察替换旧任务。侦察不自动改军队目标。
 
-### 等待条件
+### 时间推进
 
-| 条件 | 参数 |
-| --- | --- |
-| `interval` | 可选 `seconds`，省略用对局决策间隔 |
-| `resource_at_least` | `resource` 为 minerals/vespene，及 `amount` |
-| `supply_left_at_most` | `amount` |
-| `unit_count_at_least` | `unit/count` |
-| `building_count_at_least` | `building/count` |
-| `scan_ready` | 可选 `count` |
-| `game_time_at_least` | `seconds`，绝对游戏时间 |
-| `zone_under_attack` | `zone` |
-
-`any_of` 任一满足，`all_of` 全部满足；同时填写时两组都须满足。已为真的条件可立即返回。每次等待最多60游戏秒，终局可提前返回；这是决策兜底，不是墙钟/API 超时，也不会取消任务。
+`advance.seconds` 是必填正数。前面的动作先按顺序注册，游戏再运行指定秒数；生产、建造、移动和战斗继续执行。指定时间到达后返回最新观测；对局提前结束时立即返回终局。旧 `wait`/`any_of`/`all_of` 条件不再接受。平台不规定固定推进时长：战斗观察可用较短秒数，宏观生产可用较长秒数。
 
 ## 观测和反馈
 
-`obs.to_dict()` 是客观结构化数据；`obs.section_lines()` 和平台消息使用同源普通文本，不是 JSON 转储。
+`obs.to_dict()` 是客观结构化数据，含完整 Zone 表、地图拓扑和当前可生产目标名称。`obs.section_lines()` 和平台消息使用紧凑 Turn Briefing：省略静态 Map Topology、与当前基地、敌情、编组和侦察无关的 Zone，以及全零产能行。完整地图与指定 Zone 由 Read Tools（`query_map_overview`、`query_zone_state`、`query_route`）按需返回。
 
 | 内容 | 关注信息 |
 | --- | --- |
@@ -85,4 +76,4 @@
 
 Agent 负责生产、供给、科技、基地升级、侦察、扫描/MULE 和军队宏观行动。底层负责选址、工人分配、采矿、维修、续建、集结、局部战斗和运输。自动补给站、自动基地升级、自动 MULE 关闭。
 
-Schema 非法整批不提交，旧任务保留，不启动等待调度；默认阻塞模式暂停，连续模式仍可能推进或结束。合法批次中单项拒绝不撤销其他项。超时为 `Tie/time_limit`，Agent 中断和故障不伪装成游戏败局。
+Schema 非法整批不提交，旧任务保留，不推进游戏；默认阻塞模式暂停，连续模式仍可能推进或结束。合法批次中单项拒绝不撤销其他项。超时为 `Tie/time_limit`，Agent 中断和故障不伪装成游戏败局。

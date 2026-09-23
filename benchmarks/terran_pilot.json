@@ -3,18 +3,16 @@
   "suite_id": "terran_full_game_pilot",
   "suite_version": "1",
   "purpose": "workflow_pilot",
-  "repetitions": 2,
+  "repetitions": 1,
   "max_decisions": 500,
   "episode_defaults": {
     "race": "terran",
     "enemy_race": "terran",
     "map_name": "KairosJunctionLE",
     "blocking_decisions": true,
-    "decision_interval_seconds": 60.0,
     "game_time_limit_seconds": 1800.0
   },
   "cases": [
-    {"case_id": "kairos_tvt_easy", "episode": {"opponent": "easy"}},
-    {"case_id": "kairos_tvt_medium", "episode": {"opponent": "medium"}}
+    {"case_id": "kairos_tvt_hard", "episode": {"opponent": "hard"}}
   ]
 }

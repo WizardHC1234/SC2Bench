@@ -20,6 +20,30 @@ SCAN_ENERGY_COST = float(COSTS["scan"]["energy"])
 TOWNHALL_KEYS = ("command_center", "orbital_command", "planetary_fortress")
 
 
+def _linear_topology(count: int = FAKE_ZONE_COUNT, hop: float = 20.0) -> Dict[str, object]:
+    rows = []
+    for index in range(count):
+        neighbors = []
+        if index > 0:
+            neighbors.append({"zone_id": f"zone_{index - 1}", "path_distance": hop})
+        if index + 1 < count:
+            neighbors.append({"zone_id": f"zone_{index + 1}", "path_distance": hop})
+        rows.append({
+            "zone_id": f"zone_{index}",
+            "has_ramp": False,
+            "path_distance_from_own_main": hop * index,
+            "path_distance_to_enemy_main": hop * (count - 1 - index),
+            "corridor_neighbors": neighbors,
+        })
+    return {
+        "distance_basis": "synthetic_linear",
+        "neighbor_basis": "synthetic_linear",
+        "verified_path_pair_count": max(0, count - 1),
+        "total_path_pair_count": max(0, count - 1),
+        "zones": rows,
+    }
+
+
 @dataclass
 class _WorkItem:
     demand_id: str
@@ -61,7 +85,6 @@ class FakeBackend(Backend):
     game_time_seconds: float = 0.0
     mineral_income_per_second: float = 8.0
     vespene_income_per_second: float = 0.0
-    decision_interval_seconds: float = 5.0
     game_time_limit_seconds: Optional[float] = 600.0
     terminated: bool = False
     result: Optional[str] = None
@@ -72,6 +95,13 @@ class FakeBackend(Backend):
     _known: Dict[str, Demand] = field(default_factory=dict)
     _config: Optional[EpisodeConfig] = None
     _race: str = field(default="terran", init=False)
+    _worker_name: str = field(default="scv", init=False)
+    _townhall_name: str = field(default="command_center", init=False)
+    _townhall_keys: tuple = field(
+        default=("command_center", "orbital_command", "planetary_fortress"), init=False,
+    )
+    _supply_name: str = field(default="supply_depot", init=False)
+    _gas_name: str = field(default="refinery", init=False)
     _costs: Dict[str, Dict[str, int]] = field(default_factory=lambda: cost_table(race="terran"), init=False)
     _prerequisites: Dict[str, List[str]] = field(default_factory=lambda: prerequisite_table(race="terran"), init=False)
     _producer_addons: Dict[tuple[str, int], Optional[str]] = field(default_factory=dict)
@@ -85,23 +115,49 @@ class FakeBackend(Backend):
         self._race = config.race
         self._costs = costs
         self._prerequisites = prerequisites
+        if config.race == "protoss":
+            self._worker_name = "probe"
+            self._townhall_name = "nexus"
+            self._townhall_keys = ("nexus",)
+            self._supply_name = "pylon"
+            self._gas_name = "assimilator"
+            opening_units = {"probe": 12}
+            opening_buildings = {"nexus": 1}
+            opening_structures = {"cc_0": "nexus"}
+        elif config.race == "zerg":
+            self._worker_name = "drone"
+            self._townhall_name = "hatchery"
+            self._townhall_keys = ("hatchery", "lair", "hive")
+            self._supply_name = "overlord"
+            self._gas_name = "extractor"
+            opening_units = {"drone": 12, "overlord": 1}
+            opening_buildings = {"hatchery": 1}
+            opening_structures = {"cc_0": "hatchery"}
+        else:
+            self._worker_name = "scv"
+            self._townhall_name = "command_center"
+            self._townhall_keys = TOWNHALL_KEYS
+            self._supply_name = "supply_depot"
+            self._gas_name = "refinery"
+            opening_units = {"scv": 12}
+            opening_buildings = {"command_center": 1}
+            opening_structures = {"cc_0": "command_center"}
         self._config = config
         self.game_time_seconds = 0.0
         self.terminated = False
         self.result = None
         self.end_reason = None
-        self.decision_interval_seconds = config.decision_interval_seconds
         self.game_time_limit_seconds = config.game_time_limit_seconds
         self.minerals = 50
         self.vespene = 0
         self.supply_used = 12
-        self.supply_cap = 15
-        self.units = {"scv": 12}
-        self.buildings = {"command_center": 1}
+        self.supply_cap = 14 if config.race == "zerg" else 15
+        self.units = opening_units
+        self.buildings = opening_buildings
         self.under_construction = {}
         self.upgrades = set()
         self.in_progress_research = set()
-        self.structure_types = {"cc_0": "command_center"}
+        self.structure_types = opening_structures
         self.orbital_energy = 0.0
         self._active_ids.clear()
         self._queue.clear()
@@ -243,9 +299,10 @@ class FakeBackend(Backend):
         return updates
 
     def snapshot(self) -> BackendSnapshot:
-        base_count = sum(int(self.buildings.get(key, 0)) for key in TOWNHALL_KEYS)
+        base_count = sum(int(self.buildings.get(key, 0)) for key in self._townhall_keys)
         orbital_count = int(self.buildings.get("orbital_command", 0))
-        scan_ready = 1 if orbital_count > 0 and self.orbital_energy >= float(self._costs["scan"]["energy"]) else 0
+        scan_cost = self._costs.get("scan")
+        scan_ready = 1 if scan_cost and orbital_count > 0 and self.orbital_energy >= float(scan_cost["energy"]) else 0
         structures = [
             {"id": object_id, "type": type_name}
             for object_id, type_name in sorted(self.structure_types.items())
@@ -258,8 +315,8 @@ class FakeBackend(Backend):
             )
             for target in {item.target for item in self._queue if item.action == "train"}
         }
-        worker_count = int(self.units.get("scv", 0))
-        refineries = int(self.buildings.get("refinery", 0))
+        worker_count = int(self.units.get(self._worker_name, 0))
+        refineries = int(self.buildings.get(self._gas_name, 0))
         ideal_worker_count = 16 * max(1, base_count) + 3 * refineries
         known_enemy = 1
         own_indices = list(range(min(FAKE_ZONE_COUNT - known_enemy, max(0, base_count))))
@@ -333,15 +390,23 @@ class FakeBackend(Backend):
             "zones": [f"zone_{index}" for index in range(FAKE_ZONE_COUNT)],
             "zones_under_attack": [],
             "zone_state": zone_state,
-            "map_topology": {"distance_basis": None, "neighbor_basis": None,
-                             "verified_path_pair_count": 0, "total_path_pair_count": None,
-                             "zones": []},
+            "map_topology": _linear_topology(),
             "base_resources": base_resources,
             "structures": structures,
             "orbital_count": orbital_count,
             "orbital_energies": [round(self.orbital_energy, 1)] if orbital_count else [],
             "scan_ready": scan_ready,
             "mule_ready": scan_ready,
+            **({
+                "nexus_count": int(self.buildings.get("nexus", 0)),
+                "nexus_energies": [round(self.orbital_energy, 1)] if int(self.buildings.get("nexus", 0)) else [],
+                "chrono_ready": 1 if int(self.buildings.get("nexus", 0)) and self.orbital_energy >= 50 else 0,
+            } if self._race == "protoss" else {}),
+            **({
+                "queen_count": int(self.units.get("queen", 0)),
+                "queen_energies": [round(self.orbital_energy, 1)] if int(self.units.get("queen", 0)) else [],
+                "inject_ready": 1 if int(self.units.get("queen", 0)) and self.orbital_energy >= 25 else 0,
+            } if self._race == "zerg" else {}),
             "under_construction": dict(self.under_construction),
             "in_production_units": {key: value for key, value in in_production.items() if value},
             "in_progress_research": sorted(self.in_progress_research),
@@ -401,13 +466,17 @@ class FakeBackend(Backend):
         self.game_time_seconds += dt
         self.minerals += self.mineral_income_per_second * dt
         self.vespene += self.vespene_income_per_second * dt
-        if int(self.buildings.get("orbital_command", 0)) > 0:
+        if self._race == "protoss" and int(self.buildings.get("nexus", 0)) > 0:
+            self.orbital_energy = min(200.0, self.orbital_energy + 0.6 * dt)
+        elif self._race == "zerg" and int(self.units.get("queen", 0)) > 0:
+            self.orbital_energy = min(200.0, self.orbital_energy + 0.6 * dt)
+        elif int(self.buildings.get("orbital_command", 0)) > 0:
             self.orbital_energy = min(200.0, self.orbital_energy + 0.6 * dt)
         self._try_start_work()
         self._advance_work(dt)
 
     def _townhalls(self) -> int:
-        return sum(int(self.buildings.get(key, 0)) for key in TOWNHALL_KEYS)
+        return sum(int(self.buildings.get(key, 0)) for key in self._townhall_keys)
 
     def _has_prereqs(self, target: str) -> bool:
         for req in self._prerequisites.get(target, []):
@@ -419,6 +488,12 @@ class FakeBackend(Backend):
     def _prerequisite_count(self, target: str) -> int:
         if target == "command_center":
             return self._townhalls()
+        if self._race == "zerg" and target == "hatchery":
+            return self._townhalls()
+        if self._race == "zerg" and target == "spire":
+            return int(self.buildings.get("spire", 0)) + int(self.buildings.get("greater_spire", 0))
+        if self._race == "zerg" and target == "hydralisk_den":
+            return int(self.buildings.get("hydralisk_den", 0)) + int(self.buildings.get("lurker_den", 0))
         if target.endswith(("_techlab", "_reactor")):
             parent, addon = target.rsplit("_", 1)
             return self._sync_producer_addons(parent).count(addon)
@@ -427,8 +502,8 @@ class FakeBackend(Backend):
     def _cost_key(self, action: str, target: str, to: Optional[str] = None) -> str:
         if action == "scan":
             return "scan"
-        if action == "call_mule":
-            return "call_mule"
+        if action in {"call_mule", "chrono_boost", "inject_larva", "spawn_creep_tumor"}:
+            return action
         if action == "scout":
             return "scout"
         if action == "combat":
@@ -449,19 +524,43 @@ class FakeBackend(Backend):
             if self.orbital_energy < float(cost["energy"]):
                 return "resources"
             return None
+        if item.action == "chrono_boost":
+            if int(self.buildings.get("nexus", 0)) <= 0:
+                return "prerequisite:nexus"
+            if self.orbital_energy < float(cost["energy"]):
+                return "resources"
+            return None
+        if item.action in {"inject_larva", "spawn_creep_tumor"}:
+            if int(self.units.get("queen", 0)) <= 0:
+                return "prerequisite:queen"
+            if self.orbital_energy < float(cost["energy"]):
+                return "resources"
+            return None
         if item.action == "scout":
-            if int(self.units.get("scv", 0)) <= 0:
-                return "prerequisite:scv"
+            if int(self.units.get(self._worker_name, 0)) <= 0:
+                return f"prerequisite:{self._worker_name}"
             return None
         if item.action == "upgrade":
             if item.target not in self.structure_types:
                 return f"unknown_structure:{item.target}"
-            if self.structure_types.get(item.target) != "command_center":
-                return "not_command_center"
+            morph_source = {
+                "orbital_command": "command_center",
+                "planetary_fortress": "command_center",
+                "lair": "hatchery",
+                "hive": "lair",
+            }.get(item.to, "command_center")
+            if self.structure_types.get(item.target) != morph_source:
+                return "not_command_center" if morph_source == "command_center" else "wrong_structure"
             if item.to == "orbital_command" and not self._has_prereqs("orbital_command"):
                 return "prerequisite:barracks"
             if item.to == "planetary_fortress" and not self._has_prereqs("planetary_fortress"):
                 return "prerequisite:engineering_bay"
+            if item.to in {"lair", "hive"} and not self._has_prereqs(item.to):
+                missing = next(
+                    req for req in self._prerequisites.get(item.to, [])
+                    if self._prerequisite_count(req) <= 0
+                )
+                return f"prerequisite:{missing}"
             if self.minerals < cost["minerals"] or self.vespene < cost["vespene"]:
                 return "resources"
             return None
@@ -487,9 +586,9 @@ class FakeBackend(Backend):
     def _production_slots(self, action: str, target: str) -> int:
         if target == "orbital_command":
             return max(0, int(self.buildings.get("command_center", 0)))
-        if action in {"scan", "call_mule", "upgrade", "scout", "combat"}:
+        if action in {"scan", "call_mule", "chrono_boost", "inject_larva", "spawn_creep_tumor", "upgrade", "scout", "combat"}:
             return 1
-        return max(1, int(self.units.get("scv", 0)))
+        return max(1, int(self.units.get(self._worker_name, 0)))
 
     def _sync_producer_addons(self, parent: str) -> List[Optional[str]]:
         """Preserve virtual parent identity as aggregate building counts grow.
@@ -655,7 +754,7 @@ class FakeBackend(Backend):
                 continue
             item.production_slot = production_slot
 
-            if item.action in {"scan", "call_mule"}:
+            if item.action in {"scan", "call_mule", "chrono_boost", "inject_larva", "spawn_creep_tumor"}:
                 self.orbital_energy -= need_e
                 budget_energy -= need_e
             elif item.action not in {"scout"}:
@@ -722,7 +821,7 @@ class FakeBackend(Backend):
                     )
                 )
                 item.action_reported = True
-            elif item.action in {"scan", "call_mule", "scout"}:
+            elif item.action in {"scan", "call_mule", "chrono_boost", "inject_larva", "spawn_creep_tumor", "scout"}:
                 item.phase = "ability"
                 if item.action == "scout":
                     hops = max(1, len(item.route or ()))
@@ -819,6 +918,8 @@ class FakeBackend(Backend):
 
             if item.action == "train" and item.phase == "producing":
                 self.units[item.target] = self.units.get(item.target, 0) + 1
+                if self._race == "zerg" and item.target == "overlord":
+                    self.supply_cap += 8
                 self._updates.append(
                     DemandUpdate(
                         demand_id=item.demand_id,
@@ -844,7 +945,9 @@ class FakeBackend(Backend):
                 self._apply_structure_upgrade(item.target, to_type)
                 continue
 
-            if item.action in {"scan", "call_mule", "scout"} and item.phase == "ability":
+            if item.action in {
+                "scan", "call_mule", "chrono_boost", "inject_larva", "spawn_creep_tumor", "scout",
+            } and item.phase == "ability":
                 self._updates.append(
                     DemandUpdate(
                         demand_id=item.demand_id,
@@ -863,12 +966,12 @@ class FakeBackend(Backend):
         if structure_id not in self.structure_types:
             return
         previous = self.structure_types[structure_id]
-        if previous == "command_center":
-            cc = int(self.buildings.get("command_center", 0))
-            if cc > 0:
-                self.buildings["command_center"] = cc - 1
-                if self.buildings["command_center"] <= 0:
-                    self.buildings.pop("command_center", None)
+        if previous in self._townhall_keys:
+            previous_count = int(self.buildings.get(previous, 0))
+            if previous_count > 0:
+                self.buildings[previous] = previous_count - 1
+                if self.buildings[previous] <= 0:
+                    self.buildings.pop(previous, None)
         self.structure_types[structure_id] = to_type
         self.buildings[to_type] = self.buildings.get(to_type, 0) + 1
         if to_type == "orbital_command":
@@ -890,15 +993,15 @@ class FakeBackend(Backend):
             self.orbital_energy = max(self.orbital_energy, 50.0)
             return
         self.buildings[target] = self.buildings.get(target, 0) + 1
-        if target == "supply_depot":
+        if target == self._supply_name:
             self.supply_cap += 8
-        if target == "command_center":
-            self.supply_cap += 15
+        if target == self._townhall_name:
+            self.supply_cap += 6 if self._race == "zerg" else 15
             index = 0
             while f"cc_{index}" in self.structure_types:
                 index += 1
-            self.structure_types[f"cc_{index}"] = "command_center"
-        if target == "refinery":
+            self.structure_types[f"cc_{index}"] = self._townhall_name
+        if target == self._gas_name:
             self.vespene_income_per_second = max(self.vespene_income_per_second, 12.0)
 
     def _fail(self, item: _WorkItem, reason: str) -> None:

@@ -101,6 +101,7 @@ class TaskManager:
         known_upgrades: Set[str] | None = None,
         researching: Set[str] | None = None,
         idle_army: Dict[str, int] | None = None,
+        bunker_garrison: Dict[str, int] | None = None,
     ) -> List[ActionReceipt]:
         """Apply one validated decision batch in array order."""
         receipts: List[ActionReceipt] = []
@@ -133,6 +134,7 @@ class TaskManager:
                     upgrades=upgrades,
                     researching=in_research,
                     idle_army=available_army,
+                    bunker_garrison=bunker_garrison,
                 )
             )
         return receipts
@@ -155,15 +157,19 @@ class TaskManager:
                 known_upgrades=known_upgrades,
                 researching=researching,
             )
-        # Legacy callers without trailing wait: wrap with bare wait.
+        # Legacy callers without trailing advance: wrap with a short advance.
         items: List[dict] = []
         for item in raw_actions or []:
             if isinstance(item, GameAction):
-                items.append(item.to_dict())
-            else:
-                items.append(dict(item))
-        if not items or items[-1].get("action") != "wait":
-            items.append({"action": "wait"})
+                items.append(item.to_tool_call())
+                continue
+            payload = dict(item)
+            if "action" in payload and "name" not in payload:
+                name = payload.pop("action")
+                payload = {"name": name, "arguments": payload}
+            items.append(payload)
+        if not items or items[-1].get("name") != "advance":
+            items.append({"name": "advance", "arguments": {"seconds": 5}})
         return self.submit_decision(
             items,
             game_time=game_time,
@@ -181,6 +187,7 @@ class TaskManager:
         upgrades: Set[str],
         researching: Set[str],
         idle_army: Dict[str, int],
+        bunker_garrison: Dict[str, int] | None = None,
     ) -> ActionReceipt:
         if action.action_id and action.action_id in self.seen_action_ids:
             return ActionReceipt(
@@ -334,6 +341,18 @@ class TaskManager:
             if missing:
                 if action.action_id:
                     self.seen_action_ids.add(action.action_id)
+                details = {
+                    "requested": requested,
+                    "available": available,
+                    "missing": missing,
+                }
+                garrison = {
+                    name: int(count)
+                    for name, count in dict(bunker_garrison or {}).items()
+                    if int(count) > 0 and name in missing
+                }
+                if garrison:
+                    details["bunker_garrison"] = garrison
                 return ActionReceipt(
                     action="combat",
                     target=action.target,
@@ -341,11 +360,7 @@ class TaskManager:
                     result="rejected",
                     reason="insufficient_units",
                     action_id=action.action_id,
-                    details={
-                        "requested": requested,
-                        "available": available,
-                        "missing": missing,
-                    },
+                    details=details,
                 )
             # Reserve idle counts for later actions in the same batch.
             for name, need in requested.items():
@@ -360,7 +375,10 @@ class TaskManager:
             baseline_owned=baseline,
         )
         if action.action == "scout":
-            demand.target = "scv"
+            from sc2bench_env.interface.action_catalog import get_target
+            spec = get_target("scout", race=self.race)
+            if spec is not None and spec.prerequisites:
+                demand.target = spec.prerequisites[0]
         if action.action == "combat":
             self.group_counter += 1
             demand.group = f"group_{self.group_counter}"
@@ -589,7 +607,9 @@ class TaskManager:
             demand.mark_completed(game_time)
             self._push_event({"type": "research_queued", "target": demand.target})
             return
-        elif demand.action in {"scan", "call_mule", "upgrade", "scout"} and (
+        elif demand.action in {
+            "scan", "call_mule", "chrono_boost", "inject_larva", "spawn_creep_tumor", "upgrade", "scout",
+        } and (
             state == DemandState.COMPLETED or demand.produced >= 1
         ):
             demand.mark_completed(game_time)

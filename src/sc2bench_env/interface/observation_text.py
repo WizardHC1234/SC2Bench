@@ -140,7 +140,10 @@ def combat_lines(groups):
     return lines
 
 
-def event_lines(events):
+def event_lines(events, *, omit_types=()):
+    if not events:
+        return ["none"]
+    events = [row for row in events if row.get("type") not in omit_types]
     if not events:
         return ["none"]
     lines = []
@@ -184,7 +187,7 @@ def blocker_text(reason):
         "resources": "resource budget unavailable (including earlier spending priority)",
         "supply": "insufficient available supply",
         "energy": "insufficient available energy",
-        "producer_busy": "compatible production slots occupied",
+        "producer_busy": "compatible in-game production queues full",
         "producer_unavailable": "no ready grounded producer",
         "producer_techlab_unavailable": "no compatible producer with a ready attached Tech Lab",
         "addon_host_unavailable": "no ready grounded parent without an add-on",
@@ -322,6 +325,15 @@ def production_options(data, buildings, *, race="terran"):
             "Buildings provide capacity, NOT automatic production. Use explicit train requests for the units you choose. Tech ready does not mean affordable or an available slot; costs/supply remain in the game reference."]
 
 
+def _shown_on_facility(spec, facility, race):
+    """Larva is the live Zerg producer; the catalog names the town hall instead."""
+    if race == "zerg" and spec.produced_at == "hatchery":
+        if spec.name == "queen":
+            return facility == "hatchery"
+        return facility == "larva"
+    return spec.produced_at == facility
+
+
 def facility_training(facility, training, *, race="terran"):
     """Reuse canonical unit totals; never assign orders to individual buildings."""
     if not isinstance(training, dict):
@@ -330,7 +342,10 @@ def facility_training(facility, training, *, race="terran"):
     if catalog is None:
         return _catalog_unavailable(race)
     specs = {spec.name: spec for spec in catalog.targets if spec.action == "train"}
-    if facility not in {spec.produced_at for spec in specs.values()}:
+    known = {spec.produced_at for spec in specs.values()}
+    if race == "zerg":
+        known.add("larva")
+    if facility not in known:
         return "unknown (producer type not in current catalog)"
     parts, unmapped = [], []
     for target, row in sorted(training.items()):
@@ -344,7 +359,7 @@ def facility_training(facility, training, *, race="terran"):
         spec = specs.get(target)
         if spec is None:
             unmapped.append(str(target))
-        elif spec.produced_at == facility:
+        elif _shown_on_facility(spec, facility, race):
             parts.append(f"{target} — paid {value(paid)}, waiting {value(waiting)}")
     if unmapped:
         parts.append("unmapped training targets: " + ", ".join(unmapped) + " (producer unknown)")
@@ -355,12 +370,16 @@ def production_lines(data, buildings, training, *, race="terran"):
     columns = [("Facility", "facility"), ("Ready grounded", "ready_grounded"),
                   ("Ready attached Tech Labs", "techlab_hosts"), ("Ready attached Reactors", "reactor_hosts"),
                   ("Capacity", "capacity"), ("Occupied slots", "occupied_slots"),
-                  ("Free slots", "free_slots"), ("Free Tech Lab slots", "free_techlab_slots")]
+                  ("Free slots", "free_slots"), ("Queue positions", "queue_capacity"),
+                  ("Queued orders", "queued_orders"), ("Free queue positions", "free_queue_positions"),
+                  ("Free Tech Lab slots", "free_techlab_slots")]
     if race != "terran":
         # Keep supplied capacity facts; never manufacture Terran-specific columns.
         common_columns = [("Facility", "facility"), ("Ready grounded", "ready_grounded"),
                           ("Capacity", "capacity"), ("Occupied slots", "occupied_slots"),
-                          ("Free slots", "free_slots")]
+                          ("Free slots", "free_slots"), ("Queue positions", "queue_capacity"),
+                          ("Queued orders", "queued_orders"),
+                          ("Free queue positions", "free_queue_positions")]
         columns = [column for column in common_columns
                    if column[1] == "facility" or any(column[1] in row for row in data)]
     lines = table(data, columns)
@@ -368,16 +387,6 @@ def production_lines(data, buildings, training, *, race="terran"):
     for row in data:
         lines.extend([f"{value(row.get('facility'))}:",
                       "  Accepted training: " + facility_training(row.get("facility"), training, race=race)])
-        options = _production_unit_technology(row, buildings, race=race)
-        if _production_catalog(race) is None:
-            lines.append("  Unit technology: " + _catalog_unavailable(race))
-        elif options:
-            lines.append("  Unit technology:")
-            by_condition = {}
-            for name, notes in options:
-                by_condition.setdefault(notes, []).append(name)
-            for notes, names in by_condition.items():
-                lines.append("    " + ("; ".join(notes) or "tech ready") + ": " + ", ".join(names))
     return lines
 
 
@@ -398,11 +407,12 @@ def section(key, data, *, production_priority=None, buildings=None, training=Non
         return [f"Minerals: {value(data.get('minerals'))}; Vespene gas: {value(data.get('vespene'))}",
                 f"Supply: {value(data.get('supply_used'))}/{value(data.get('supply_cap'))}; "
                 f"Available supply: {value(data.get('supply_left'))}; Army supply: {value(data.get('army_supply'))}",
-                f"Workers: {value(data.get('worker_count'))}; Ideal workers: {value(data.get('ideal_worker_count'))}",
+                f"Workers: {value(data.get('worker_count'))}; Current mining worker capacity: "
+                f"{value(data.get('mining_worker_capacity'))}",
                 f"Income per minute: minerals {value(data.get('mineral_income_per_minute'))}; "
                 f"vespene gas {value(data.get('vespene_income_per_minute'))}",
                 *extras(data, {"minerals", "vespene", "supply_used", "supply_cap", "supply_left",
-                               "army_supply", "worker_count", "ideal_worker_count",
+                               "army_supply", "worker_count", "mining_worker_capacity",
                                "mineral_income_per_minute", "vespene_income_per_minute"}, "")]
     if key == "map_control":
         return [*fields({name: item for name, item in data.items() if name != "base_resources"}),
@@ -429,8 +439,24 @@ def section(key, data, *, production_priority=None, buildings=None, training=Non
         return priority_lines(data)
     if key == "production":
         return production_lines(data, buildings, training, race=race)
+    if key == "available_targets":
+        if not isinstance(data, dict):
+            return ["none"]
+        lines = []
+        for group in ("build", "train", "research", "upgrade"):
+            names = data.get(group) or []
+            lines.append(f"{group.capitalize()}: {', '.join(value(name) for name in names) or 'none'}")
+        return lines
+    if key == "relevant_zone_ids":
+        if isinstance(data, dict):
+            return fields(data)
+        return [", ".join(value(item) for item in data) or "none"]
     if key == "zone_state":
-        return [f"Zone count: {len(data)}", *table(data, [
+        if not data:
+            return ["none"]
+        return [
+            f"Relevant zones: {len(data)}. Query query_zone_state or query_map_overview for the rest.",
+            *table(data, [
             ("Zone", "zone_id"), ("Role", "zone_role"), ("Known owner", "known_owner"),
             ("Center vision", "vision_state"),
             ("Own contents", "own_contents", lambda items: "OWN: " + content(items)),
@@ -456,7 +482,8 @@ def section(key, data, *, production_priority=None, buildings=None, training=Non
         return table(rows, columns)
     if key == "own_forces":
         names = {"workers": "Living workers", "army": "Living army", "assigned": "Unavailable for dispatch",
-                 "free": "Available for dispatch from home pool"}
+                 "free": "Available for dispatch from home pool",
+                 "bunker_garrison": "Bunker garrison"}
         return [f"{names.get(name, label(name))}: {counts(item)}" for name, item in data.items()]
     if key == "structures":
         return table(data, [("Object ID", "id"), ("Type", "type")])
@@ -474,7 +501,9 @@ def section(key, data, *, production_priority=None, buildings=None, training=Non
             lines.extend(extras(row, {"route"}))
         return lines
     if key == "recent_events":
-        return event_lines(data)
+        # Acceptance is already shown by Previous Feedback and Production
+        # Priority. Keep execution changes and failures here.
+        return event_lines(data, omit_types={"demand_accepted"})
     return fields(data) if isinstance(data, dict) else fields({"items": data})
 
 
@@ -503,15 +532,20 @@ def render_feedback_text(feedback, *, shown_events=None):
         lines.append("none")
     for index, row in enumerate(compact_counted(receipts), 1):
         meaning = receipt_meaning(row)
-        lines.append(f"{index}. {value(row.get('action'))}: {value(row.get('result'))}"
+        lines.append(f"{index}. {value(row.get('name') or row.get('action'))}: {value(row.get('result'))}"
                      + (f" ({meaning})" if meaning else ""))
         display = dict(row)
-        if row.get("action") == "cancel" and row.get("result") == "accepted":
+        arguments = display.get("arguments")
+        if isinstance(arguments, dict):
+            for key, item in arguments.items():
+                display.setdefault(key, item)
+        name = row.get("name") or row.get("action")
+        if name == "cancel" and row.get("result") == "accepted":
             reason = row.get("reason")
             prefix = "cleared_waiting="
             if isinstance(reason, str) and reason.startswith(prefix) and reason[len(prefix):].isdigit():
                 display["reason"] = "unstarted work quantity removed: " + reason[len(prefix):]
-        lines.extend(extras(display, {"action", "result"}))
+        lines.extend(extras(display, {"action", "name", "arguments", "result"}))
     events = feedback.get("events", [])
     if shown_events is None:
         lines.extend(["", "Execution events:", *event_lines(events)])
@@ -531,7 +565,7 @@ def render_feedback_text(feedback, *, shown_events=None):
     if feedback.get("name_normalizations"):
         lines.extend(["", "Name normalizations (use canonical names next time):"])
         for row in feedback["name_normalizations"]:
-            verb = row.get("action")
+            verb = row.get("name") or row.get("action")
             if verb == "cancel":
                 verb = f"cancel {value(row.get('target_action'))}"
             lines.append(f"entry {value(row.get('entry_index'))} ({value(verb)}): "
@@ -553,9 +587,12 @@ def receipt_meaning(row):
             "retreat": "return order registered, not arrival",
             "scan": "cast request registered",
             "call_mule": "cast request registered",
+            "chrono_boost": "cast request registered",
+            "inject_larva": "cast request registered",
+            "spawn_creep_tumor": "cast request registered",
             "scout": "scouting order registered",
             "upgrade": "morph request registered",
-        }.get(row.get("action"), "registered, not completion")
+        }.get(row.get("name") or row.get("action"), "registered, not completion")
     return {
         "idempotent_noop": "unchanged; no additional work",
         "ignored_duplicate_action_id": "retry ignored; no additional work",

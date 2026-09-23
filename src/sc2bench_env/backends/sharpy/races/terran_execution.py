@@ -5,6 +5,7 @@ issue commands, select a build order, cancel demands or infer tactical success.
 """
 
 from sc2.ids.unit_typeid import UnitTypeId
+from sharpy.plans.acts.act_unit import MAX_TRAIN_QUEUE
 
 from sc2bench_env.backends.sharpy.races.terran import ADDONS, BUILDINGS, TOWNHALL_TARGETS, UNITS
 from sc2bench_env.interface.action_catalog import get_target
@@ -70,11 +71,7 @@ def execution_blocker(ai, task):
                         in techlab_types]
             if not grounded:
                 return "producer_techlab_unavailable"
-        reactors = {UnitTypeId.BARRACKSREACTOR, UnitTypeId.FACTORYREACTOR,
-                    UnitTypeId.STARPORTREACTOR}
-        if all(len(parent.orders) >= (2 if getattr(
-                addons.get(parent.add_on_tag), "type_id", None) in reactors else 1)
-               for parent in grounded):
+        if all(len(parent.orders) >= MAX_TRAIN_QUEUE for parent in grounded):
             return "producer_busy"
     return None
 

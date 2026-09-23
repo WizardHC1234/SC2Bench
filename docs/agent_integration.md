@@ -8,11 +8,13 @@ Agent 是接收 `AgentInput` 的可调用对象，不必继承基类：
 
 | 输入 | 含义 |
 | --- | --- |
-| `request.observation` | 当前状态；`to_dict()` 取结构化数据，`section_lines()` 取文本 |
+| `request.observation` | 当前状态；`to_dict()` 取结构化数据，`section_lines()` 取紧凑文本 |
 | `request.feedback` | 上次提交回执，首轮为 `None` |
 | `request.platform_messages` | 规则和文本观测，已含上轮反馈，不必重复追加 |
+| `request.tool_schemas` | 可选；Read / Knowledge / Action 工具 Schema |
+| `request.call_tool` | 可选；执行 Read / Knowledge 查询，Action 工具只返回待提交条目 |
 
-返回动作数组即可。需要保存实际模型输入输出时，返回 `AgentTurn(decision, agent_context)`。当前任务进度看观测，不能把“已接受”当作完成。
+仓库附带 `agents.llm_agent.create_agent`。该 Agent 在实例内保持单局会话，只通过 Tool Call 查询或行动。查询可以先进行多轮；这一步的动作必须在同一次回复里一起给出，并以一次 `advance` 结束。每次调用工具前，回复正文里要先写一句依据。无状态 callable 应返回规范化 Tool Call 数组 `{"name", "arguments"}`。需要保存实际模型输入输出时，返回 `AgentTurn(decision, agent_context)`。当前任务进度看观测，不能把“已接受”当作完成。
 
 ```python
 from sc2bench_env import BenchmarkRunner, EpisodeConfig
@@ -20,7 +22,7 @@ from sc2bench_env import BenchmarkRunner, EpisodeConfig
 def create_agent():
     def decide(request):
         # 在这里调用自己的模型并解析动作；下面只演示接口。
-        return [{"action": "wait"}]
+        return [{"name": "advance", "arguments": {"seconds": 5}}]
     return decide
 
 batch = BenchmarkRunner(backend_factory=lambda: "fake").run(
@@ -28,7 +30,7 @@ batch = BenchmarkRunner(backend_factory=lambda: "fake").run(
                    game_time_limit_seconds=2)],
     agent_factory=create_agent,
 )
-print(batch["summary_path"])
+print(batch["aggregate"])
 ```
 
 Runner 默认实机 `sharpy`，上例显式选 `fake`。每局调用一次无参数工厂，创建独立 Agent。Fake 只模拟协议；若传入 LLM Agent，仍会调用模型。
@@ -46,28 +48,29 @@ return AgentTurn(decision, agent_context={
 
 不要保存未发送的模板、密钥或请求头。平台不会自动清洗任意自由文本。
 
-## 三个 LLM 示例
+## LLM 示例
 
 | 文件 | 用法 |
 | --- | --- |
-| [agent_integration.py](../examples/agent_integration.py) | 完整 LLM Agent 与 Runner 单局；先看 `main()`，再看 `LLMAgent` |
-| [run_llm_benchmark.py](../examples/run_llm_benchmark.py) | 复用同一 Agent，运行 Suite 批量对局 |
-| [llm_vs_ai.py](../examples/llm_vs_ai.py) | 手写 `reset/get_context/step/close` 循环，不使用 Runner |
+| [llm_vs_ai.py](../examples/llm_vs_ai.py) | 手写 `reset` / `step` / `close` |
+| [agent_integration.py](../examples/agent_integration.py) | 同一 `agents.llm_agent`，交给 Runner 跑一局 |
+| [run_llm_benchmark.py](../examples/run_llm_benchmark.py) | 按 Suite 批量跑，每局一个新 Agent |
+| [llm_vs_llm.py](../examples/llm_vs_llm.py) | 两个已支持种族的 Agent 对战；各自的 `advance` 到点才询问那一边 |
 
 ```bash
-python examples/agent_integration.py --dry-run
+python examples/llm_vs_ai.py --dry-run
 python examples/llm_vs_ai.py --opponent easy --enemy-style macro
-python examples/agent_integration.py --difficulty mediumhard --enemy-style macro
-python examples/agent_integration.py --skill examples/skills/tank.md
+python examples/agent_integration.py --opponent mediumhard
 python examples/run_llm_benchmark.py --dry-run --repetitions 1
-python examples/run_llm_benchmark.py --repetitions 1
+python examples/run_llm_benchmark.py --repetitions 1 --max-parallel 2
+python examples/llm_vs_llm.py --dry-run
 ```
 
-API 设置在单局示例顶部，也可由 `LLM_API_KEY`、`LLM_BASE_URL`、`LLM_MODEL` 覆盖。默认显示输入和回复，`--quiet` 收起全文。默认不加载 Skill；`--skill` 仅在 Runner 单局示例提供。项目外可运行脚本绝对路径，需先安装平台。
+示例不另写模型客户端。地址和密钥用 `LLM_API_KEY`、`LLM_BASE_URL`、`LLM_MODEL`，与 `python -m agents.llm_agent` 相同。`--quiet` 收起全文。
 
 ### 直接使用环境
 
-`llm_vs_ai.py` 的 `run_episode()` 展示完整循环：`reset()` → `get_context()` → 调用 Agent → `step()` → 检查 `terminated`，最后 `close()`。API失败和非法回复也有处理，不经过 Runner；只生成单局记录，没有批次索引。模型客户端和解析复用 `agent_integration.py`，不会调用它的 Runner 入口。
+`llm_vs_ai.py` 的 `run_episode()` 是完整循环：`reset()` → `get_context()` 加上工具清单 → 调用 Agent → `step()` → 检查 `terminated`，最后 `close()`。API 失败停在记录里，不经过 Runner。
 
 具体运行命令和可复制的接入代码见 [示例说明](../examples/README.md)。
 
@@ -77,24 +80,32 @@ API 设置在单局示例顶部，也可由 `LLM_API_KEY`、`LLM_BASE_URL`、`LL
 - `enemy_style`：`random/rush/timing/power/macro/air`，默认 `random`，与难度独立。
 - `enemy_race`：`terran/protoss/zerg/random`；当前我方 `race` 仅支持 `terran`。
 
-旧 `builtin_` 前缀及 `vision/money/insane` 别名仍兼容，新配置和记录使用短名称。风格是内置 AI 的倾向，不保证固定战术；平台不提前向 Agent 透露该设置。
+`vision/money/insane` 会收成 `cheatvision/cheatmoney/cheatinsane`。记录里只保存短名称。风格是内置 AI 的倾向，不保证固定战术；平台不提前向 Agent 透露该设置。
 
-## 批量与评估
+## 批量、并行与评估
 
 ```python
-from sc2bench_env import BenchmarkRunner, BenchmarkSuite, Evaluator
+from sc2bench_env import BenchmarkRunner, BenchmarkSuite
 
 suite = BenchmarkSuite.load("benchmarks/terran_pilot.json")
 suite = suite.with_overrides(repetitions=1, enemy_style="macro")
-batch = BenchmarkRunner().run(suite, create_agent)
-report = Evaluator.evaluate_batch(batch["summary_path"])
+# 同时最多进行两局，默认 max_parallel=1 为串行
+batch = BenchmarkRunner().run(suite, create_agent, max_parallel=2)
+print(batch["aggregate"])
 ```
 
-默认套件为 Easy/Medium 各两局，仅作流程检查。Suite 保存地图、种族、难度、风格、时限、重复数和决策上限，不含模型或打法，不支持 seed。按 case 顺序执行各自全部重复局。批量示例的 `--opponent` 筛选已有 case，不修改难度。
+默认套件为 Easy/Medium 各两局，仅作流程检查。Suite 保存地图、种族、难度、风格、时限、重复数和决策上限，不含模型或打法，不支持 seed。按 case 顺序排定各自全部重复局。批量示例的 `--opponent` 筛选已有 case，不修改难度。
+
+`max_parallel` 是同时进行的对局上限，不是总局数；默认1，空出名额即启动下一局，不等待整组结束。并行每局使用独立 spawn 进程、新 Agent 和新环境，SC2 清理注册表、端口选择和模型上下文不共享。记录仍每局一目录，批次汇总只留在内存里，结果按计划顺序排列，单局失败不自动重跑。
+
+并行需安装 `.[parallel]`，LLM 示例的 `.[llm]` 已包含。脚本入口应放在 `if __name__ == "__main__":` 下；工厂可使用普通函数或可序列化闭包，在工厂内创建客户端、锁和环境，不捕获已启动的游戏、会话或不可序列化对象。工厂在子进程执行，对父进程变量的修改不会回传。
+
+Ctrl+C 停止继续派发，先请求活动局关闭，再清理无响应的本批次工作进程及其子进程；已完成记录保留。强制停止留下的未终结记录标为 incomplete，不冒充游戏败局。多局终端输出可能交错，批量 LLM 示例建议 `--quiet` 后查看逐局记录。并行占用更多 CPU/内存，也会同时请求模型 API；平台不提供跨局 API 限流器。
 
 ```bash
 python -m sc2bench_env run --suite benchmarks/terran_pilot.json --agent your_package.agent:create_agent
-python -m sc2bench_env evaluate /absolute/path/to/run_file.json
+python -m sc2bench_env run --suite benchmarks/terran_pilot.json --agent your_package.agent:create_agent --max-parallel 2
+python -m sc2bench_env evaluate /absolute/path/to/batch.json
 python -m sc2bench_env paths
 ```
 
@@ -102,16 +113,16 @@ python -m sc2bench_env paths
 
 ## 记录和路径
 
-每局保存 `episode.txt`、`interactions.jsonl` 和可用的 `replay.SC2Replay`；Fake 没有回放。批次索引在 `records/runs/`，每局仍有独立目录。
+每局保存 `episode.txt`、`session.json`、`log.txt` 和可用的 `replay.SC2Replay`；Fake 没有回放。`episode.txt` 记录配置、平台提示词和终局摘要。`session.json` 包含 `episode_id`、`model`、`result`、这一局发给模型的 `tools`，以及模型实际看到的 `messages`（系统提示、观测、tool call 和 tool result）。`log.txt` 复制这一局写到终端的内容，环境关闭后不再追加。Runner 不另写批次索引。
 
-源码/可编辑安装默认使用项目 `records/`，普通包使用用户 `~/.sc2bench/records/`。环境变量 `SC2BENCH_OUTPUT_DIR` 可设置绝对输出根；显式 `record_dir/results_dir` 优先。只设置 `record_dir` 时，索引跟随到其 `runs/`。默认路径不随工作目录改变。
+源码/可编辑安装默认使用项目 `records/`，普通包使用用户 `~/.sc2bench/records/`。环境变量 `SC2BENCH_OUTPUT_DIR` 可设置绝对输出根；显式 `record_dir` 优先。默认路径不随工作目录改变。`Evaluator.evaluate_batch` 读取一份你自己保存的批次 JSON，并按其中的 `record_directory` 回读 `episode.txt`。
 
 ```python
 from sc2bench_env.recording.reader import read_episode
 
 episode = read_episode(episode_directory)
 print(episode["summary"])
-print(episode["interactions"])  # 恢复完整实际消息和回复
+print(episode["messages"])  # 这一局最终保存的完整 session
 ```
 
 ## 错误与清理

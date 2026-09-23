@@ -5,9 +5,10 @@ from sc2bench_env.interface.config import EpisodeConfig
 from sc2bench_env.benchmark import (
     AgentInput, AgentStopped, AgentTurn, BenchmarkRunner, BenchmarkSuite, Evaluator,
 )
+from sc2bench_env.versus import VersusMatch, run_versus
 
 __all__ = [
     "Environment", "EpisodeConfig", "AgentInput", "AgentTurn", "AgentStopped",
-    "BenchmarkRunner", "BenchmarkSuite", "Evaluator",
+    "BenchmarkRunner", "BenchmarkSuite", "Evaluator", "VersusMatch", "run_versus",
 ]
 __version__ = "0.1.0"

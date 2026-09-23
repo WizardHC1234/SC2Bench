@@ -10,6 +10,8 @@ WORKER_UNIT_NAMES = frozenset({"scv", "probe", "drone", "mule"})
 OBSERVATION_SECTIONS = (
     ("game", "Game"), ("economy", "Economy"), ("map_control", "Map Control"),
     ("map_topology", "Map Topology"), ("zone_state", "Zone State"),
+    ("available_targets", "Currently Available Targets"),
+    ("relevant_zone_ids", "Relevant Zones"),
     ("production_priority", "Production Priority"), ("production", "Production Capacity"), ("building", "Building"),
     ("training", "Training"), ("own_forces", "Own Forces"), ("research", "Research"),
     ("structures", "Structures"), ("abilities", "Abilities"),
@@ -17,17 +19,22 @@ OBSERVATION_SECTIONS = (
     ("terminated", "Terminated"),
 )
 
+BRIEFING_SECTIONS = tuple(
+    item for item in OBSERVATION_SECTIONS if item[0] not in {"map_topology", "relevant_zone_ids"}
+)
 
-def render_observation_text(observation: Dict[str, Any]) -> str:
-    """One semantic text view for agent context and Observation.section_lines.
 
-    Compatibility count aliases and backend diagnostics are not repeated;
-    macro quantities/blockers are summarized by type; the full per-order priority
-    table also preserves progress/queues/states, explicitly labeled accepted work.
+def render_observation_text(observation: Dict[str, Any], *, previous: Optional[Dict[str, Any]] = None) -> str:
+    """Compact turn briefing for agent context and Observation.section_lines.
+
+    Structured Observation.to_dict() still carries full zone and topology data
+    for tools. Text omits the static map table and zones unrelated to current
+    bases, enemy contact, army orders or scouting.
     """
+    from sc2bench_env.interface.briefing import compact_observation
     from sc2bench_env.interface.observation_text import render_text
 
-    return render_text(observation, OBSERVATION_SECTIONS)
+    return render_text(compact_observation(observation, previous), BRIEFING_SECTIONS)
 
 @dataclass
 class ResourcesView:
@@ -69,13 +76,18 @@ class EconomyView:
     supply_cap: int = 0
     supply_left: int = 0
     worker_count: int = 0
-    ideal_worker_count: Optional[int] = None
+    mining_worker_capacity: Optional[int] = None
     army_supply: int = 0
     mineral_income_per_minute: Optional[float] = None
     vespene_income_per_minute: Optional[float] = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+    @property
+    def ideal_worker_count(self) -> Optional[int]:
+        """Compatibility alias; Agent-facing data uses mining_worker_capacity."""
+        return self.mining_worker_capacity
 
 
 @dataclass
@@ -97,6 +109,7 @@ class OwnForcesView:
     army: Dict[str, int] = field(default_factory=dict)
     assigned: Dict[str, int] = field(default_factory=dict)
     free: Dict[str, int] = field(default_factory=dict)
+    bunker_garrison: Dict[str, int] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         payload = {
@@ -105,6 +118,8 @@ class OwnForcesView:
             "assigned": dict(self.assigned),
             "free": dict(self.free) if self.free or self.assigned else dict(self.army),
         }
+        if self.bunker_garrison:
+            payload["bunker_garrison"] = dict(self.bunker_garrison)
         return payload
 
 
@@ -143,6 +158,8 @@ class Observation:
     scan_ready: Optional[int] = 0
     mule_ready: Optional[int] = 0
     recent_events: List[dict[str, Any]] = field(default_factory=list)
+    available_targets: Dict[str, List[str]] = field(default_factory=dict)
+    relevant_zone_ids: List[str] = field(default_factory=list)
     terminated: bool = False
 
     def to_dict(self) -> dict[str, Any]:
@@ -158,6 +175,8 @@ class Observation:
             "map_control": self.map_control.to_dict(),
             "map_topology": dict(self.map_topology),
             "zone_state": list(self.zone_state),
+            "available_targets": {key: list(value) for key, value in self.available_targets.items()},
+            "relevant_zone_ids": list(self.relevant_zone_ids),
             "production_priority": list(self.production_priority),
             "production": None if self.production is None else list(self.production),
             "building": dict(self.building),
@@ -181,6 +200,7 @@ def split_own_forces(
     units: Dict[str, int],
     *,
     assigned: Optional[Dict[str, int]] = None,
+    bunker_garrison: Optional[Dict[str, int]] = None,
 ) -> OwnForcesView:
     workers: Dict[str, int] = {}
     army: Dict[str, int] = {}
@@ -203,9 +223,15 @@ def split_own_forces(
     for name, count in assigned_map.items():
         free_map.setdefault(name, 0)
         _ = count
+    garrison = {
+        str(name): int(count)
+        for name, count in dict(bunker_garrison or {}).items()
+        if int(count) > 0
+    }
     return OwnForcesView(
         workers=workers,
         army=army,
         assigned=assigned_map,
         free={name: count for name, count in free_map.items() if count > 0},
+        bunker_garrison=garrison,
     )

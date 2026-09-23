@@ -15,8 +15,7 @@ from sc2bench_env.interface.opponents import normalize_opponent, require_enemy_s
 
 
 _REQUIRED_CONFIG_FIELDS = {"race", "enemy_race", "map_name", "opponent",
-                  "blocking_decisions", "decision_interval_seconds",
-                  "game_time_limit_seconds"}
+                  "blocking_decisions", "game_time_limit_seconds"}
 _CONFIG_FIELDS = _REQUIRED_CONFIG_FIELDS | {"enemy_style"}
 
 
@@ -27,7 +26,7 @@ def _positive_integer(value: Any, name: str) -> None:
 
 def _validate_config(value: dict[str, Any]) -> None:
     if not _REQUIRED_CONFIG_FIELDS <= set(value) or set(value) - _CONFIG_FIELDS:
-        raise ValueError("Each case must resolve all supported episode fields; seed/extra are not supported")
+        raise ValueError("Each case must resolve all supported episode fields; seed is not supported")
     require_supported_own_race(value["race"])
     require_enemy_style(value.get("enemy_style", "random"))
     if not isinstance(value["enemy_race"], str) or value["enemy_race"] not in ENEMY_RACES:
@@ -37,10 +36,9 @@ def _validate_config(value: dict[str, Any]) -> None:
     normalize_opponent(value["opponent"])
     if type(value["blocking_decisions"]) is not bool:
         raise ValueError("blocking_decisions must be a boolean")
-    for field in ("decision_interval_seconds", "game_time_limit_seconds"):
-        number = value[field]
-        if type(number) not in {int, float} or not math.isfinite(number) or number <= 0:
-            raise ValueError(f"{field} must be a finite positive number")
+    number = value["game_time_limit_seconds"]
+    if type(number) not in {int, float} or not math.isfinite(number) or number <= 0:
+        raise ValueError("game_time_limit_seconds must be a finite positive number")
 
 
 @dataclass(frozen=True)
@@ -75,7 +73,7 @@ class BenchmarkSuite:
         _positive_integer(data["max_decisions"], "max_decisions")
         defaults = data["episode_defaults"]
         if not isinstance(defaults, dict) or set(defaults) - _CONFIG_FIELDS:
-            raise ValueError("Unsupported episode_defaults fields; seed/extra are not supported")
+            raise ValueError("Unsupported episode_defaults fields; seed is not supported")
         if not isinstance(data["cases"], list) or not data["cases"]:
             raise ValueError("Provide at least one suite case")
         seen = set()
@@ -87,7 +85,7 @@ class BenchmarkSuite:
                 raise ValueError("case_id must be nonempty and unique")
             seen.add(case_id)
             if not isinstance(case["episode"], dict) or set(case["episode"]) - _CONFIG_FIELDS:
-                raise ValueError("Unsupported case episode fields; seed/extra are not supported")
+                raise ValueError("Unsupported case episode fields; seed is not supported")
             _validate_config({**defaults, **case["episode"]})
 
     @classmethod

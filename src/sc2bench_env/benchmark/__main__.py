@@ -22,6 +22,13 @@ def _agent_factory(reference: str) -> Callable:
     return factory
 
 
+def _positive_int(value: str) -> int:
+    result = int(value)
+    if result < 1:
+        raise argparse.ArgumentTypeError("must be a positive integer")
+    return result
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = argparse.ArgumentParser(description="SC2Bench external Agent execution and offline evaluation")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -31,7 +38,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     run.add_argument("--agent-metadata", type=Path, help="optional non-secret JSON configuration")
     run.add_argument("--backend", choices=("sharpy", "fake"), default="sharpy")
     run.add_argument("--record-dir", type=Path, default=None)
-    run.add_argument("--results-dir", type=Path, default=None)
+    run.add_argument("--max-parallel", type=_positive_int, default=1,
+                     help="maximum simultaneous games; default 1 (serial)")
     commands.add_parser("paths", help="show unified default output paths without creating directories")
     doctor = commands.add_parser("doctor", help="read-only dependency/client/map preflight; never starts a game")
     doctor.add_argument("--backend", choices=("sharpy", "fake"), default="sharpy")
@@ -64,9 +72,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         factory = _agent_factory(args.agent)
         batch = BenchmarkRunner(
             backend_factory=lambda: args.backend, record_dir=args.record_dir,
-            results_dir=args.results_dir,
-        ).run(suite, factory, agent_metadata=metadata)
-        print(json.dumps({"summary_path": batch["summary_path"], "status": batch["status"],
+        ).run(suite, factory, agent_metadata=metadata, max_parallel=args.max_parallel)
+        print(json.dumps({"status": batch["status"],
                           "aggregate": batch["aggregate"],
                           "termination_counts": batch["termination_counts"]},
                          ensure_ascii=False, indent=2))
