@@ -460,6 +460,17 @@ class ActScoutRoute(ActBase):
 _GROUND_CARGO = frozenset({"marine", "marauder"})
 _LOAD_RADIUS = 5.0
 _UNLOAD_RADIUS = 4.0
+_WITHDRAW_PICKUP_RADIUS = 12.0
+_CARRIER_LOAD = {
+    UnitTypeId.MEDIVAC: AbilityId.LOAD_MEDIVAC,
+    UnitTypeId.WARPPRISM: AbilityId.LOAD_WARPPRISM,
+    UnitTypeId.OVERLORDTRANSPORT: AbilityId.LOAD_OVERLORD,
+}
+_CARRIER_UNLOAD = {
+    UnitTypeId.MEDIVAC: AbilityId.UNLOADALLAT_MEDIVAC,
+    UnitTypeId.WARPPRISM: AbilityId.UNLOADALLAT_WARPPRISM,
+    UnitTypeId.OVERLORDTRANSPORT: AbilityId.UNLOADALLAT_OVERLORD,
+}
 _ARRIVAL_RADIUS = 12.0
 
 # Alternate forms keyed for combat evidence / Observation.forms.
@@ -522,7 +533,6 @@ class ActCombatMission(ActBase):
         self.transport_activity = "support"
         self._transport_attempted = False
         self._unload_here = False
-        self._withdraw_pickup_started = None
         self._target_clear_since: Optional[float] = None
         self._return_reason = "withdrawn"
         self._command_revision = -1
@@ -539,7 +549,6 @@ class ActCombatMission(ActBase):
         self._unload_here = False
         self._load_started_at = None
         self._unload_started_at = None
-        self._withdraw_pickup_started = None
         self._target_clear_since = None
         self._return_reason = "withdrawn"
         self.transport_activity = "withdrawal" if withdrawing else "support"
@@ -659,10 +668,15 @@ class ActCombatMission(ActBase):
         # Its spell-range overrides do not imply an active weapon.
         return has_active_weapon(attacker) and self.unit_values.real_range(attacker, target) > 0
 
+    def _is_passenger(self, unit) -> bool:
+        if getattr(unit, "is_flying", False) or getattr(unit, "is_structure", False):
+            return False
+        if unit.type_id in _CARRIER_LOAD or unit.type_id == UnitTypeId.WARPPRISMPHASING:
+            return False
+        return int(getattr(unit, "cargo_size", 0) or 0) > 0
+
     def _run_withdraw(self, free_units) -> bool:
-        from sc2bench_env.backends.sharpy.combat_styles import (
-            PROVISIONAL_WITHDRAW_ARRIVAL, WITHDRAW_PICKUP_SECONDS, WITHDRAW_WOUNDED_HEALTH,
-        )
+        from sc2bench_env.backends.sharpy.combat_styles import PROVISIONAL_WITHDRAW_ARRIVAL
         from sharpy.interfaces.combat_manager import MoveType
 
         home = self._home_point()
@@ -670,38 +684,50 @@ class ActCombatMission(ActBase):
         self._configure_micro_boundary(None)
         if all(unit.distance_to(home) <= PROVISIONAL_WITHDRAW_ARRIVAL for unit in free_units):
             # Do not release still-loaded infantry as inaccessible "free" units.
-            loaded = free_units.of_type(UnitTypeId.MEDIVAC).filter(
-                lambda unit: int(getattr(unit, "cargo_used", 0) or 0) > 0
-            )
-            if loaded.exists:
+            loaded = [
+                unit for unit in free_units
+                if unit.type_id in _CARRIER_UNLOAD and int(getattr(unit, "cargo_used", 0) or 0) > 0
+            ]
+            if loaded:
                 self.transport_activity = "unload"
-                for medivac in loaded:
-                    medivac(AbilityId.UNLOADALLAT_MEDIVAC, medivac.position)
+                for carrier in loaded:
+                    carrier(_CARRIER_UNLOAD[carrier.type_id], carrier.position)
                 return False
             return self._release(self._return_reason)
-        # Bounded local pickup: never march back to gather distant troops or
-        # delay withdrawal indefinitely. Loaded carriers leave immediately.
-        now = float(self.ai.time)
-        if self._withdraw_pickup_started is None:
-            self._withdraw_pickup_started = now
+        # Pick up troops that are still with the carrier. Do not fly back for
+        # units already outside the local group.
         controlled = set()
-        capacity = {med.tag: max(0, med.cargo_max - med.cargo_used)
-                    for med in free_units.of_type(UnitTypeId.MEDIVAC) if med.cargo_used == 0}
-        contact = self._transport_contact(free_units)
-        if now - self._withdraw_pickup_started < WITHDRAW_PICKUP_SECONDS:
-            infantry = free_units.filter(lambda unit: self._platform_name(unit.type_id) in _GROUND_CARGO)
-            for unit in sorted(infantry, key=lambda unit: (getattr(unit, "health_percentage", 1), unit.tag)):
-                if contact and getattr(unit, "health_percentage", 1) > WITHDRAW_WOUNDED_HEALTH:
-                    continue
-                choices = [med for med in free_units.of_type(UnitTypeId.MEDIVAC)
-                           if med.tag not in controlled and capacity.get(med.tag, 0) >= unit.cargo_size
-                           and med.distance_to(unit) <= _LOAD_RADIUS
-                           and med.distance_to(home) > PROVISIONAL_WITHDRAW_ARRIVAL]
-                if choices:
-                    med = min(choices, key=lambda med: med.distance_to(unit))
-                    med(AbilityId.LOAD_MEDIVAC, unit)
-                    capacity[med.tag] -= unit.cargo_size
-                    controlled.update((med.tag, unit.tag))
+        passengers = [unit for unit in free_units if self._is_passenger(unit)]
+        carriers = [
+            unit for unit in free_units
+            if unit.type_id in _CARRIER_LOAD or unit.type_id == UnitTypeId.WARPPRISMPHASING
+        ]
+        for carrier in carriers:
+            if carrier.distance_to(home) <= PROVISIONAL_WITHDRAW_ARRIVAL:
+                continue
+            if carrier.type_id == UnitTypeId.WARPPRISMPHASING:
+                carrier(AbilityId.MORPH_WARPPRISMTRANSPORTMODE, None)
+                controlled.add(carrier.tag)
+                continue
+            space = max(0, int(getattr(carrier, "cargo_max", 0) or 0) - int(getattr(carrier, "cargo_used", 0) or 0))
+            choices = [
+                unit for unit in passengers
+                if unit.tag not in controlled
+                and int(getattr(unit, "cargo_size", 0) or 0) <= space
+                and carrier.distance_to(unit) <= _WITHDRAW_PICKUP_RADIUS
+                and unit.distance_to(home) > PROVISIONAL_WITHDRAW_ARRIVAL
+            ]
+            if not choices:
+                continue
+            unit = min(choices, key=lambda unit: (
+                getattr(unit, "health_percentage", 1), carrier.distance_to(unit), unit.tag,
+            ))
+            controlled.add(carrier.tag)
+            if carrier.distance_to(unit) <= _LOAD_RADIUS:
+                carrier(_CARRIER_LOAD[carrier.type_id], unit)
+                controlled.add(unit.tag)
+            else:
+                carrier.move(unit.position)
         for unit in free_units:
             if unit.tag in controlled:
                 continue
