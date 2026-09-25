@@ -40,6 +40,7 @@ class _Bridge:
     decision_reached: threading.Event = field(default_factory=threading.Event)
     stopped: threading.Event = field(default_factory=threading.Event)
     blocking_decisions: bool = True
+    realtime: bool = False
     advance_allowed: threading.Event = field(default_factory=threading.Event)
     leave_requested: bool = False
     target_time: Optional[float] = None
@@ -250,6 +251,7 @@ class SharpyBackend(Backend):
         self._config = config
         self._bridge = _Bridge()
         self._bridge.blocking_decisions = config.blocking_decisions
+        self._bridge.realtime = config.realtime
         if not config.blocking_decisions:
             self._bridge.advance_allowed.set()
         self._bridge.max_game_time = config.game_time_limit_seconds
@@ -359,6 +361,7 @@ class SharpyBackend(Backend):
         self._config = config
         self._bridge = _Bridge()
         self._bridge.blocking_decisions = True
+        self._bridge.realtime = config.realtime
         self._bridge.max_game_time = config.game_time_limit_seconds
         self._bridge.replay_path = self._replay_path
         self._bridge.zone_registry.reset()
@@ -596,6 +599,8 @@ class SharpyBackend(Backend):
             bot = BenchBot(self._bridge, self._adapter)
             race = _parse_race(self._config.race)
 
+            # Stay lockstep. config.realtime only paces the decision wait at 1x;
+            # the advance window steps as fast as the machine allows.
             kwargs: Dict[str, Any] = {"realtime": False}
             if self._replay_path is not None:
                 kwargs["save_replay_as"] = str(self._replay_path)

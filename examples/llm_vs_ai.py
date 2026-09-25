@@ -82,6 +82,7 @@ def main(argv=None) -> int:
     parser.add_argument("--api-attempts", type=agent_module.positive_int, default=3)
     parser.add_argument("--api-retry-delay", type=agent_module.nonnegative_float, default=1)
     parser.add_argument("--thinking", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument("--realtime", action="store_true")
     parser.add_argument("--non-blocking", action="store_true")
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument("--record-dir", type=Path, default=None)
@@ -90,7 +91,7 @@ def main(argv=None) -> int:
     config = EpisodeConfig(
         map_name=args.map, opponent=args.opponent, enemy_race=args.enemy_race,
         enemy_style=args.enemy_style, game_time_limit_seconds=args.game_time_limit,
-        blocking_decisions=not args.non_blocking)
+        blocking_decisions=not args.non_blocking, realtime=args.realtime)
     if not args.model.strip() or not args.map.strip():
         parser.error("model and map must not be empty")
     if args.dry_run:

@@ -148,7 +148,7 @@ def _combat(name: str, *, description: str) -> TargetSpec:
 
 
 ZERG_TARGETS: Tuple[TargetSpec, ...] = (
-    _building("hatchery", description="Town hall, larva and mining capacity. A completed Hatchery adds 6 supply.", minerals=300, seconds=71),
+    _building("hatchery", description="Town hall, larva and mining capacity. A completed Hatchery provides 4 supply. Lair and Hive keep that same 4; morphing does not add more.", minerals=300, seconds=71),
     _building("extractor", description="Gas mining structure on a geyser.", minerals=25, seconds=21, prerequisites=("hatchery",)),
     _building("spawning_pool", description="Zergling and Queen tech.", minerals=200, seconds=46, prerequisites=("hatchery",)),
     _building("evolution_chamber", description="Ground upgrades.", minerals=75, seconds=25, prerequisites=("hatchery",)),
@@ -167,7 +167,7 @@ ZERG_TARGETS: Tuple[TargetSpec, ...] = (
     _morph("hive", description="Morph the selected Lair.", minerals=200, vespene=150, seconds=71, morph_from="lair", prerequisites=("infestation_pit",)),
     _unit("drone", description="Worker: mines and builds. It does not repair.", minerals=50, supply=1, seconds=12, producer="hatchery"),
     _unit("overlord", description="Adds 8 supply when complete. Overlords are not built automatically.", minerals=100, supply=0, seconds=18, producer="hatchery"),
-    _unit("queen", description="Support unit trained at a town hall. Transfusion is backend-controlled. Inject is reported and is not an action.", minerals=150, supply=2, seconds=36, producer="hatchery", prerequisites=("spawning_pool",)),
+    _unit("queen", description="Support unit trained at a town hall. Transfusion is backend-controlled. inject_larva is a separate action and is not cast automatically.", minerals=150, supply=2, seconds=36, producer="hatchery", prerequisites=("spawning_pool",)),
     _unit("zergling", description="Ground melee fighter. One larva order produces two, and two use 1 supply. The supply column shows 1.", minerals=25, supply=1, seconds=17, producer="hatchery", prerequisites=("spawning_pool",)),
     _unit("baneling", description="Morphs an existing Zergling. Does not train Zerglings. Two Banelings use 1 supply.", minerals=25, vespene=25, supply=1, seconds=14, producer="zergling", prerequisites=("baneling_nest",)),
     _unit("roach", description="Armored ground fighter.", minerals=75, vespene=25, supply=2, seconds=19, producer="hatchery", prerequisites=("roach_warren",)),
@@ -283,7 +283,7 @@ _TARGET_TABLE_LEGEND = (
 
 _TARGET_NOTES = {
     "build": (
-        "- A completed Hatchery adds 6 supply. A completed Overlord adds 8 supply and is a train target, not an automatic building.",
+        "- A completed Hatchery, Lair or Hive provides 4 supply. Morphing among them does not add more. A completed Overlord adds 8 supply and is a train target, not an automatic building.",
         "- Lurker Den morphs a Hydralisk Den. Greater Spire morphs a Spire. Creep tumors and Nydus worms are not actions.",
     ),
     "train": (
@@ -316,7 +316,7 @@ _PROMPT_DESCRIPTIONS = {
     "hive": "Morph a Lair.",
     "drone": "Worker: mines and builds.",
     "overlord": "Adds 8 supply. Not automatic.",
-    "queen": "Town-hall support. Inject is not an action.",
+    "queen": "Town-hall support. inject_larva is a separate action.",
     "zergling": "Melee fighter. Two per larva order.",
     "baneling": "Morphs a Zergling.",
     "roach": "Armored ground fighter.",

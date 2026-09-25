@@ -168,11 +168,21 @@ def compact_map_control(
 ) -> Dict[str, Any]:
     allowed = set(relevant)
     payload = dict(map_control)
-    resources = [
-        row for row in map_control.get("base_resources") or []
-        if isinstance(row, Mapping) and row.get("zone_id") in allowed
-        and row.get("resource_visibility") == "visible"
-    ]
+    resources = []
+    for row in map_control.get("base_resources") or []:
+        if not isinstance(row, Mapping) or row.get("zone_id") not in allowed:
+            continue
+        if row.get("resource_visibility") != "visible":
+            continue
+        # Initial totals, visibility and total geyser slots are stable or
+        # derivable. Keep only the current values needed for a turn decision.
+        resources.append({
+            key: row.get(key)
+            for key in (
+                "zone_id", "minerals_remaining", "vespene_remaining",
+                "owned_gas_structure_count", "available_geyser_slots",
+            )
+        })
     payload["base_resources"] = resources
     return payload
 
@@ -180,7 +190,27 @@ def compact_map_control(
 def compact_production(rows: Optional[Sequence[Mapping[str, Any]]]) -> Optional[List[dict[str, Any]]]:
     if rows is None:
         return None
-    return [dict(row) for row in rows if row.get("facility")]
+    standard = {
+        "facility", "ready_grounded", "techlab_hosts", "reactor_hosts",
+        "capacity", "occupied_slots", "free_slots", "queue_capacity",
+        "queued_orders", "free_queue_positions", "free_techlab_slots",
+    }
+
+    def meaningful(row: Mapping[str, Any]) -> bool:
+        if any(
+            type(item) in {int, float} and item > 0
+            for key, item in row.items() if key != "facility"
+        ):
+            return True
+        return any(
+            key not in standard and item not in (None, "", False, 0, [], {})
+            for key, item in row.items()
+        )
+
+    return [
+        dict(row) for row in rows
+        if row.get("facility") and meaningful(row)
+    ]
 
 
 def compact_observation(
@@ -199,6 +229,51 @@ def compact_observation(
         ]
         if isinstance(observation.get("map_control"), Mapping):
             payload["map_control"] = compact_map_control(observation["map_control"], relevant)
+
+    # A match is one Agent session. Race and the fixed time limit are part of
+    # the opening briefing; later turns retain only changing clock values.
+    if previous is not None and isinstance(observation.get("game"), Mapping):
+        game = observation["game"]
+        payload["game"] = {
+            key: game.get(key)
+            for key in ("game_time_seconds", "seconds_remaining")
+            if key in game
+        }
+
+    # Economy already owns the live worker total. Do not repeat the same count
+    # in Own Forces, while preserving it for partial observations without an
+    # economy section.
+    if isinstance(observation.get("economy"), Mapping) and isinstance(
+        observation.get("own_forces"), Mapping
+    ):
+        forces = dict(observation["own_forces"])
+        workers = forces.get("workers")
+        worker_count = observation["economy"].get("worker_count")
+        if (
+            isinstance(workers, Mapping)
+            and type(worker_count) is int
+            and all(type(count) is int for count in workers.values())
+            and sum(workers.values()) == worker_count
+        ):
+            forces.pop("workers", None)
+        payload["own_forces"] = forces
+
+    # Own Forces is the authoritative source for home-pool availability.
+    # Combat still reports group_0's order and phase.
+    if isinstance(observation.get("own_forces"), Mapping) and isinstance(
+        observation.get("combat"), Mapping
+    ):
+        combat = {
+            str(name): dict(row) if isinstance(row, Mapping) else row
+            for name, row in observation["combat"].items()
+        }
+        home = combat.get("group_0")
+        if isinstance(home, dict):
+            free = observation["own_forces"].get("free")
+            if isinstance(free, Mapping) and home.get("alive") == free:
+                home.pop("alive", None)
+                home.pop("assigned", None)
+        payload["combat"] = combat
     if "production" in observation:
         payload["production"] = compact_production(observation.get("production"))
     payload.pop("map_topology", None)

@@ -21,7 +21,7 @@ if __package__:
 else:
     import agent_integration as agent_module
 
-from agents.llm_agent.agent import env_setting
+from agents.llm_agent.config import env_setting
 from sc2bench_env import EpisodeConfig, VersusMatch, run_versus
 from sc2bench_env.interface.races import SUPPORTED_OWN_RACES
 
@@ -48,6 +48,7 @@ def main(argv=None) -> int:
     parser.add_argument("--api-attempts", type=agent_module.positive_int, default=3)
     parser.add_argument("--api-retry-delay", type=agent_module.nonnegative_float, default=1)
     parser.add_argument("--thinking", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument("--realtime", action="store_true")
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument("--record-dir", type=Path, default=None)
     parser.add_argument("--dry-run", action="store_true")
@@ -55,6 +56,7 @@ def main(argv=None) -> int:
     config = EpisodeConfig(
         race=args.race, enemy_race=args.enemy_race, map_name=args.map,
         game_time_limit_seconds=args.game_time_limit, blocking_decisions=True,
+        realtime=args.realtime,
     )
     if not args.model.strip() or not args.map.strip():
         parser.error("model and map must not be empty")

@@ -26,6 +26,8 @@ class EpisodeConfig:
     # Freeze simulation between reset/step returns and the next valid decision.
     # False preserves the continuously running, asynchronous game mode.
     blocking_decisions: bool = True
+    # While the model thinks, step at wall-clock speed. advance still fast-forwards.
+    realtime: bool = False
     # Builtin AI's SC2 AIBuild, independent of its difficulty and race.
     enemy_style: str = "random"
 

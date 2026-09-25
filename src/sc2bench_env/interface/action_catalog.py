@@ -66,12 +66,19 @@ def _catalog_indexes(race: str) -> Tuple[Mapping[str, TargetSpec], Mapping[str, 
     )
 
 
+def _numbered(spec: TargetSpec, race: str) -> TargetSpec:
+    from sc2bench_env.data.knowledge import apply_action_numbers
+
+    return apply_action_numbers(spec, race)
+
+
 def get_target(name: str, *, race: str = "terran") -> Optional[TargetSpec]:
-    return _catalog_indexes(race)[0].get(str(name or "").strip().lower())
+    spec = _catalog_indexes(race)[0].get(str(name or "").strip().lower())
+    return None if spec is None else _numbered(spec, race)
 
 
 def targets_for_action(action: str, *, race: str = "terran") -> Tuple[TargetSpec, ...]:
-    return _catalog_indexes(race)[1].get(action, ())
+    return tuple(_numbered(spec, race) for spec in _catalog_indexes(race)[1].get(action, ()))
 
 
 def known_target_names(action: Optional[str] = None, *, race: str = "terran") -> Tuple[str, ...]:
@@ -81,7 +88,10 @@ def known_target_names(action: Optional[str] = None, *, race: str = "terran") ->
 
 
 def cost_table(*, race: str = "terran") -> Dict[str, Dict[str, int]]:
-    return {spec.name: spec.cost_dict() for spec in get_catalog(race=race).targets}
+    return {
+        spec.name: get_target(spec.name, race=race).cost_dict()
+        for spec in get_catalog(race=race).targets
+    }
 
 
 def prerequisite_table(*, race: str = "terran") -> Dict[str, List[str]]:
@@ -360,11 +370,12 @@ def render_decision_guide(*, race: str = "terran") -> str:
 def render_observation_guide() -> str:
     return "\n".join([
         "Observation conventions:",
+        "- The latest Current Observation is authoritative for changing game state and replaces older values; earlier observations are history.",
         "- unknown means that information is unavailable, while none means that the observed value is empty.",
         "- Visible enemies are current sightings; last-seen enemies are history under fog.",
         "- Waiting work, paid queues and living units are different quantities.",
         "- In Combat, Originally requested is the group's initial membership and Living members is its current surviving membership. Own Forces free, not phase alone, determines what can be newly dispatched.",
-        "- Group phase, nearest zone and nearby-enemy counts do not prove arrival or mission completion. combat_ended means that the group mission ended, not that the match was won.",
+        "- Group phase reports progress only. Phase, nearest zone and nearby-enemy counts do not prove arrival or mission completion; use the current group list and recent events to determine whether a mission ended. combat_ended refers to the group mission, not the match result.",
         "- Names and IDs keep their exact platform spelling. Copy zone_id and group_id from Observation.",
     ]) + "\n"
 
@@ -379,7 +390,7 @@ def decision_json_schema(*, race: str = "terran") -> Dict[str, Any]:
 
 
 def catalog_as_dicts(*, race: str = "terran") -> List[Dict[str, Any]]:
-    return [spec.to_dict() for spec in get_catalog(race=race).targets]
+    return [get_target(spec.name, race=race).to_dict() for spec in get_catalog(race=race).targets]
 
 
 # Import-time consistency check.

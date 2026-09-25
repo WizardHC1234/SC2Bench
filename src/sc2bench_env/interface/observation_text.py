@@ -84,6 +84,23 @@ def time_value(seconds):
 def resource_lines(rows):
     if not rows:
         return ["none"]
+    compact = all(
+        "minerals_initial" not in row and "vespene_initial" not in row
+        for row in rows
+    )
+    if compact:
+        lines = ["Owned-base resources:",
+                 "Zone | Minerals remaining | Vespene remaining | Owned gas structures | Available geyser slots"]
+        for row in rows:
+            lines.append(" | ".join(value(row.get(key)) for key in (
+                "zone_id", "minerals_remaining", "vespene_remaining",
+                "owned_gas_structure_count", "available_geyser_slots",
+            )))
+            lines.extend(extras(row, {
+                "zone_id", "minerals_remaining", "vespene_remaining",
+                "owned_gas_structure_count", "available_geyser_slots",
+            }))
+        return lines
     def ratio(row, prefix):
         return "/".join("?" if row.get(key) is None else value(row[key])
                         for key in (f"{prefix}_remaining", f"{prefix}_initial"))
@@ -112,7 +129,8 @@ def combat_lines(groups):
         lines.append(f"{group}: {value(row.get('style'))}; target {value(row.get('target'))}; "
                      f"status {value(row.get('status'))}; phase {value(row.get('phase'))}")
         member_label = "Available home members" if group == "group_0" else "Living members"
-        lines.append(f"  {member_label}: {counts(row.get('alive'))}")
+        if "alive" in row:
+            lines.append(f"  {member_label}: {counts(row.get('alive'))}")
         if "requested" in row:
             lines.append(f"  Originally requested: {counts(row['requested'])}")
         if "nearest_zone" in row:
@@ -367,27 +385,21 @@ def facility_training(facility, training, *, race="terran"):
 
 
 def production_lines(data, buildings, training, *, race="terran"):
-    columns = [("Facility", "facility"), ("Ready grounded", "ready_grounded"),
+    columns = [("Facility", "facility"), ("Ready", "ready_grounded"),
                   ("Ready attached Tech Labs", "techlab_hosts"), ("Ready attached Reactors", "reactor_hosts"),
-                  ("Capacity", "capacity"), ("Occupied slots", "occupied_slots"),
-                  ("Free slots", "free_slots"), ("Queue positions", "queue_capacity"),
-                  ("Queued orders", "queued_orders"), ("Free queue positions", "free_queue_positions"),
+                  ("Capacity", "capacity"), ("Free production slots", "free_slots"),
+                  ("Free queue positions", "free_queue_positions"),
                   ("Free Tech Lab slots", "free_techlab_slots")]
     if race != "terran":
         # Keep supplied capacity facts; never manufacture Terran-specific columns.
-        common_columns = [("Facility", "facility"), ("Ready grounded", "ready_grounded"),
-                          ("Capacity", "capacity"), ("Occupied slots", "occupied_slots"),
-                          ("Free slots", "free_slots"), ("Queue positions", "queue_capacity"),
-                          ("Queued orders", "queued_orders"),
+        common_columns = [("Facility", "facility"), ("Ready", "ready_grounded"),
+                          ("Capacity", "capacity"), ("Free production slots", "free_slots"),
                           ("Free queue positions", "free_queue_positions")]
         columns = [column for column in common_columns
                    if column[1] == "facility" or any(column[1] in row for row in data)]
-    lines = table(data, columns)
-    lines.append("Training by producer type (shared totals, not assignments to individual buildings):")
-    for row in data:
-        lines.extend([f"{value(row.get('facility'))}:",
-                      "  Accepted training: " + facility_training(row.get("facility"), training, race=race)])
-    return lines
+    hidden = {"occupied_slots", "queue_capacity", "queued_orders"}
+    rows = [{key: item for key, item in row.items() if key not in hidden} for row in data]
+    return table(rows, columns)
 
 
 def section(key, data, *, production_priority=None, buildings=None, training=None, race="terran"):
@@ -466,18 +478,44 @@ def section(key, data, *, production_priority=None, buildings=None, training=Non
             ("Visible enemy weapon in range", "visible_enemy_weapon_in_range"),
         ])]
     if key in {"building", "training"}:
+        action = "build" if key == "building" else "train"
+        waiting_key = "waiting_to_start" if key == "building" else "waiting_to_produce"
+        priorities = production_priority or []
+        represented = {
+            row.get("target") for row in priorities
+            if row.get("action") == action
+        }
+        unrepresented_waiting = any(
+            type(row.get(waiting_key)) is int and row.get(waiting_key) > 0 and name not in represented
+            for name, row in data.items()
+        )
+        compact = production_priority is not None and not unrepresented_waiting
         columns = [("Type", "type")]
-        columns += ([("Ready", "completed"), ("Under construction", "under_construction"),
-                     ("Worker en route", "worker_en_route"), ("Waiting to start", "waiting_to_start")]
-                    if key == "building" else [("Paid training queue", "in_production"),
-                     ("Additional units waiting", "waiting_to_produce")])
-        columns.append(("Waiting reason (quantity)", "waiting_for", value))
-        hidden = {"waiting_for", "order_progress"}
+        if key == "building":
+            columns += [("Ready", "completed"), ("Under construction", "under_construction")]
+            if not compact:
+                columns += [("Worker en route", "worker_en_route"),
+                            ("Waiting to start", "waiting_to_start")]
+        else:
+            columns += [("Paid training queue", "in_production")]
+            if not compact:
+                columns += [("Additional units waiting", "waiting_to_produce")]
+        if not compact:
+            columns.append(("Waiting reason (quantity)", "waiting_for", value))
+        hidden = {"order_progress"}
+        if compact:
+            hidden |= {"waiting_for", "worker_en_route", "waiting_to_start", "waiting_to_produce"}
         rows = []
         for name, row in data.items():
+            if compact and key == "training" and not (
+                type(row.get("in_production")) is int and row.get("in_production") > 0
+            ):
+                continue
             view = {k: v for k, v in row.items() if k not in hidden}
-            view.update(type=name, waiting_for=waiting_summary(
-                "build" if key == "building" else "train", name, production_priority, row))
+            view["type"] = name
+            if not compact:
+                view["waiting_for"] = waiting_summary(
+                    action, name, production_priority, row)
             rows.append(view)
         return table(rows, columns)
     if key == "own_forces":

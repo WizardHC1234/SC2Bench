@@ -132,6 +132,33 @@ def _probe_sharpy(map_names: Sequence[str]) -> list[dict[str, Any]]:
             except Exception as error:
                 checks.append(_check("map:" + name, "error", "Map lookup failed.", error_type=type(error).__name__,
                                      hint="Place the matching .SC2Map in the SC2 Maps directory (or a first-level subdirectory)."))
+    try:
+        import re
+        from sc2.paths import Paths
+        from sc2bench_env.data.knowledge import list_manifests
+
+        info = Path(Paths.BASE) / ".build.info"
+        match = re.findall(r"\d+\.\d+\.\d+\.\d+", info.read_text(encoding="utf-8", errors="replace")) if info.is_file() else []
+        installed = match[-1] if match else None
+        known = {str(item.get("game_version")) for item in list_manifests()}
+        if installed and installed in known:
+            checks.append(_check(
+                "knowledge_snapshot", "pass",
+                "Installed game version matches a stored snapshot. The data hash is checked when a game starts.",
+                game_version=installed,
+            ))
+        else:
+            checks.append(_check(
+                "knowledge_snapshot", "error",
+                "Installed client has no knowledge snapshot, so a formal game must not start.",
+                game_version=installed,
+            ))
+    except (Exception, SystemExit) as error:
+        checks.append(_check(
+            "knowledge_snapshot", "error",
+            "Knowledge snapshot could not be compared with the installed client.",
+            error_type=type(error).__name__,
+        ))
     return checks
 
 

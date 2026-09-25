@@ -76,6 +76,12 @@ def _display_list(value: Any) -> str:
     return ", ".join(items) if items else "none"
 
 
+def _display_supply_provided(value: Any) -> str:
+    if value in (0, 0.0, "0", "0.0"):
+        return "none"
+    return _display_value(value)
+
+
 def _display_counts(value: Any) -> str:
     if not isinstance(value, Mapping) or not value:
         return "none"
@@ -97,7 +103,10 @@ def _render_catalog_results(result: Mapping[str, Any], *, kind: str) -> str:
             continue
         name = _display_value(row.get("name"))
         if row.get("error"):
-            lines.append(f"- {name}: error: {_display_value(row.get('error'))}")
+            extra = ""
+            if row.get("candidates"):
+                extra = f"; close candidates: {_display_list(row.get('candidates'))}"
+            lines.append(f"- {name}: error: {_display_value(row.get('error'))}{extra}")
             continue
         lines.append(f"- {name}")
         lines.append(
@@ -110,16 +119,65 @@ def _render_catalog_results(result: Mapping[str, Any], *, kind: str) -> str:
         )
         lines.append(f"  {time_label}: {_display_value(row.get('time_seconds'))} seconds")
         if kind == "unit":
-            lines.append(f"  Supply: {_display_value(row.get('supply'))}")
+            lines.append(f"  Supply required by this action: {_display_value(row.get('supply'))}")
+            lines.append(f"  Total supply while alive: {_display_value(row.get('client_food_required'))}")
+            lines.append(f"  Supply provided when complete: {_display_supply_provided(row.get('food_provided'))}")
             lines.append(f"  Produced at: {_display_value(row.get('produced_at'))}")
         elif kind == "building":
             lines.append(f"  Builder: {_display_value(row.get('builder'))}")
             lines.append(f"  Kind: {_display_value(row.get('kind'))}")
+            lines.append(f"  Supply provided when complete: {_display_supply_provided(row.get('food_provided'))}")
             if row.get("morph_from"):
                 lines.append(f"  Morphs from: {_display_value(row.get('morph_from'))}")
         else:
             lines.append(f"  Facility: {_display_value(row.get('facility'))}")
         lines.append(f"  Prerequisites: {_display_list(row.get('prerequisites'))}")
+        lines.append(f"  Availability: {_display_value(row.get('availability'))}")
+        if kind == "research":
+            lines.append(f"  Effect: {_display_value(row.get('description'))}")
+            continue
+        lines.append(f"  Roles: {_display_list(row.get('roles'))}")
+        gaps = [
+            label for label, key in (
+                ("health", "health"), ("shields", "shields"), ("energy_max", "energy_max"),
+            ) if row.get(key) == "unknown"
+        ]
+        if gaps:
+            lines.append(f"  Data gaps: {', '.join(gaps)}")
+        else:
+            lines.append(f"  Health: {_display_value(row.get('health'))}")
+            lines.append(f"  Shields: {_display_value(row.get('shields'))}")
+            lines.append(f"  Energy max: {_display_value(row.get('energy_max'))}")
+        lines.append(f"  Armor: {_display_value(row.get('armor'))}")
+        if kind == "unit":
+            lines.append(f"  Movement speed: {_display_value(row.get('movement_speed'))}")
+        lines.append(f"  Sight: {_display_value(row.get('sight_range'))}")
+        lines.append(f"  Attributes: {_display_list(row.get('attributes'))}")
+        attack = row.get("can_attack")
+        lines.append(
+            "  Can attack: varies by form"
+            if attack == "varies_by_form" else f"  Can attack: {_display_value(attack)}"
+        )
+        if row.get("form_note"):
+            lines.append(f"  {_display_value(row.get('form_note'))}")
+        forms = row.get("forms")
+        if isinstance(forms, Sequence) and not isinstance(forms, (str, bytes)) and forms:
+            lines.append("  Forms:")
+            for form in forms:
+                if not isinstance(form, Mapping):
+                    continue
+                lines.append(
+                    f"  - {_display_value(form.get('proto_name'))} "
+                    f"id {_display_value(form.get('unit_id'))}, "
+                    f"movement {_display_value(form.get('movement_layer'))}, "
+                    f"can_attack {_display_value(form.get('can_attack'))}"
+                )
+                for weapon in form.get("weapons") or []:
+                    lines.append(f"    Weapon: {_display_value(weapon)}")
+        platform = row.get("platform_behavior")
+        if (platform is not None and platform not in ("unknown", "not_applicable")
+                and platform != row.get("description") and platform != row.get("form_note")):
+            lines.append(f"  Platform behavior: {_display_value(platform)}")
         lines.append(f"  Description: {_display_value(row.get('description'))}")
     return "\n".join(lines)
 
@@ -226,6 +284,7 @@ def render_tool_result(name: str, result: Any) -> str:
         return f"Tool result for {name}\n{_display_value(result)}"
     if result.get("error") and name not in {
         "query_unit_data", "query_building_data", "query_research_data",
+        "query_prerequisite_path",
     }:
         return f"Tool error for {name}: {_display_value(result.get('error'))}"
     if name == "query_map_overview":
@@ -254,19 +313,38 @@ def render_tool_result(name: str, result: Any) -> str:
     if name == "query_research_data":
         return _render_catalog_results(result, kind="research")
     if name == "query_prerequisite_path":
-        path = " -> ".join(str(item) for item in result.get("path") or []) or "none"
-        return (
-            f"Prerequisite path for {_display_value(result.get('target'))}\n"
-            f"Build/research order: {path}"
-        )
+        lines = [
+            f"Prerequisite path for {_display_value(result.get('target'))}",
+            "Static dependency path, not a match build order.",
+        ]
+        if result.get("error"):
+            lines.append(f"Error: {_display_value(result.get('error'))}")
+            if result.get("candidates"):
+                lines.append(f"Close candidates: {_display_list(result.get('candidates'))}")
+            return "\n".join(lines)
+        lines.append("Step | Type | Target | Minerals | Gas | Time | Requires")
+        for step in result.get("steps") or []:
+            if not isinstance(step, Mapping):
+                continue
+            lines.append(
+                f"{_display_value(step.get('step'))} | {_display_value(step.get('type'))} | "
+                f"{_display_value(step.get('target'))} | {_display_value(step.get('minerals'))} | "
+                f"{_display_value(step.get('gas'))} | {_display_value(step.get('time_seconds'))} | "
+                f"{_display_list(step.get('requires'))}"
+            )
+        return "\n".join(lines)
     if name == "query_race_data":
         upgrades = result.get("upgrades") if isinstance(result.get("upgrades"), Mapping) else {}
+        observable = result.get("observable_only") if isinstance(result.get("observable_only"), Mapping) else {}
         return "\n".join((
             f"{_display_value(result.get('race')).title()} catalog",
-            f"Units: {_display_list(result.get('units'))}",
-            f"Buildings: {_display_list(result.get('buildings'))}",
+            f"Controllable units: {_display_list(result.get('units'))}",
+            f"Controllable buildings: {_display_list(result.get('buildings'))}",
             f"Research: {_display_list(upgrades.get('research'))}",
             f"Structure morphs: {_display_list(upgrades.get('structure'))}",
+            f"Observable-only units: {_display_list(observable.get('units'))}",
+            f"Observable-only buildings: {_display_list(observable.get('buildings'))}",
+            f"Platform abilities: {_display_list(result.get('platform_abilities'))}",
         ))
     if result.get("status") == "queued" and isinstance(result.get("call"), Mapping):
         call = result["call"]
@@ -274,6 +352,9 @@ def render_tool_result(name: str, result: Any) -> str:
         rendered_args = ", ".join(f"{key}={value}" for key, value in arguments.items())
         return f"Action queued: {_display_value(call.get('name'))}({rendered_args})"
     return f"Tool result for {name}: {_display_value(result)}"
+
+_KNOWLEDGE_RACES = ("terran", "protoss", "zerg")
+_RACE_PROPERTY = {"type": "string", "enum": list(_KNOWLEDGE_RACES)}
 
 READ_TOOLS = ("query_map_overview", "query_zone_state", "query_route")
 KNOWLEDGE_TOOLS = (
@@ -378,32 +459,32 @@ def tool_schemas(race: str = "terran") -> List[Dict[str, Any]]:
         ),
         _schema(
             "query_unit_data",
-            "Use when a production or combat decision depends on a unit's cost, supply, train time, producer, prerequisites or capabilities.",
-            {"names": {"type": "array", "items": {"type": "string"}}},
-            ("names",),
+            "Get cost, supply, production, prerequisites, roles, movement and available durability and weapon data for the named units.",
+            {"race": _RACE_PROPERTY, "names": {"type": "array", "items": {"type": "string"}}},
+            ("race", "names"),
         ),
         _schema(
             "query_building_data",
-            "Use when a construction decision depends on a building's cost, build time, builder, prerequisites or function.",
-            {"names": {"type": "array", "items": {"type": "string"}}},
-            ("names",),
+            "Get cost, build time, builder, prerequisites, supply provided, roles and available weapon data for the named buildings.",
+            {"race": _RACE_PROPERTY, "names": {"type": "array", "items": {"type": "string"}}},
+            ("race", "names"),
         ),
         _schema(
             "query_research_data",
-            "Use when a decision depends on a research item's cost, duration, facility, prerequisites or effect.",
-            {"names": {"type": "array", "items": {"type": "string"}}},
-            ("names",),
+            "Get cost, duration, facility, prerequisites and recorded effects for the named research items.",
+            {"race": _RACE_PROPERTY, "names": {"type": "array", "items": {"type": "string"}}},
+            ("race", "names"),
         ),
         _schema(
             "query_prerequisite_path",
-            "Use before committing to a target whose complete technology path has not been verified in this session.",
-            {"target": {"type": "string"}},
-            ("target",),
+            "Get the static technology dependency path for one target. This is not a match build order.",
+            {"race": _RACE_PROPERTY, "target": {"type": "string"}},
+            ("race", "target"),
         ),
         _schema(
             "query_race_data",
-            "Use when canonical unit, building or upgrade names are not already available.",
-            {"race": {"type": "string", "enum": ["terran"]}},
+            "List the canonical controllable and observable units, buildings, research items, structure morphs and platform abilities for one race.",
+            {"race": _RACE_PROPERTY},
             ("race",),
         ),
         *_action_tool_schemas(race),
@@ -429,15 +510,27 @@ def _spec_payload(spec, *, kind: str) -> Dict[str, Any]:
 
 
 def _lookup(name: str, *, race: str, expected_actions: Sequence[str], kind: str) -> Dict[str, Any]:
+    from sc2bench_env.data.knowledge import attach, close_names, observable_payload
+
     spec = get_target(name, race=race)
     if spec is None:
-        return {"name": name, "error": "unknown_target"}
+        observed = observable_payload(race, name, kind)
+        if observed is not None:
+            return observed
+        return {
+            "name": name,
+            "error": "unknown_target",
+            "candidates": close_names(race, name, kind),
+        }
     if spec.action not in expected_actions:
         return {"name": spec.name, "error": f"not_a_{kind}_target", "action": spec.action}
     payload = _spec_payload(spec, kind=kind)
     if spec.morph_from:
         payload["morph_from"] = spec.morph_from
-    return payload
+    if kind == "research":
+        payload["availability"] = "controllable"
+        return payload
+    return attach(payload, race, spec.name)
 
 
 def query_unit_data(names: Sequence[str], *, race: str = "terran") -> Dict[str, Any]:
@@ -460,10 +553,20 @@ def query_research_data(names: Sequence[str], *, race: str = "terran") -> Dict[s
 
 
 def query_prerequisite_path(target: str, *, race: str = "terran") -> Dict[str, Any]:
+    from sc2bench_env.data.knowledge import close_names
+
     spec = get_target(target, race=race)
     if spec is None:
-        return {"target": target, "error": "unknown_target"}
-    catalog = {item.name: item for item in get_catalog(race=race).targets}
+        return {
+            "target": target,
+            "error": "unknown_target",
+            "candidates": list(dict.fromkeys(
+                close_names(race, target, "unit")
+                + close_names(race, target, "building")
+                + close_names(race, target, "research")
+            )),
+        }
+    catalog = {item.name: get_target(item.name, race=race) for item in get_catalog(race=race).targets}
     ordered: List[str] = []
     seen: set[str] = set()
 
@@ -481,10 +584,36 @@ def query_prerequisite_path(target: str, *, race: str = "terran") -> Dict[str, A
             ordered.append(name)
 
     walk(spec.name)
-    return {"target": spec.name, "path": ordered}
+    steps = []
+    for index, name in enumerate(ordered, start=1):
+        item = catalog.get(name)
+        steps.append({
+            "step": index,
+            "type": None if item is None else item.action,
+            "target": name,
+            "minerals": None if item is None else item.minerals,
+            "gas": None if item is None else item.vespene,
+            "time_seconds": None if item is None else item.base_time_seconds,
+            "requires": [] if item is None else list(item.prerequisites),
+        })
+    return {
+        "target": spec.name,
+        "static_dependency_path": True,
+        "note": "Static dependency path, not a match build order.",
+        "path": ordered,
+        "steps": steps,
+    }
+
+
+def _require_knowledge_race(race: Any) -> str:
+    if race not in _KNOWLEDGE_RACES:
+        raise ValueError("race must be terran, protoss or zerg")
+    return str(race)
 
 
 def query_race_data(race: str) -> Dict[str, Any]:
+    from sc2bench_env.data.knowledge import observable_groups
+
     require_supported_own_race(race)
     catalog = get_catalog(race=race)
     units, buildings, research, structure = [], [], [], []
@@ -502,6 +631,11 @@ def query_race_data(race: str) -> Dict[str, Any]:
         "units": units,
         "buildings": buildings,
         "upgrades": {"research": research, "structure": structure},
+        "observable_only": observable_groups(race),
+        "platform_abilities": [
+            spec.name for spec in catalog.targets
+            if spec.action in {"scan", "call_mule", "chrono_boost", "inject_larva", "spawn_creep_tumor", "scout"}
+        ],
     }
 
 
@@ -591,16 +725,17 @@ def execute_tool(
             return query_zone_state(observation, ids)
         if name == "query_route":
             return query_route(observation, str(arguments.get("from_zone") or ""), str(arguments.get("to_zone") or ""))
-        if name == "query_unit_data":
-            return query_unit_data(list(arguments.get("names") or []), race=race)
-        if name == "query_building_data":
-            return query_building_data(list(arguments.get("names") or []), race=race)
-        if name == "query_research_data":
-            return query_research_data(list(arguments.get("names") or []), race=race)
-        if name == "query_prerequisite_path":
-            return query_prerequisite_path(str(arguments.get("target") or ""), race=race)
-        if name == "query_race_data":
-            return query_race_data(str(arguments.get("race") or race))
+        if name in KNOWLEDGE_TOOLS:
+            selected = _require_knowledge_race(arguments.get("race"))
+            if name == "query_unit_data":
+                return query_unit_data(list(arguments.get("names") or []), race=selected)
+            if name == "query_building_data":
+                return query_building_data(list(arguments.get("names") or []), race=selected)
+            if name == "query_research_data":
+                return query_research_data(list(arguments.get("names") or []), race=selected)
+            if name == "query_prerequisite_path":
+                return query_prerequisite_path(str(arguments.get("target") or ""), race=selected)
+            return query_race_data(selected)
     except ValueError as exc:
         return {"error": str(exc)}
     return {"error": f"unknown_tool {name}"}

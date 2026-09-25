@@ -19,6 +19,14 @@ if TYPE_CHECKING:
 logger = logging.getLogger("sc2bench_env.backends.sharpy.bot")
 
 
+FRAMES_PER_SECOND = 22.4
+
+
+def realtime_sleep_seconds(frames: int, elapsed: float) -> float:
+    """Wall-clock pause that keeps one step at real game speed."""
+    return max(0.0, int(frames) / FRAMES_PER_SECOND - elapsed)
+
+
 def pin_lockstep_step(bot: Any) -> None:
     """Keep both versus clients on one step size.
 
@@ -95,9 +103,12 @@ class BenchBot(KnowledgeBot):
                 combat_progress=self._collect_combat_progress(),
             )
             if decision_boundary:
-                # Non-realtime SC2 advances only when its runner steps it.
-                # Keep this coroutine pending, without blocking websocket I/O.
-                await asyncio.to_thread(self.bridge.wait_for_decision)
+                # Lockstep stays paused. Realtime mode keeps the clock moving at
+                # 1x while the model thinks; advance itself still runs at full speed.
+                if self.bridge.realtime:
+                    await self._pace_realtime_until_decision()
+                else:
+                    await asyncio.to_thread(self.bridge.wait_for_decision)
                 # The agent submitted new tasks while this frame was paused.
                 self._sync_macro_tasks()
             if self.bridge.should_leave():
@@ -119,11 +130,51 @@ class BenchBot(KnowledgeBot):
     async def on_before_start(self):
         await super().on_before_start()
         pin_lockstep_step(self)
+        ping = (await self.client.ping()).ping
+        from sc2bench_env.data.knowledge import require_snapshot_match
+
+        require_snapshot_match(
+            game_version=ping.game_version,
+            data_version=ping.data_version,
+            base_build=int(ping.base_build),
+        )
 
     async def on_step(self, iteration):
         await super().on_step(iteration)
-        # Undo a realtime flip before python-sc2 sends this client's RequestStep.
+        # The game stays lockstep so advance can step faster than wall-clock time.
         pin_lockstep_step(self)
+
+    async def _pace_realtime_until_decision(self) -> None:
+        import time
+        frames = max(1, int(getattr(self.client, "game_step", 1) or 1))
+        while not self.bridge.advance_allowed.is_set() and not self.bridge.stopped.is_set():
+            if self.bridge.should_leave():
+                return
+            started = time.perf_counter()
+            try:
+                await self.client.step(frames)
+                observed = await self.client.observation()
+                game_loop = int(observed.observation.observation.game_loop)
+            except Exception as exc:
+                logger.warning("realtime pace step failed: %s", exc)
+                return
+            self._note_paced_game_time(game_loop / FRAMES_PER_SECOND)
+            delay = realtime_sleep_seconds(frames, time.perf_counter() - started)
+            if delay > 0:
+                await asyncio.sleep(delay)
+
+    def _note_paced_game_time(self, game_time_seconds: float) -> None:
+        with self.bridge.lock:
+            self.bridge.snapshot.game_time_seconds = game_time_seconds
+            limit = self.bridge.max_game_time
+            expired = (
+                not self.bridge.snapshot.terminated and limit is not None
+                and game_time_seconds >= limit
+            )
+            if expired:
+                self.bridge.snapshot.result = "Result.Tie"
+        if expired:
+            self.bridge.request_leave(end_reason="time_limit")
 
     async def on_end(self, game_result) -> None:
         result_text, end_reason = reconcile_versus_result(
@@ -247,7 +298,7 @@ class BenchBot(KnowledgeBot):
             requested = dict(task.get("units") or {})
             alive = dict(getattr(act, "alive_counts", requested) if act is not None else requested)
             row: Dict[str, Any] = {
-                "style": task.get("style"),
+                "style": getattr(act, "style", None) or task.get("style"),
                 "target": task.get("target"),
                 "requested": requested,
                 "alive": {str(k): int(v) for k, v in alive.items()},

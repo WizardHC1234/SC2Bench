@@ -1,0 +1,240 @@
+{
+  "schema_version": 1,
+  "reason": "Platform labels only. Minerals, gas, time, supply, weapons and armor stay in the client snapshot.",
+  "air_proto_names": [
+    "BANSHEE",
+    "BATTLECRUISER",
+    "BROODLORD",
+    "CARRIER",
+    "CORRUPTOR",
+    "INTERCEPTOR",
+    "BARRACKSFLYING",
+    "COMMANDCENTERFLYING",
+    "FACTORYFLYING",
+    "LIBERATOR",
+    "LIBERATORAG",
+    "LOCUSTMPFLYING",
+    "ORBITALCOMMANDFLYING",
+    "STARPORTFLYING",
+    "MEDIVAC",
+    "MOTHERSHIP",
+    "MUTALISK",
+    "OBSERVER",
+    "OBSERVERSIEGEMODE",
+    "ORACLE",
+    "OVERLORD",
+    "OVERLORDTRANSPORT",
+    "OVERSEER",
+    "OVERSEERSIEGEMODE",
+    "PHOENIX",
+    "RAVEN",
+    "TEMPEST",
+    "VIKINGFIGHTER",
+    "VIPER",
+    "VOIDRAY",
+    "WARPPRISM",
+    "WARPPRISMPHASING"
+  ],
+  "ground_proto_names": [
+    "ADEPT",
+    "ARCHON",
+    "AUTOTURRET",
+    "BANELING",
+    "BROODLING",
+    "CHANGELING",
+    "COLOSSUS",
+    "CYCLONE",
+    "DARKTEMPLAR",
+    "DISRUPTOR",
+    "DRONE",
+    "GHOST",
+    "HELLION",
+    "HELLIONTANK",
+    "HIGHTEMPLAR",
+    "HYDRALISK",
+    "IMMORTAL",
+    "INFESTOR",
+    "LOCUSTMP",
+    "LURKERMP",
+    "LURKERMPBURROWED",
+    "MARAUDER",
+    "MARINE",
+    "MULE",
+    "PROBE",
+    "QUEEN",
+    "RAVAGER",
+    "REAPER",
+    "ROACH",
+    "ROACHBURROWED",
+    "SCV",
+    "SENTRY",
+    "SIEGETANK",
+    "SIEGETANKSIEGED",
+    "STALKER",
+    "SWARMHOSTBURROWEDMP",
+    "SWARMHOSTMP",
+    "THOR",
+    "THORAP",
+    "ULTRALISK",
+    "VIKINGASSAULT",
+    "WIDOWMINE",
+    "WIDOWMINEBURROWED",
+    "ZEALOT",
+    "ZERGLING"
+  ],
+  "unit_platform_behavior": {
+    "roach": {
+      "text": "The backend may burrow an injured Roach and resurface it after it recovers.",
+      "code": "src/sc2bench_env/backends/sharpy/zerg_micro.py",
+      "reason": "MicroRoachSafe burrows below 40% health and unburrows above 70%."
+    },
+    "baneling": {
+      "text": "The backend burrows Banelings while retreating and unburrows them to fight.",
+      "code": "src/sc2bench_env/backends/sharpy/zerg_micro.py",
+      "reason": "MicroBanelingSafe issues burrow down on retreat and burrow up otherwise."
+    },
+    "siege_tank": {
+      "text": "The backend sieges and unsieges the tank.",
+      "code": "src/sc2bench_env/backends/sharpy/micro.py",
+      "reason": "MicroTanks is assigned to both siege tank forms."
+    },
+    "viking": {
+      "text": "The backend switches Viking fighter and assault forms.",
+      "code": "src/sc2bench_env/backends/sharpy/terran_micro.py",
+      "reason": "MicroVikingSafe returns a landed Viking to fighter mode on retreat."
+    },
+    "liberator": {
+      "text": "The backend switches Liberator movement and defender mode.",
+      "code": "src/sc2bench_env/backends/sharpy/terran_micro.py",
+      "reason": "MicroLiberatorSafe leaves defender mode on retreat."
+    },
+    "widow_mine": {
+      "text": "The backend burrows a Widow Mine near enemies and unburrows it to move.",
+      "code": "src/sc2bench_env/backends/sharpy/terran_micro.py",
+      "reason": "MicroWidowMine burrows within range 10 and unburrows beyond range 14 or on retreat."
+    },
+    "hellion": {
+      "text": "The backend morphs between Hellion and Hellbat when an Armory makes the morph available.",
+      "code": "src/sc2bench_env/backends/sharpy/terran_micro.py",
+      "reason": "MicroHellionSafe morphs to Hellbat in a fight and back to Hellion on retreat."
+    },
+    "thor": {
+      "text": "The backend switches Thor explosive and high-impact modes.",
+      "code": "src/sc2bench_env/backends/sharpy/terran_micro.py",
+      "reason": "MicroThor morphs for heavy air or back to explosive mode."
+    },
+    "observer": {
+      "text": "The backend switches Observer surveillance mode.",
+      "code": "src/sc2bench_env/backends/sharpy/protoss_micro.py",
+      "reason": "MicroObserverSafe enters and leaves surveillance mode."
+    },
+    "warp_prism": {
+      "text": "The backend switches Warp Prism transport and phasing modes.",
+      "code": "src/sc2bench_env/backends/sharpy/protoss_micro.py",
+      "reason": "MicroWarpPrismSafe phases and unphases the prism."
+    },
+    "overseer": {
+      "text": "The backend can enter Overseer oversight mode near enemies.",
+      "code": "src/sc2bench_env/backends/sharpy/zerg_micro.py",
+      "reason": "MicroOverseerSafe morphs to oversight mode when enemies are near."
+    }
+  },
+  "roles": {
+    "worker": ["scv", "probe", "drone", "mule"],
+    "combat": ["widow_mine", "battlecruiser", "disruptor", "void_ray", "carrier", "baneling", "swarm_host"],
+    "transport": ["medivac", "warp_prism", "overlord", "overlord_transport", "nydus_network", "nydus_worm"],
+    "detector": ["raven", "observer", "overseer", "spore_crawler", "photon_cannon", "missile_turret", "sensor_tower"],
+    "support": ["medivac", "raven", "sentry", "high_templar", "infestor", "viper", "queen", "oracle", "ghost"],
+    "economy": ["command_center", "orbital_command", "planetary_fortress", "nexus", "hatchery", "lair", "hive", "refinery", "assimilator", "extractor", "supply_depot", "pylon", "overlord"],
+    "production": ["barracks", "factory", "starport", "gateway", "warpgate", "robotics_facility", "stargate", "spawning_pool", "roach_warren", "hydralisk_den", "baneling_nest", "spire", "lurker_den", "ultralisk_cavern"],
+    "defense": ["bunker", "missile_turret", "planetary_fortress", "photon_cannon", "shield_battery", "spine_crawler", "spore_crawler", "auto_turret"]
+  },
+  "observable_only": {
+    "mule": {
+      "race": "terran",
+      "kind": "unit",
+      "platform_behavior": "Created by call_mule. It is not a train target.",
+      "reason": "Temporary orbital calldown visible in the observation."
+    },
+    "auto_turret": {
+      "race": "terran",
+      "kind": "unit",
+      "platform_behavior": "Created by a Raven ability. It is not a train target.",
+      "reason": "Temporary raven calldown visible in the observation."
+    },
+    "archon": {
+      "race": "protoss",
+      "kind": "unit",
+      "platform_behavior": "Observed after templar merge. Merge is not a high-level action.",
+      "reason": "The observation can report an archon without a train verb."
+    },
+    "broodling": {
+      "race": "zerg",
+      "kind": "unit",
+      "platform_behavior": "Spawned by a brood lord attack. It is not a train target.",
+      "reason": "Temporary combat spawn visible in the observation."
+    },
+    "locust": {
+      "race": "zerg",
+      "kind": "unit",
+      "platform_behavior": "Spawned by a swarm host. It is not a train target.",
+      "reason": "Temporary combat spawn visible in the observation."
+    },
+    "interceptor": {
+      "race": "protoss",
+      "kind": "unit",
+      "platform_behavior": "Launched by a carrier. It is not a train target.",
+      "reason": "Carrier weapon unit visible in the observation."
+    },
+    "nydus_worm": {
+      "race": "zerg",
+      "kind": "building",
+      "platform_behavior": "The worm is the exit of a nydus network. Placing it is not a separate action.",
+      "reason": "Observation alias, not a build target."
+    },
+    "creep_tumor": {
+      "race": "zerg",
+      "kind": "building",
+      "platform_behavior": "Created by spawn_creep_tumor. It is not a build target.",
+      "reason": "Queen tumor visible in the observation."
+    },
+    "changeling": {
+      "race": "zerg",
+      "kind": "unit",
+      "platform_behavior": "Spawned by an overseer. It is not a train target.",
+      "reason": "Temporary scout visible in the observation."
+    }
+  },
+  "food_provided_corrections": {
+    "command_center": {
+      "value": 15,
+      "version": "5.0.16.97563",
+      "reason": "ResponseData food_provided is 13. A completed Command Center provides 15 supply."
+    },
+    "orbital_command": {
+      "value": 15,
+      "version": "5.0.16.97563",
+      "reason": "ResponseData food_provided is 13. Orbital Command keeps the Command Center's 15 supply."
+    },
+    "planetary_fortress": {
+      "value": 15,
+      "version": "5.0.16.97563",
+      "reason": "ResponseData food_provided is 13. Planetary Fortress keeps the Command Center's 15 supply."
+    },
+    "nexus": {
+      "value": 15,
+      "version": "5.0.16.97563",
+      "reason": "ResponseData food_provided is 13. A completed Nexus provides 15 supply."
+    }
+  },
+  "action_cost_corrections": {
+    "zerg": {
+      "greater_spire": {
+        "minerals": 100,
+        "vespene": 150,
+        "version": "5.0.16.97563",
+        "reason": "GreaterSpire minus Spire in UnitTypeData is 150/200. The morph button is 100/150; the extra 50/50 is not paid again."
+      }
+    }
+  }
+}

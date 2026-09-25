@@ -1,0 +1,22 @@
+{
+  "base_build": 97563,
+  "building_count": 383,
+  "data_build": 97563,
+  "data_version": "F364D7C8BB1A0444ABC9BEE547B3FBB3",
+  "frames_per_second": 22.4,
+  "game_version": "5.0.16.97563",
+  "missing_proto_fields": [
+    "life",
+    "shields",
+    "energy",
+    "weapon_name",
+    "minimum_range",
+    "target_restrictions",
+    "movement_layer"
+  ],
+  "ruleset": "native",
+  "schema_version": 1,
+  "snapshot_hash": "188999d20d3e4c3c84feea73b871da4e453f4429fd6659acc9b7558a54da1dda",
+  "unit_count": 1627,
+  "upgrade_count": 306
+}

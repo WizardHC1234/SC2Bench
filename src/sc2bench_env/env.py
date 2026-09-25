@@ -775,7 +775,7 @@ class Environment:
                 alive = dict(demand.units or {})
             summary[label] = {
                 "status": "active",
-                "style": demand.style,
+                "style": row.get("style") or demand.style,
                 "target": demand.target,
                 "requested": dict(demand.units or {}),
                 "alive": {str(k): int(v) for k, v in alive.items()},

@@ -1,0 +1,2758 @@
+{
+  "upgrades": [
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 0,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 45,
+      "available": false,
+      "mineral_cost": 150,
+      "name": "CarrierLaunchSpeedUpgrade",
+      "research_time_seconds": 57.1429,
+      "upgrade_id": 1,
+      "vespene_cost": 150
+    },
+    {
+      "ability_id": 216,
+      "available": false,
+      "mineral_cost": 100,
+      "name": "GlialReconstitution",
+      "research_time_seconds": 78.5714,
+      "upgrade_id": 2,
+      "vespene_cost": 100
+    },
+    {
+      "ability_id": 217,
+      "available": false,
+      "mineral_cost": 100,
+      "name": "TunnelingClaws",
+      "research_time_seconds": 78.5714,
+      "upgrade_id": 3,
+      "vespene_cost": 100
+    },
+    {
+      "ability_id": 265,
+      "available": false,
+      "mineral_cost": 150,
+      "name": "ChitinousPlating",
+      "research_time_seconds": 78.5714,
+      "upgrade_id": 4,
+      "vespene_cost": 150
+    },
+    {
+      "ability_id": 650,
+      "available": false,
+      "mineral_cost": 100,
+      "name": "HiSecAutoTracking",
+      "research_time_seconds": 57.1429,
+      "upgrade_id": 5,
+      "vespene_cost": 100
+    },
+    {
+      "ability_id": 651,
+      "available": false,
+      "mineral_cost": 150,
+      "name": "TerranBuildingArmor",
+      "research_time_seconds": 100.0,
+      "upgrade_id": 6,
+      "vespene_cost": 150
+    },
+    {
+      "ability_id": 652,
+      "available": false,
+      "mineral_cost": 100,
+      "name": "TerranInfantryWeaponsLevel1",
+      "research_time_seconds": 114.2857,
+      "upgrade_id": 7,
+      "vespene_cost": 100
+    },
+    {
+      "ability_id": 653,
+      "available": false,
+      "mineral_cost": 150,
+      "name": "TerranInfantryWeaponsLevel2",
+      "research_time_seconds": 135.7143,
+      "upgrade_id": 8,
+      "vespene_cost": 150
+    },
+    {
+      "ability_id": 654,
+      "available": false,
+      "mineral_cost": 200,
+      "name": "TerranInfantryWeaponsLevel3",
+      "research_time_seconds": 157.1429,
+      "upgrade_id": 9,
+      "vespene_cost": 200
+    },
+    {
+      "ability_id": 655,
+      "available": false,
+      "mineral_cost": 100,
+      "name": "NeosteelFrame",
+      "research_time_seconds": 78.5714,
+      "upgrade_id": 10,
+      "vespene_cost": 100
+    },
+    {
+      "ability_id": 656,
+      "available": false,
+      "mineral_cost": 100,
+      "name": "TerranInfantryArmorsLevel1",
+      "research_time_seconds": 114.2857,
+      "upgrade_id": 11,
+      "vespene_cost": 100
+    },
+    {
+      "ability_id": 657,
+      "available": false,
+      "mineral_cost": 150,
+      "name": "TerranInfantryArmorsLevel2",
+      "research_time_seconds": 135.7143,
+      "upgrade_id": 12,
+      "vespene_cost": 150
+    },
+    {
+      "ability_id": 658,
+      "available": false,
+      "mineral_cost": 200,
+      "name": "TerranInfantryArmorsLevel3",
+      "research_time_seconds": 157.1429,
+      "upgrade_id": 13,
+      "vespene_cost": 200
+    },
+    {
+      "ability_id": 683,
+      "available": false,
+      "mineral_cost": 50,
+      "name": "ReaperSpeed",
+      "research_time_seconds": 71.4286,
+      "upgrade_id": 14,
+      "vespene_cost": 50
+    },
+    {
+      "ability_id": 730,
+      "available": false,
+      "mineral_cost": 100,
+      "name": "Stimpack",
+      "research_time_seconds": 100.0,
+      "upgrade_id": 15,
+      "vespene_cost": 100
+    },
+    {
+      "ability_id": 731,
+      "available": false,
+      "mineral_cost": 100,
+      "name": "ShieldWall",
+      "research_time_seconds": 78.5714,
+      "upgrade_id": 16,
+      "vespene_cost": 100
+    },
+    {
+      "ability_id": 732,
+      "available": false,
+      "mineral_cost": 50,
+      "name": "PunisherGrenades",
+      "research_time_seconds": 42.8571,
+      "upgrade_id": 17,
+      "vespene_cost": 50
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "SiegeTech",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 18,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 761,
+      "available": false,
+      "mineral_cost": 100,
+      "name": "HighCapacityBarrels",
+      "research_time_seconds": 78.5714,
+      "upgrade_id": 19,
+      "vespene_cost": 100
+    },
+    {
+      "ability_id": 790,
+      "available": false,
+      "mineral_cost": 100,
+      "name": "BansheeCloak",
+      "research_time_seconds": 78.5714,
+      "upgrade_id": 20,
+      "vespene_cost": 100
+    },
+    {
+      "ability_id": 1535,
+      "available": false,
+      "mineral_cost": 100,
+      "name": "MedivacCaduceusReactor",
+      "research_time_seconds": 50.0,
+      "upgrade_id": 21,
+      "vespene_cost": 100
+    },
+    {
+      "ability_id": 793,
+      "available": false,
+      "mineral_cost": 150,
+      "name": "RavenCorvidReactor",
+      "research_time_seconds": 78.5714,
+      "upgrade_id": 22,
+      "vespene_cost": 150
+    },
+    {
+      "ability_id": 796,
+      "available": false,
+      "mineral_cost": 150,
+      "name": "HunterSeeker",
+      "research_time_seconds": 78.5714,
+      "upgrade_id": 23,
+      "vespene_cost": 150
+    },
+    {
+      "ability_id": 797,
+      "available": false,
+      "mineral_cost": 150,
+      "name": "DurableMaterials",
+      "research_time_seconds": 78.5714,
+      "upgrade_id": 24,
+      "vespene_cost": 150
+    },
+    {
+      "ability_id": 820,
+      "available": false,
+      "mineral_cost": 150,
+      "name": "PersonalCloaking",
+      "research_time_seconds": 85.7143,
+      "upgrade_id": 25,
+      "vespene_cost": 150
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "GhostMoebiusReactor",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 26,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 852,
+      "available": false,
+      "mineral_cost": 100,
+      "name": "TerranVehicleArmorsLevel1",
+      "research_time_seconds": 114.2857,
+      "upgrade_id": 27,
+      "vespene_cost": 100
+    },
+    {
+      "ability_id": 853,
+      "available": false,
+      "mineral_cost": 175,
+      "name": "TerranVehicleArmorsLevel2",
+      "research_time_seconds": 135.7143,
+      "upgrade_id": 28,
+      "vespene_cost": 175
+    },
+    {
+      "ability_id": 854,
+      "available": false,
+      "mineral_cost": 250,
+      "name": "TerranVehicleArmorsLevel3",
+      "research_time_seconds": 157.1429,
+      "upgrade_id": 29,
+      "vespene_cost": 250
+    },
+    {
+      "ability_id": 855,
+      "available": false,
+      "mineral_cost": 100,
+      "name": "TerranVehicleWeaponsLevel1",
+      "research_time_seconds": 114.2857,
+      "upgrade_id": 30,
+      "vespene_cost": 100
+    },
+    {
+      "ability_id": 856,
+      "available": false,
+      "mineral_cost": 175,
+      "name": "TerranVehicleWeaponsLevel2",
+      "research_time_seconds": 135.7143,
+      "upgrade_id": 31,
+      "vespene_cost": 175
+    },
+    {
+      "ability_id": 857,
+      "available": false,
+      "mineral_cost": 250,
+      "name": "TerranVehicleWeaponsLevel3",
+      "research_time_seconds": 157.1429,
+      "upgrade_id": 32,
+      "vespene_cost": 250
+    },
+    {
+      "ability_id": 858,
+      "available": false,
+      "mineral_cost": 100,
+      "name": "TerranShipArmorsLevel1",
+      "research_time_seconds": 114.2857,
+      "upgrade_id": 33,
+      "vespene_cost": 100
+    },
+    {
+      "ability_id": 859,
+      "available": false,
+      "mineral_cost": 175,
+      "name": "TerranShipArmorsLevel2",
+      "research_time_seconds": 135.7143,
+      "upgrade_id": 34,
+      "vespene_cost": 175
+    },
+    {
+      "ability_id": 860,
+      "available": false,
+      "mineral_cost": 250,
+      "name": "TerranShipArmorsLevel3",
+      "research_time_seconds": 157.1429,
+      "upgrade_id": 35,
+      "vespene_cost": 250
+    },
+    {
+      "ability_id": 861,
+      "available": false,
+      "mineral_cost": 100,
+      "name": "TerranShipWeaponsLevel1",
+      "research_time_seconds": 114.2857,
+      "upgrade_id": 36,
+      "vespene_cost": 100
+    },
+    {
+      "ability_id": 862,
+      "available": false,
+      "mineral_cost": 175,
+      "name": "TerranShipWeaponsLevel2",
+      "research_time_seconds": 135.7143,
+      "upgrade_id": 37,
+      "vespene_cost": 175
+    },
+    {
+      "ability_id": 863,
+      "available": false,
+      "mineral_cost": 250,
+      "name": "TerranShipWeaponsLevel3",
+      "research_time_seconds": 157.1429,
+      "upgrade_id": 38,
+      "vespene_cost": 250
+    },
+    {
+      "ability_id": 1062,
+      "available": false,
+      "mineral_cost": 100,
+      "name": "ProtossGroundWeaponsLevel1",
+      "research_time_seconds": 121.4286,
+      "upgrade_id": 39,
+      "vespene_cost": 100
+    },
+    {
+      "ability_id": 1063,
+      "available": false,
+      "mineral_cost": 150,
+      "name": "ProtossGroundWeaponsLevel2",
+      "research_time_seconds": 144.6429,
+      "upgrade_id": 40,
+      "vespene_cost": 150
+    },
+    {
+      "ability_id": 1064,
+      "available": false,
+      "mineral_cost": 200,
+      "name": "ProtossGroundWeaponsLevel3",
+      "research_time_seconds": 167.8571,
+      "upgrade_id": 41,
+      "vespene_cost": 200
+    },
+    {
+      "ability_id": 1065,
+      "available": false,
+      "mineral_cost": 100,
+      "name": "ProtossGroundArmorsLevel1",
+      "research_time_seconds": 121.4286,
+      "upgrade_id": 42,
+      "vespene_cost": 100
+    },
+    {
+      "ability_id": 1066,
+      "available": false,
+      "mineral_cost": 150,
+      "name": "ProtossGroundArmorsLevel2",
+      "research_time_seconds": 144.6429,
+      "upgrade_id": 43,
+      "vespene_cost": 150
+    },
+    {
+      "ability_id": 1067,
+      "available": false,
+      "mineral_cost": 200,
+      "name": "ProtossGroundArmorsLevel3",
+      "research_time_seconds": 167.8571,
+      "upgrade_id": 44,
+      "vespene_cost": 200
+    },
+    {
+      "ability_id": 1068,
+      "available": false,
+      "mineral_cost": 150,
+      "name": "ProtossShieldsLevel1",
+      "research_time_seconds": 121.4286,
+      "upgrade_id": 45,
+      "vespene_cost": 150
+    },
+    {
+      "ability_id": 1069,
+      "available": false,
+      "mineral_cost": 200,
+      "name": "ProtossShieldsLevel2",
+      "research_time_seconds": 144.6429,
+      "upgrade_id": 46,
+      "vespene_cost": 200
+    },
+    {
+      "ability_id": 1070,
+      "available": false,
+      "mineral_cost": 250,
+      "name": "ProtossShieldsLevel3",
+      "research_time_seconds": 167.8571,
+      "upgrade_id": 47,
+      "vespene_cost": 250
+    },
+    {
+      "ability_id": 1093,
+      "available": false,
+      "mineral_cost": 100,
+      "name": "ObserverGraviticBooster",
+      "research_time_seconds": 57.1429,
+      "upgrade_id": 48,
+      "vespene_cost": 100
+    },
+    {
+      "ability_id": 1094,
+      "available": false,
+      "mineral_cost": 100,
+      "name": "GraviticDrive",
+      "research_time_seconds": 57.1429,
+      "upgrade_id": 49,
+      "vespene_cost": 100
+    },
+    {
+      "ability_id": 1097,
+      "available": false,
+      "mineral_cost": 150,
+      "name": "ExtendedThermalLance",
+      "research_time_seconds": 100.0,
+      "upgrade_id": 50,
+      "vespene_cost": 150
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "HighTemplarKhaydarinAmulet",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 51,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 1126,
+      "available": false,
+      "mineral_cost": 200,
+      "name": "PsiStormTech",
+      "research_time_seconds": 78.5714,
+      "upgrade_id": 52,
+      "vespene_cost": 200
+    },
+    {
+      "ability_id": 1186,
+      "available": false,
+      "mineral_cost": 100,
+      "name": "ZergMeleeWeaponsLevel1",
+      "research_time_seconds": 114.2857,
+      "upgrade_id": 53,
+      "vespene_cost": 100
+    },
+    {
+      "ability_id": 1187,
+      "available": false,
+      "mineral_cost": 150,
+      "name": "ZergMeleeWeaponsLevel2",
+      "research_time_seconds": 135.7143,
+      "upgrade_id": 54,
+      "vespene_cost": 150
+    },
+    {
+      "ability_id": 1188,
+      "available": false,
+      "mineral_cost": 200,
+      "name": "ZergMeleeWeaponsLevel3",
+      "research_time_seconds": 157.1429,
+      "upgrade_id": 55,
+      "vespene_cost": 200
+    },
+    {
+      "ability_id": 1189,
+      "available": false,
+      "mineral_cost": 100,
+      "name": "ZergGroundArmorsLevel1",
+      "research_time_seconds": 114.2857,
+      "upgrade_id": 56,
+      "vespene_cost": 100
+    },
+    {
+      "ability_id": 1190,
+      "available": false,
+      "mineral_cost": 150,
+      "name": "ZergGroundArmorsLevel2",
+      "research_time_seconds": 135.7143,
+      "upgrade_id": 57,
+      "vespene_cost": 150
+    },
+    {
+      "ability_id": 1191,
+      "available": false,
+      "mineral_cost": 200,
+      "name": "ZergGroundArmorsLevel3",
+      "research_time_seconds": 157.1429,
+      "upgrade_id": 58,
+      "vespene_cost": 200
+    },
+    {
+      "ability_id": 1192,
+      "available": false,
+      "mineral_cost": 100,
+      "name": "ZergMissileWeaponsLevel1",
+      "research_time_seconds": 114.2857,
+      "upgrade_id": 59,
+      "vespene_cost": 100
+    },
+    {
+      "ability_id": 1193,
+      "available": false,
+      "mineral_cost": 150,
+      "name": "ZergMissileWeaponsLevel2",
+      "research_time_seconds": 135.7143,
+      "upgrade_id": 60,
+      "vespene_cost": 150
+    },
+    {
+      "ability_id": 1194,
+      "available": false,
+      "mineral_cost": 200,
+      "name": "ZergMissileWeaponsLevel3",
+      "research_time_seconds": 157.1429,
+      "upgrade_id": 61,
+      "vespene_cost": 200
+    },
+    {
+      "ability_id": 1223,
+      "available": false,
+      "mineral_cost": 100,
+      "name": "overlordspeed",
+      "research_time_seconds": 42.8571,
+      "upgrade_id": 62,
+      "vespene_cost": 100
+    },
+    {
+      "ability_id": 1224,
+      "available": false,
+      "mineral_cost": 200,
+      "name": "overlordtransport",
+      "research_time_seconds": 92.8571,
+      "upgrade_id": 63,
+      "vespene_cost": 200
+    },
+    {
+      "ability_id": 1225,
+      "available": false,
+      "mineral_cost": 100,
+      "name": "Burrow",
+      "research_time_seconds": 71.4286,
+      "upgrade_id": 64,
+      "vespene_cost": 100
+    },
+    {
+      "ability_id": 1252,
+      "available": false,
+      "mineral_cost": 200,
+      "name": "zerglingattackspeed",
+      "research_time_seconds": 92.8571,
+      "upgrade_id": 65,
+      "vespene_cost": 200
+    },
+    {
+      "ability_id": 1253,
+      "available": false,
+      "mineral_cost": 100,
+      "name": "zerglingmovementspeed",
+      "research_time_seconds": 78.5714,
+      "upgrade_id": 66,
+      "vespene_cost": 100
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "hydraliskspeed",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 67,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 1312,
+      "available": false,
+      "mineral_cost": 100,
+      "name": "ZergFlyerWeaponsLevel1",
+      "research_time_seconds": 114.2857,
+      "upgrade_id": 68,
+      "vespene_cost": 100
+    },
+    {
+      "ability_id": 1313,
+      "available": false,
+      "mineral_cost": 175,
+      "name": "ZergFlyerWeaponsLevel2",
+      "research_time_seconds": 135.7143,
+      "upgrade_id": 69,
+      "vespene_cost": 175
+    },
+    {
+      "ability_id": 1314,
+      "available": false,
+      "mineral_cost": 250,
+      "name": "ZergFlyerWeaponsLevel3",
+      "research_time_seconds": 157.1429,
+      "upgrade_id": 70,
+      "vespene_cost": 250
+    },
+    {
+      "ability_id": 1315,
+      "available": false,
+      "mineral_cost": 100,
+      "name": "ZergFlyerArmorsLevel1",
+      "research_time_seconds": 114.2857,
+      "upgrade_id": 71,
+      "vespene_cost": 100
+    },
+    {
+      "ability_id": 1316,
+      "available": false,
+      "mineral_cost": 175,
+      "name": "ZergFlyerArmorsLevel2",
+      "research_time_seconds": 135.7143,
+      "upgrade_id": 72,
+      "vespene_cost": 175
+    },
+    {
+      "ability_id": 1317,
+      "available": false,
+      "mineral_cost": 250,
+      "name": "ZergFlyerArmorsLevel3",
+      "research_time_seconds": 157.1429,
+      "upgrade_id": 73,
+      "vespene_cost": 250
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "InfestorEnergyUpgrade",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 74,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 1482,
+      "available": false,
+      "mineral_cost": 100,
+      "name": "CentrificalHooks",
+      "research_time_seconds": 71.4286,
+      "upgrade_id": 75,
+      "vespene_cost": 100
+    },
+    {
+      "ability_id": 1532,
+      "available": false,
+      "mineral_cost": 150,
+      "name": "BattlecruiserEnableSpecializations",
+      "research_time_seconds": 100.0,
+      "upgrade_id": 76,
+      "vespene_cost": 150
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "BattlecruiserBehemothReactor",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 77,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 1562,
+      "available": false,
+      "mineral_cost": 100,
+      "name": "ProtossAirWeaponsLevel1",
+      "research_time_seconds": 128.5714,
+      "upgrade_id": 78,
+      "vespene_cost": 100
+    },
+    {
+      "ability_id": 1563,
+      "available": false,
+      "mineral_cost": 175,
+      "name": "ProtossAirWeaponsLevel2",
+      "research_time_seconds": 153.5714,
+      "upgrade_id": 79,
+      "vespene_cost": 175
+    },
+    {
+      "ability_id": 1564,
+      "available": false,
+      "mineral_cost": 250,
+      "name": "ProtossAirWeaponsLevel3",
+      "research_time_seconds": 178.5714,
+      "upgrade_id": 80,
+      "vespene_cost": 250
+    },
+    {
+      "ability_id": 1565,
+      "available": false,
+      "mineral_cost": 100,
+      "name": "ProtossAirArmorsLevel1",
+      "research_time_seconds": 128.5714,
+      "upgrade_id": 81,
+      "vespene_cost": 100
+    },
+    {
+      "ability_id": 1566,
+      "available": false,
+      "mineral_cost": 175,
+      "name": "ProtossAirArmorsLevel2",
+      "research_time_seconds": 153.5714,
+      "upgrade_id": 82,
+      "vespene_cost": 175
+    },
+    {
+      "ability_id": 1567,
+      "available": false,
+      "mineral_cost": 250,
+      "name": "ProtossAirArmorsLevel3",
+      "research_time_seconds": 178.5714,
+      "upgrade_id": 83,
+      "vespene_cost": 250
+    },
+    {
+      "ability_id": 1568,
+      "available": false,
+      "mineral_cost": 50,
+      "name": "WarpGateResearch",
+      "research_time_seconds": 100.0,
+      "upgrade_id": 84,
+      "vespene_cost": 50
+    },
+    {
+      "ability_id": 1571,
+      "available": false,
+      "mineral_cost": 100,
+      "name": "haltech",
+      "research_time_seconds": 57.1429,
+      "upgrade_id": 85,
+      "vespene_cost": 100
+    },
+    {
+      "ability_id": 1592,
+      "available": false,
+      "mineral_cost": 100,
+      "name": "Charge",
+      "research_time_seconds": 100.0,
+      "upgrade_id": 86,
+      "vespene_cost": 100
+    },
+    {
+      "ability_id": 1593,
+      "available": false,
+      "mineral_cost": 150,
+      "name": "BlinkTech",
+      "research_time_seconds": 121.4286,
+      "upgrade_id": 87,
+      "vespene_cost": 150
+    },
+    {
+      "ability_id": 263,
+      "available": false,
+      "mineral_cost": 150,
+      "name": "AnabolicSynthesis",
+      "research_time_seconds": 42.8571,
+      "upgrade_id": 88,
+      "vespene_cost": 150
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "ObverseIncubation",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 89,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "VikingJotunBoosters",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 90,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "OrganicCarapace",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 91,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "InfestorPeristalsis",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 92,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "AbdominalFortitude",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 93,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "HydraliskSpeedUpgrade",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 94,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "BanelingBurrowMove",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 95,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "CombatDrugs",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 96,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "StrikeCannons",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 97,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 763,
+      "available": false,
+      "mineral_cost": 150,
+      "name": "TransformationServos",
+      "research_time_seconds": 78.5714,
+      "upgrade_id": 98,
+      "vespene_cost": 150
+    },
+    {
+      "ability_id": 46,
+      "available": false,
+      "mineral_cost": 150,
+      "name": "PhoenixRangeUpgrade",
+      "research_time_seconds": 64.2857,
+      "upgrade_id": 99,
+      "vespene_cost": 150
+    },
+    {
+      "ability_id": 47,
+      "available": false,
+      "mineral_cost": 200,
+      "name": "TempestRangeUpgrade",
+      "research_time_seconds": 78.5714,
+      "upgrade_id": 100,
+      "vespene_cost": 200
+    },
+    {
+      "ability_id": 1455,
+      "available": false,
+      "mineral_cost": 150,
+      "name": "NeuralParasite",
+      "research_time_seconds": 78.5714,
+      "upgrade_id": 101,
+      "vespene_cost": 150
+    },
+    {
+      "ability_id": 1456,
+      "available": false,
+      "mineral_cost": 200,
+      "name": "LocustLifetimeIncrease",
+      "research_time_seconds": 85.7143,
+      "upgrade_id": 102,
+      "vespene_cost": 200
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "UltraliskBurrowChargeUpgrade",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 103,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "OracleEnergyUpgrade",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 104,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "RestoreShields",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 105,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 106,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 107,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 108,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "ReaperJump",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 109,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "IncreasedRange",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 110,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "ZergBurrowMove",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 111,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "AnionPulseCrystals",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 112,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 2294,
+      "available": false,
+      "mineral_cost": 100,
+      "name": "TerranVehicleAndShipWeaponsLevel1",
+      "research_time_seconds": 114.2857,
+      "upgrade_id": 113,
+      "vespene_cost": 100
+    },
+    {
+      "ability_id": 2295,
+      "available": false,
+      "mineral_cost": 175,
+      "name": "TerranVehicleAndShipWeaponsLevel2",
+      "research_time_seconds": 135.7143,
+      "upgrade_id": 114,
+      "vespene_cost": 175
+    },
+    {
+      "ability_id": 2296,
+      "available": false,
+      "mineral_cost": 250,
+      "name": "TerranVehicleAndShipWeaponsLevel3",
+      "research_time_seconds": 157.1429,
+      "upgrade_id": 115,
+      "vespene_cost": 250
+    },
+    {
+      "ability_id": 2297,
+      "available": false,
+      "mineral_cost": 100,
+      "name": "TerranVehicleAndShipArmorsLevel1",
+      "research_time_seconds": 114.2857,
+      "upgrade_id": 116,
+      "vespene_cost": 100
+    },
+    {
+      "ability_id": 2298,
+      "available": false,
+      "mineral_cost": 175,
+      "name": "TerranVehicleAndShipArmorsLevel2",
+      "research_time_seconds": 135.7143,
+      "upgrade_id": 117,
+      "vespene_cost": 175
+    },
+    {
+      "ability_id": 2299,
+      "available": false,
+      "mineral_cost": 250,
+      "name": "TerranVehicleAndShipArmorsLevel3",
+      "research_time_seconds": 157.1429,
+      "upgrade_id": 118,
+      "vespene_cost": 250
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "FlyingLocusts",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 119,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 218,
+      "available": false,
+      "mineral_cost": 200,
+      "name": "RoachSupply",
+      "research_time_seconds": 92.8571,
+      "upgrade_id": 120,
+      "vespene_cost": 200
+    },
+    {
+      "ability_id": 1099,
+      "available": false,
+      "mineral_cost": 100,
+      "name": "ImmortalRevive",
+      "research_time_seconds": 57.1429,
+      "upgrade_id": 121,
+      "vespene_cost": 100
+    },
+    {
+      "ability_id": 764,
+      "available": false,
+      "mineral_cost": 75,
+      "name": "DrillClaws",
+      "research_time_seconds": 78.5714,
+      "upgrade_id": 122,
+      "vespene_cost": 75
+    },
+    {
+      "ability_id": 765,
+      "available": false,
+      "mineral_cost": 150,
+      "name": "CycloneLockOnRangeUpgrade",
+      "research_time_seconds": 78.5714,
+      "upgrade_id": 123,
+      "vespene_cost": 150
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "CycloneAirUpgrade",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 124,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 800,
+      "available": false,
+      "mineral_cost": 150,
+      "name": "LiberatorMorph",
+      "research_time_seconds": 78.5714,
+      "upgrade_id": 125,
+      "vespene_cost": 150
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "AdeptShieldUpgrade",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 126,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 3710,
+      "available": false,
+      "mineral_cost": 150,
+      "name": "LurkerRange",
+      "research_time_seconds": 57.1429,
+      "upgrade_id": 127,
+      "vespene_cost": 150
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "ImmortalBarrier",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 128,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "AdeptKillBounce",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 129,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 1594,
+      "available": false,
+      "mineral_cost": 100,
+      "name": "AdeptPiercingAttack",
+      "research_time_seconds": 100.0,
+      "upgrade_id": 130,
+      "vespene_cost": 100
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "CinematicMode",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 131,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "CursorDebug",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 132,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "MagFieldLaunchers",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 133,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 1282,
+      "available": false,
+      "mineral_cost": 75,
+      "name": "EvolveGroovedSpines",
+      "research_time_seconds": 50.0,
+      "upgrade_id": 134,
+      "vespene_cost": 75
+    },
+    {
+      "ability_id": 1283,
+      "available": false,
+      "mineral_cost": 100,
+      "name": "EvolveMuscularAugments",
+      "research_time_seconds": 64.2857,
+      "upgrade_id": 135,
+      "vespene_cost": 100
+    },
+    {
+      "ability_id": 799,
+      "available": false,
+      "mineral_cost": 125,
+      "name": "BansheeSpeed",
+      "research_time_seconds": 79.0001,
+      "upgrade_id": 136,
+      "vespene_cost": 125
+    },
+    {
+      "ability_id": 802,
+      "available": false,
+      "mineral_cost": 150,
+      "name": "MedivacRapidDeployment",
+      "research_time_seconds": 85.7143,
+      "upgrade_id": 137,
+      "vespene_cost": 150
+    },
+    {
+      "ability_id": 803,
+      "available": false,
+      "mineral_cost": 150,
+      "name": "RavenRecalibratedExplosives",
+      "research_time_seconds": 78.5714,
+      "upgrade_id": 138,
+      "vespene_cost": 150
+    },
+    {
+      "ability_id": 1534,
+      "available": false,
+      "mineral_cost": 100,
+      "name": "MedivacIncreaseSpeedBoost",
+      "research_time_seconds": 57.1429,
+      "upgrade_id": 139,
+      "vespene_cost": 100
+    },
+    {
+      "ability_id": 1533,
+      "available": false,
+      "mineral_cost": 150,
+      "name": "LiberatorAGRangeUpgrade",
+      "research_time_seconds": 78.5714,
+      "upgrade_id": 140,
+      "vespene_cost": 150
+    },
+    {
+      "ability_id": 2720,
+      "available": false,
+      "mineral_cost": 100,
+      "name": "DarkTemplarBlinkUpgrade",
+      "research_time_seconds": 100.0,
+      "upgrade_id": 141,
+      "vespene_cost": 100
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "RavagerRange",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 142,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "RavenDamageUpgrade",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 143,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 769,
+      "available": false,
+      "mineral_cost": 100,
+      "name": "CycloneLockOnDamageUpgrade",
+      "research_time_seconds": 100.0,
+      "upgrade_id": 144,
+      "vespene_cost": 100
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 145,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 146,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 147,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 148,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 149,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 150,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 151,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 152,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 153,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 154,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 155,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 156,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 157,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 158,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 159,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 160,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 161,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 162,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 163,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 164,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 165,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 166,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 167,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 168,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 169,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 170,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 171,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 172,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 173,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 174,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 175,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 176,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 177,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 178,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 179,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 180,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 181,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 182,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 183,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 184,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 185,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 186,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 187,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 188,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 189,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 190,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 191,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 192,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 193,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 194,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 195,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 196,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 197,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 198,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 199,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 200,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 201,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 202,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 203,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 204,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 205,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 206,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 207,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 208,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 209,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 210,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 211,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 212,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 213,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 214,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 215,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 216,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 217,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 218,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 219,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 220,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 221,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 222,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 223,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 224,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 225,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 226,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 227,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 228,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 229,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 230,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 231,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 232,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 233,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 234,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 235,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 236,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 237,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 238,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 239,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 240,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 241,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 242,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 243,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 244,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 245,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 246,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 247,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 248,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 249,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 250,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 251,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 252,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 253,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 254,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 255,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 256,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 257,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 258,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 259,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 260,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 261,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 262,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 263,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 264,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 265,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 266,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 267,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 268,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 269,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 270,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 271,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 272,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 273,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 274,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 275,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 276,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 277,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 278,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 279,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 280,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 281,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 282,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 283,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 284,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 285,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 286,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 287,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 48,
+      "available": false,
+      "mineral_cost": 100,
+      "name": "VoidRaySpeedUpgrade",
+      "research_time_seconds": 57.1429,
+      "upgrade_id": 288,
+      "vespene_cost": 100
+    },
+    {
+      "ability_id": 766,
+      "available": false,
+      "mineral_cost": 100,
+      "name": "SmartServos",
+      "research_time_seconds": 78.5714,
+      "upgrade_id": 289,
+      "vespene_cost": 100
+    },
+    {
+      "ability_id": 767,
+      "available": false,
+      "mineral_cost": 150,
+      "name": "ArmorPiercingRockets",
+      "research_time_seconds": 78.5714,
+      "upgrade_id": 290,
+      "vespene_cost": 150
+    },
+    {
+      "ability_id": 768,
+      "available": false,
+      "mineral_cost": 75,
+      "name": "CycloneRapidFireLaunchers",
+      "research_time_seconds": 78.5714,
+      "upgrade_id": 291,
+      "vespene_cost": 75
+    },
+    {
+      "ability_id": 806,
+      "available": false,
+      "mineral_cost": 150,
+      "name": "RavenEnhancedMunitions",
+      "research_time_seconds": 78.5714,
+      "upgrade_id": 292,
+      "vespene_cost": 150
+    },
+    {
+      "ability_id": 3709,
+      "available": false,
+      "mineral_cost": 100,
+      "name": "DiggingClaws",
+      "research_time_seconds": 57.1429,
+      "upgrade_id": 293,
+      "vespene_cost": 100
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "CarrierCarrierCapacity",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 294,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "CarrierLeashRangeUpgrade",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 295,
+      "vespene_cost": 0
+    },
+    {
+      "ability_id": 770,
+      "available": false,
+      "mineral_cost": 100,
+      "name": "HurricaneThrusters",
+      "research_time_seconds": 100.0,
+      "upgrade_id": 296,
+      "vespene_cost": 100
+    },
+    {
+      "ability_id": 49,
+      "available": false,
+      "mineral_cost": 150,
+      "name": "TempestGroundAttackUpgrade",
+      "research_time_seconds": 100.0,
+      "upgrade_id": 297,
+      "vespene_cost": 150
+    },
+    {
+      "ability_id": 1284,
+      "available": false,
+      "mineral_cost": 100,
+      "name": "Frenzy",
+      "research_time_seconds": 64.2857,
+      "upgrade_id": 298,
+      "vespene_cost": 100
+    },
+    {
+      "ability_id": 1457,
+      "available": false,
+      "mineral_cost": 150,
+      "name": "MicrobialShroud",
+      "research_time_seconds": 78.5714,
+      "upgrade_id": 299,
+      "vespene_cost": 150
+    },
+    {
+      "ability_id": 807,
+      "available": false,
+      "mineral_cost": 50,
+      "name": "InterferenceMatrix",
+      "research_time_seconds": 57.1429,
+      "upgrade_id": 300,
+      "vespene_cost": 50
+    },
+    {
+      "ability_id": 1595,
+      "available": false,
+      "mineral_cost": 100,
+      "name": "SunderingImpact",
+      "research_time_seconds": 100.0,
+      "upgrade_id": 301,
+      "vespene_cost": 100
+    },
+    {
+      "ability_id": 1596,
+      "available": false,
+      "mineral_cost": 100,
+      "name": "AmplifiedShielding",
+      "research_time_seconds": 100.0,
+      "upgrade_id": 302,
+      "vespene_cost": 100
+    },
+    {
+      "ability_id": 1597,
+      "available": false,
+      "mineral_cost": 100,
+      "name": "PsionicAmplifiers",
+      "research_time_seconds": 100.0,
+      "upgrade_id": 303,
+      "vespene_cost": 100
+    },
+    {
+      "ability_id": 1195,
+      "available": false,
+      "mineral_cost": 100,
+      "name": "SecretedCoating",
+      "research_time_seconds": 57.1429,
+      "upgrade_id": 304,
+      "vespene_cost": 100
+    },
+    {
+      "ability_id": 0,
+      "available": false,
+      "mineral_cost": 0,
+      "name": "EnhancedShockwaves",
+      "research_time_seconds": 0.0,
+      "upgrade_id": 305,
+      "vespene_cost": 0
+    }
+  ]
+}

@@ -123,7 +123,7 @@ def _combat(name: str, *, description: str) -> TargetSpec:
 PROTOSS_TARGETS: Tuple[TargetSpec, ...] = (
     _building(
         "nexus",
-        description="Expands to a legal resource site, adds mining capacity and trains Probes. It generates energy. Spending that energy is not an action.",
+        description="Expands to a legal resource site, adds mining capacity and trains Probes. It generates energy. chrono_boost spends that energy and is not cast automatically.",
         minerals=400,
         seconds=71,
     ),
@@ -235,7 +235,7 @@ PROTOSS_TARGETS: Tuple[TargetSpec, ...] = (
     _unit("zealot", description="Ground melee fighter.", minerals=100, supply=2, seconds=27, producer="gateway"),
     _unit("stalker", description="Ground attacker that also shoots air.", minerals=125, vespene=50, supply=2, seconds=27, producer="gateway", prerequisites=("cybernetics_core",)),
     _unit("sentry", description="Support caster. Force Field, Guardian Shield and Hallucination are backend-controlled.", minerals=50, vespene=100, supply=2, seconds=23, producer="gateway", prerequisites=("cybernetics_core",)),
-    _unit("adept", description="Ground ranged fighter. Shade is backend-controlled.", minerals=100, vespene=25, supply=2, seconds=30, producer="gateway", prerequisites=("cybernetics_core",)),
+    _unit("adept", description="Ground ranged fighter. Shade is backend-controlled. The time is the Gateway train time, not warp-in time.", minerals=100, vespene=25, supply=2, seconds=33, producer="gateway", prerequisites=("cybernetics_core",)),
     _unit("high_templar", description="Ground caster. Feedback and Psionic Storm are backend-controlled after research. Archon is not a train target.", minerals=50, vespene=150, supply=2, seconds=39, producer="gateway", prerequisites=("templar_archives",)),
     _unit("dark_templar", description="Permanent cloak melee fighter. Archon is not a train target.", minerals=125, vespene=125, supply=2, seconds=39, producer="gateway", prerequisites=("dark_shrine",)),
     _unit("observer", description="Flying detector. Surveillance mode is backend-controlled and shares this identity.", minerals=25, vespene=75, supply=1, seconds=18, producer="robotics_facility"),

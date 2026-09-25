@@ -1,6 +1,6 @@
-"""python -m agents.llm_agent"""
+"""Run the example agent as a Python module."""
 
-from .agent import main
+from .cli import main
 
-if __name__ == "__main__":
-    raise SystemExit(main())
+
+raise SystemExit(main())

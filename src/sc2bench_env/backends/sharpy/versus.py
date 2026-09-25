@@ -40,6 +40,7 @@ def _side_config(config: EpisodeConfig, *, race: str, enemy_race: str) -> Episod
         seed=config.seed,
         blocking_decisions=True,
         enemy_style=config.enemy_style,
+        realtime=config.realtime,
     )
 
 

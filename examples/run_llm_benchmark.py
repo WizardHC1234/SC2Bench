@@ -17,7 +17,7 @@ if __package__:
 else:
     import agent_integration as llm
 
-from agents.llm_agent.agent import LLMAgent as BenchmarkLLMAgent
+from agents.llm_agent import LLMAgent as BenchmarkLLMAgent
 from sc2bench_env.benchmark import BenchmarkRunner, BenchmarkSuite
 
 DEFAULT_SUITE = Path(__file__).resolve().parents[1] / "benchmarks" / "terran_pilot.json"

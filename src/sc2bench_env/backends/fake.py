@@ -12,8 +12,8 @@ from sc2bench_env.runtime.scheduler import DecisionTrigger, trigger_satisfied
 from sc2bench_env.runtime.task import Demand, DemandState
 from sc2bench_env.runtime.task_manager import DemandUpdate
 
-COSTS: Dict[str, Dict[str, int]] = cost_table(race="terran")
 PREREQUISITES: Dict[str, List[str]] = prerequisite_table(race="terran")
+COSTS: Dict[str, Dict[str, int]] = cost_table(race="terran")
 
 FAKE_ZONE_COUNT = 16
 SCAN_ENERGY_COST = float(COSTS["scan"]["energy"])
@@ -151,7 +151,9 @@ class FakeBackend(Backend):
         self.minerals = 50
         self.vespene = 0
         self.supply_used = 12
-        self.supply_cap = 14 if config.race == "zerg" else 15
+        from sc2bench_env.data.knowledge import food_provided, opening_supply_cap
+
+        self.supply_cap = opening_supply_cap(config.race)
         self.units = opening_units
         self.buildings = opening_buildings
         self.under_construction = {}
@@ -919,7 +921,9 @@ class FakeBackend(Backend):
             if item.action == "train" and item.phase == "producing":
                 self.units[item.target] = self.units.get(item.target, 0) + 1
                 if self._race == "zerg" and item.target == "overlord":
-                    self.supply_cap += 8
+                    from sc2bench_env.data.knowledge import food_provided
+
+                    self.supply_cap += food_provided(self._race, "overlord")
                 self._updates.append(
                     DemandUpdate(
                         demand_id=item.demand_id,
@@ -993,10 +997,12 @@ class FakeBackend(Backend):
             self.orbital_energy = max(self.orbital_energy, 50.0)
             return
         self.buildings[target] = self.buildings.get(target, 0) + 1
+        from sc2bench_env.data.knowledge import food_provided
+
         if target == self._supply_name:
-            self.supply_cap += 8
+            self.supply_cap += food_provided(self._race, target)
         if target == self._townhall_name:
-            self.supply_cap += 6 if self._race == "zerg" else 15
+            self.supply_cap += food_provided(self._race, target)
             index = 0
             while f"cc_{index}" in self.structure_types:
                 index += 1

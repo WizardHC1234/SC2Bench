@@ -1,0 +1,1016 @@
+{
+  "base_build": 97563,
+  "data_version": "F364D7C8BB1A0444ABC9BEE547B3FBB3",
+  "extracted_at": "2026-09-24T03:23:21.757520+00:00",
+  "extractor": "scripts/extract_sc2_runtime_stats.py",
+  "extractor_version": 1,
+  "game_version": "5.0.16.97563",
+  "units": {
+    "10": {
+      "energy_max": 0.0,
+      "health_max": 400.0,
+      "is_flying": true,
+      "proto_name": "Mothership",
+      "shield_max": 200.0
+    },
+    "100": {
+      "energy_max": 0.0,
+      "health_max": 2000.0,
+      "is_flying": false,
+      "proto_name": "Lair",
+      "shield_max": 0.0
+    },
+    "101": {
+      "energy_max": 0.0,
+      "health_max": 2500.0,
+      "is_flying": false,
+      "proto_name": "Hive",
+      "shield_max": 0.0
+    },
+    "102": {
+      "energy_max": 0.0,
+      "health_max": 1000.0,
+      "is_flying": false,
+      "proto_name": "GreaterSpire",
+      "shield_max": 0.0
+    },
+    "104": {
+      "energy_max": 0.0,
+      "health_max": 40.0,
+      "is_flying": false,
+      "proto_name": "Drone",
+      "shield_max": 0.0
+    },
+    "105": {
+      "energy_max": 0.0,
+      "health_max": 35.0,
+      "is_flying": false,
+      "proto_name": "Zergling",
+      "shield_max": 0.0
+    },
+    "106": {
+      "energy_max": 0.0,
+      "health_max": 200.0,
+      "is_flying": true,
+      "proto_name": "Overlord",
+      "shield_max": 0.0
+    },
+    "107": {
+      "energy_max": 0.0,
+      "health_max": 90.0,
+      "is_flying": false,
+      "proto_name": "Hydralisk",
+      "shield_max": 0.0
+    },
+    "108": {
+      "energy_max": 0.0,
+      "health_max": 120.0,
+      "is_flying": true,
+      "proto_name": "Mutalisk",
+      "shield_max": 0.0
+    },
+    "109": {
+      "energy_max": 0.0,
+      "health_max": 500.0,
+      "is_flying": false,
+      "proto_name": "Ultralisk",
+      "shield_max": 0.0
+    },
+    "110": {
+      "energy_max": 0.0,
+      "health_max": 145.0,
+      "is_flying": false,
+      "proto_name": "Roach",
+      "shield_max": 0.0
+    },
+    "111": {
+      "energy_max": 200.0,
+      "health_max": 90.0,
+      "is_flying": false,
+      "proto_name": "Infestor",
+      "shield_max": 0.0
+    },
+    "112": {
+      "energy_max": 0.0,
+      "health_max": 200.0,
+      "is_flying": true,
+      "proto_name": "Corruptor",
+      "shield_max": 0.0
+    },
+    "114": {
+      "energy_max": 0.0,
+      "health_max": 225.0,
+      "is_flying": true,
+      "proto_name": "BroodLord",
+      "shield_max": 0.0
+    },
+    "115": {
+      "energy_max": 0.0,
+      "health_max": 30.0,
+      "is_flying": false,
+      "proto_name": "BanelingBurrowed",
+      "shield_max": 0.0
+    },
+    "116": {
+      "energy_max": 0.0,
+      "health_max": 40.0,
+      "is_flying": false,
+      "proto_name": "DroneBurrowed",
+      "shield_max": 0.0
+    },
+    "117": {
+      "energy_max": 0.0,
+      "health_max": 90.0,
+      "is_flying": false,
+      "proto_name": "HydraliskBurrowed",
+      "shield_max": 0.0
+    },
+    "118": {
+      "energy_max": 0.0,
+      "health_max": 145.0,
+      "is_flying": false,
+      "proto_name": "RoachBurrowed",
+      "shield_max": 0.0
+    },
+    "119": {
+      "energy_max": 0.0,
+      "health_max": 35.0,
+      "is_flying": false,
+      "proto_name": "ZerglingBurrowed",
+      "shield_max": 0.0
+    },
+    "12": {
+      "energy_max": 0.0,
+      "health_max": 5.0,
+      "is_flying": false,
+      "proto_name": "Changeling",
+      "shield_max": 0.0
+    },
+    "125": {
+      "energy_max": 200.0,
+      "health_max": 175.0,
+      "is_flying": false,
+      "proto_name": "QueenBurrowed",
+      "shield_max": 0.0
+    },
+    "126": {
+      "energy_max": 200.0,
+      "health_max": 175.0,
+      "is_flying": false,
+      "proto_name": "Queen",
+      "shield_max": 0.0
+    },
+    "127": {
+      "energy_max": 200.0,
+      "health_max": 90.0,
+      "is_flying": false,
+      "proto_name": "InfestorBurrowed",
+      "shield_max": 0.0
+    },
+    "129": {
+      "energy_max": 200.0,
+      "health_max": 200.0,
+      "is_flying": true,
+      "proto_name": "Overseer",
+      "shield_max": 0.0
+    },
+    "130": {
+      "energy_max": 0.0,
+      "health_max": 1500.0,
+      "is_flying": false,
+      "proto_name": "PlanetaryFortress",
+      "shield_max": 0.0
+    },
+    "131": {
+      "energy_max": 0.0,
+      "health_max": 500.0,
+      "is_flying": false,
+      "proto_name": "UltraliskBurrowed",
+      "shield_max": 0.0
+    },
+    "132": {
+      "energy_max": 200.0,
+      "health_max": 1500.0,
+      "is_flying": false,
+      "proto_name": "OrbitalCommand",
+      "shield_max": 0.0
+    },
+    "133": {
+      "energy_max": 0.0,
+      "health_max": 500.0,
+      "is_flying": false,
+      "proto_name": "WarpGate",
+      "shield_max": 500.0
+    },
+    "134": {
+      "energy_max": 200.0,
+      "health_max": 1500.0,
+      "is_flying": true,
+      "proto_name": "OrbitalCommandFlying",
+      "shield_max": 0.0
+    },
+    "136": {
+      "energy_max": 0.0,
+      "health_max": 80.0,
+      "is_flying": true,
+      "proto_name": "WarpPrismPhasing",
+      "shield_max": 100.0
+    },
+    "137": {
+      "energy_max": 0.0,
+      "health_max": 50.0,
+      "is_flying": false,
+      "proto_name": "CreepTumorBurrowed",
+      "shield_max": 0.0
+    },
+    "141": {
+      "energy_max": 0.0,
+      "health_max": 10.0,
+      "is_flying": false,
+      "proto_name": "Archon",
+      "shield_max": 350.0
+    },
+    "142": {
+      "energy_max": 0.0,
+      "health_max": 300.0,
+      "is_flying": false,
+      "proto_name": "NydusCanal",
+      "shield_max": 0.0
+    },
+    "18": {
+      "energy_max": 0.0,
+      "health_max": 1500.0,
+      "is_flying": false,
+      "proto_name": "CommandCenter",
+      "shield_max": 0.0
+    },
+    "19": {
+      "energy_max": 0.0,
+      "health_max": 400.0,
+      "is_flying": false,
+      "proto_name": "SupplyDepot",
+      "shield_max": 0.0
+    },
+    "1910": {
+      "energy_max": 100.0,
+      "health_max": 200.0,
+      "is_flying": false,
+      "proto_name": "ShieldBattery",
+      "shield_max": 200.0
+    },
+    "1912": {
+      "energy_max": 200.0,
+      "health_max": 200.0,
+      "is_flying": true,
+      "proto_name": "OverseerSiegeMode",
+      "shield_max": 0.0
+    },
+    "1943": {
+      "energy_max": 0.0,
+      "health_max": 500.0,
+      "is_flying": false,
+      "proto_name": "RefineryRich",
+      "shield_max": 0.0
+    },
+    "1994": {
+      "energy_max": 0.0,
+      "health_max": 300.0,
+      "is_flying": false,
+      "proto_name": "AssimilatorRich",
+      "shield_max": 300.0
+    },
+    "1995": {
+      "energy_max": 0.0,
+      "health_max": 500.0,
+      "is_flying": false,
+      "proto_name": "ExtractorRich",
+      "shield_max": 0.0
+    },
+    "20": {
+      "energy_max": 0.0,
+      "health_max": 500.0,
+      "is_flying": false,
+      "proto_name": "Refinery",
+      "shield_max": 0.0
+    },
+    "21": {
+      "energy_max": 0.0,
+      "health_max": 1000.0,
+      "is_flying": false,
+      "proto_name": "Barracks",
+      "shield_max": 0.0
+    },
+    "22": {
+      "energy_max": 0.0,
+      "health_max": 850.0,
+      "is_flying": false,
+      "proto_name": "EngineeringBay",
+      "shield_max": 0.0
+    },
+    "23": {
+      "energy_max": 0.0,
+      "health_max": 250.0,
+      "is_flying": false,
+      "proto_name": "MissileTurret",
+      "shield_max": 0.0
+    },
+    "24": {
+      "energy_max": 0.0,
+      "health_max": 400.0,
+      "is_flying": false,
+      "proto_name": "Bunker",
+      "shield_max": 0.0
+    },
+    "25": {
+      "energy_max": 0.0,
+      "health_max": 200.0,
+      "is_flying": false,
+      "proto_name": "SensorTower",
+      "shield_max": 0.0
+    },
+    "26": {
+      "energy_max": 0.0,
+      "health_max": 1250.0,
+      "is_flying": false,
+      "proto_name": "GhostAcademy",
+      "shield_max": 0.0
+    },
+    "268": {
+      "energy_max": 0.0,
+      "health_max": 60.0,
+      "is_flying": false,
+      "proto_name": "MULE",
+      "shield_max": 0.0
+    },
+    "27": {
+      "energy_max": 0.0,
+      "health_max": 1250.0,
+      "is_flying": false,
+      "proto_name": "Factory",
+      "shield_max": 0.0
+    },
+    "28": {
+      "energy_max": 0.0,
+      "health_max": 1300.0,
+      "is_flying": false,
+      "proto_name": "Starport",
+      "shield_max": 0.0
+    },
+    "289": {
+      "energy_max": 0.0,
+      "health_max": 20.0,
+      "is_flying": false,
+      "proto_name": "Broodling",
+      "shield_max": 0.0
+    },
+    "29": {
+      "energy_max": 0.0,
+      "health_max": 750.0,
+      "is_flying": false,
+      "proto_name": "Armory",
+      "shield_max": 0.0
+    },
+    "30": {
+      "energy_max": 0.0,
+      "health_max": 750.0,
+      "is_flying": false,
+      "proto_name": "FusionCore",
+      "shield_max": 0.0
+    },
+    "31": {
+      "energy_max": 0.0,
+      "health_max": 100.0,
+      "is_flying": false,
+      "proto_name": "AutoTurret",
+      "shield_max": 0.0
+    },
+    "311": {
+      "energy_max": 0.0,
+      "health_max": 70.0,
+      "is_flying": false,
+      "proto_name": "Adept",
+      "shield_max": 70.0
+    },
+    "32": {
+      "energy_max": 0.0,
+      "health_max": 175.0,
+      "is_flying": false,
+      "proto_name": "SiegeTankSieged",
+      "shield_max": 0.0
+    },
+    "33": {
+      "energy_max": 0.0,
+      "health_max": 175.0,
+      "is_flying": false,
+      "proto_name": "SiegeTank",
+      "shield_max": 0.0
+    },
+    "34": {
+      "energy_max": 0.0,
+      "health_max": 135.0,
+      "is_flying": false,
+      "proto_name": "VikingAssault",
+      "shield_max": 0.0
+    },
+    "35": {
+      "energy_max": 0.0,
+      "health_max": 135.0,
+      "is_flying": true,
+      "proto_name": "VikingFighter",
+      "shield_max": 0.0
+    },
+    "36": {
+      "energy_max": 0.0,
+      "health_max": 1500.0,
+      "is_flying": true,
+      "proto_name": "CommandCenterFlying",
+      "shield_max": 0.0
+    },
+    "37": {
+      "energy_max": 0.0,
+      "health_max": 400.0,
+      "is_flying": false,
+      "proto_name": "BarracksTechLab",
+      "shield_max": 0.0
+    },
+    "38": {
+      "energy_max": 0.0,
+      "health_max": 400.0,
+      "is_flying": false,
+      "proto_name": "BarracksReactor",
+      "shield_max": 0.0
+    },
+    "39": {
+      "energy_max": 0.0,
+      "health_max": 400.0,
+      "is_flying": false,
+      "proto_name": "FactoryTechLab",
+      "shield_max": 0.0
+    },
+    "4": {
+      "energy_max": 0.0,
+      "health_max": 250.0,
+      "is_flying": false,
+      "proto_name": "Colossus",
+      "shield_max": 100.0
+    },
+    "40": {
+      "energy_max": 0.0,
+      "health_max": 400.0,
+      "is_flying": false,
+      "proto_name": "FactoryReactor",
+      "shield_max": 0.0
+    },
+    "41": {
+      "energy_max": 0.0,
+      "health_max": 400.0,
+      "is_flying": false,
+      "proto_name": "StarportTechLab",
+      "shield_max": 0.0
+    },
+    "43": {
+      "energy_max": 0.0,
+      "health_max": 1250.0,
+      "is_flying": true,
+      "proto_name": "FactoryFlying",
+      "shield_max": 0.0
+    },
+    "44": {
+      "energy_max": 0.0,
+      "health_max": 1300.0,
+      "is_flying": true,
+      "proto_name": "StarportFlying",
+      "shield_max": 0.0
+    },
+    "45": {
+      "energy_max": 0.0,
+      "health_max": 45.0,
+      "is_flying": false,
+      "proto_name": "SCV",
+      "shield_max": 0.0
+    },
+    "46": {
+      "energy_max": 0.0,
+      "health_max": 1000.0,
+      "is_flying": true,
+      "proto_name": "BarracksFlying",
+      "shield_max": 0.0
+    },
+    "47": {
+      "energy_max": 0.0,
+      "health_max": 400.0,
+      "is_flying": false,
+      "proto_name": "SupplyDepotLowered",
+      "shield_max": 0.0
+    },
+    "48": {
+      "energy_max": 0.0,
+      "health_max": 45.0,
+      "is_flying": false,
+      "proto_name": "Marine",
+      "shield_max": 0.0
+    },
+    "484": {
+      "energy_max": 0.0,
+      "health_max": 135.0,
+      "is_flying": false,
+      "proto_name": "HellionTank",
+      "shield_max": 0.0
+    },
+    "489": {
+      "energy_max": 0.0,
+      "health_max": 50.0,
+      "is_flying": false,
+      "proto_name": "LocustMP",
+      "shield_max": 0.0
+    },
+    "49": {
+      "energy_max": 0.0,
+      "health_max": 60.0,
+      "is_flying": false,
+      "proto_name": "Reaper",
+      "shield_max": 0.0
+    },
+    "493": {
+      "energy_max": 0.0,
+      "health_max": 160.0,
+      "is_flying": false,
+      "proto_name": "SwarmHostBurrowedMP",
+      "shield_max": 0.0
+    },
+    "494": {
+      "energy_max": 0.0,
+      "health_max": 160.0,
+      "is_flying": false,
+      "proto_name": "SwarmHostMP",
+      "shield_max": 0.0
+    },
+    "495": {
+      "energy_max": 200.0,
+      "health_max": 100.0,
+      "is_flying": true,
+      "proto_name": "Oracle",
+      "shield_max": 60.0
+    },
+    "496": {
+      "energy_max": 0.0,
+      "health_max": 200.0,
+      "is_flying": true,
+      "proto_name": "Tempest",
+      "shield_max": 100.0
+    },
+    "498": {
+      "energy_max": 0.0,
+      "health_max": 90.0,
+      "is_flying": false,
+      "proto_name": "WidowMine",
+      "shield_max": 0.0
+    },
+    "499": {
+      "energy_max": 200.0,
+      "health_max": 150.0,
+      "is_flying": true,
+      "proto_name": "Viper",
+      "shield_max": 0.0
+    },
+    "50": {
+      "energy_max": 200.0,
+      "health_max": 100.0,
+      "is_flying": false,
+      "proto_name": "Ghost",
+      "shield_max": 0.0
+    },
+    "500": {
+      "energy_max": 0.0,
+      "health_max": 90.0,
+      "is_flying": false,
+      "proto_name": "WidowMineBurrowed",
+      "shield_max": 0.0
+    },
+    "502": {
+      "energy_max": 0.0,
+      "health_max": 190.0,
+      "is_flying": false,
+      "proto_name": "LurkerMP",
+      "shield_max": 0.0
+    },
+    "503": {
+      "energy_max": 0.0,
+      "health_max": 190.0,
+      "is_flying": false,
+      "proto_name": "LurkerMPBurrowed",
+      "shield_max": 0.0
+    },
+    "504": {
+      "energy_max": 0.0,
+      "health_max": 850.0,
+      "is_flying": false,
+      "proto_name": "LurkerDenMP",
+      "shield_max": 0.0
+    },
+    "51": {
+      "energy_max": 0.0,
+      "health_max": 125.0,
+      "is_flying": false,
+      "proto_name": "Marauder",
+      "shield_max": 0.0
+    },
+    "52": {
+      "energy_max": 0.0,
+      "health_max": 400.0,
+      "is_flying": false,
+      "proto_name": "Thor",
+      "shield_max": 0.0
+    },
+    "53": {
+      "energy_max": 0.0,
+      "health_max": 90.0,
+      "is_flying": false,
+      "proto_name": "Hellion",
+      "shield_max": 0.0
+    },
+    "54": {
+      "energy_max": 200.0,
+      "health_max": 150.0,
+      "is_flying": true,
+      "proto_name": "Medivac",
+      "shield_max": 0.0
+    },
+    "55": {
+      "energy_max": 200.0,
+      "health_max": 140.0,
+      "is_flying": true,
+      "proto_name": "Banshee",
+      "shield_max": 0.0
+    },
+    "56": {
+      "energy_max": 200.0,
+      "health_max": 140.0,
+      "is_flying": true,
+      "proto_name": "Raven",
+      "shield_max": 0.0
+    },
+    "57": {
+      "energy_max": 0.0,
+      "health_max": 550.0,
+      "is_flying": true,
+      "proto_name": "Battlecruiser",
+      "shield_max": 0.0
+    },
+    "59": {
+      "energy_max": 200.0,
+      "health_max": 1000.0,
+      "is_flying": false,
+      "proto_name": "Nexus",
+      "shield_max": 1000.0
+    },
+    "60": {
+      "energy_max": 0.0,
+      "health_max": 200.0,
+      "is_flying": false,
+      "proto_name": "Pylon",
+      "shield_max": 200.0
+    },
+    "61": {
+      "energy_max": 0.0,
+      "health_max": 300.0,
+      "is_flying": false,
+      "proto_name": "Assimilator",
+      "shield_max": 300.0
+    },
+    "62": {
+      "energy_max": 0.0,
+      "health_max": 500.0,
+      "is_flying": false,
+      "proto_name": "Gateway",
+      "shield_max": 500.0
+    },
+    "63": {
+      "energy_max": 0.0,
+      "health_max": 400.0,
+      "is_flying": false,
+      "proto_name": "Forge",
+      "shield_max": 400.0
+    },
+    "64": {
+      "energy_max": 0.0,
+      "health_max": 500.0,
+      "is_flying": false,
+      "proto_name": "FleetBeacon",
+      "shield_max": 500.0
+    },
+    "65": {
+      "energy_max": 0.0,
+      "health_max": 500.0,
+      "is_flying": false,
+      "proto_name": "TwilightCouncil",
+      "shield_max": 500.0
+    },
+    "66": {
+      "energy_max": 0.0,
+      "health_max": 150.0,
+      "is_flying": false,
+      "proto_name": "PhotonCannon",
+      "shield_max": 150.0
+    },
+    "67": {
+      "energy_max": 0.0,
+      "health_max": 600.0,
+      "is_flying": false,
+      "proto_name": "Stargate",
+      "shield_max": 600.0
+    },
+    "68": {
+      "energy_max": 0.0,
+      "health_max": 500.0,
+      "is_flying": false,
+      "proto_name": "TemplarArchive",
+      "shield_max": 500.0
+    },
+    "688": {
+      "energy_max": 0.0,
+      "health_max": 120.0,
+      "is_flying": false,
+      "proto_name": "Ravager",
+      "shield_max": 0.0
+    },
+    "689": {
+      "energy_max": 0.0,
+      "health_max": 180.0,
+      "is_flying": true,
+      "proto_name": "Liberator",
+      "shield_max": 0.0
+    },
+    "69": {
+      "energy_max": 0.0,
+      "health_max": 500.0,
+      "is_flying": false,
+      "proto_name": "DarkShrine",
+      "shield_max": 500.0
+    },
+    "690": {
+      "energy_max": 0.0,
+      "health_max": 120.0,
+      "is_flying": false,
+      "proto_name": "RavagerBurrowed",
+      "shield_max": 0.0
+    },
+    "691": {
+      "energy_max": 0.0,
+      "health_max": 400.0,
+      "is_flying": false,
+      "proto_name": "ThorAP",
+      "shield_max": 0.0
+    },
+    "692": {
+      "energy_max": 0.0,
+      "health_max": 120.0,
+      "is_flying": false,
+      "proto_name": "Cyclone",
+      "shield_max": 0.0
+    },
+    "693": {
+      "energy_max": 0.0,
+      "health_max": 50.0,
+      "is_flying": true,
+      "proto_name": "LocustMPFlying",
+      "shield_max": 0.0
+    },
+    "694": {
+      "energy_max": 0.0,
+      "health_max": 100.0,
+      "is_flying": false,
+      "proto_name": "Disruptor",
+      "shield_max": 100.0
+    },
+    "70": {
+      "energy_max": 0.0,
+      "health_max": 500.0,
+      "is_flying": false,
+      "proto_name": "RoboticsBay",
+      "shield_max": 500.0
+    },
+    "71": {
+      "energy_max": 0.0,
+      "health_max": 450.0,
+      "is_flying": false,
+      "proto_name": "RoboticsFacility",
+      "shield_max": 450.0
+    },
+    "72": {
+      "energy_max": 0.0,
+      "health_max": 550.0,
+      "is_flying": false,
+      "proto_name": "CyberneticsCore",
+      "shield_max": 550.0
+    },
+    "73": {
+      "energy_max": 0.0,
+      "health_max": 100.0,
+      "is_flying": false,
+      "proto_name": "Zealot",
+      "shield_max": 50.0
+    },
+    "734": {
+      "energy_max": 0.0,
+      "health_max": 180.0,
+      "is_flying": true,
+      "proto_name": "LiberatorAG",
+      "shield_max": 0.0
+    },
+    "74": {
+      "energy_max": 0.0,
+      "health_max": 80.0,
+      "is_flying": false,
+      "proto_name": "Stalker",
+      "shield_max": 80.0
+    },
+    "75": {
+      "energy_max": 200.0,
+      "health_max": 40.0,
+      "is_flying": false,
+      "proto_name": "HighTemplar",
+      "shield_max": 40.0
+    },
+    "76": {
+      "energy_max": 0.0,
+      "health_max": 40.0,
+      "is_flying": false,
+      "proto_name": "DarkTemplar",
+      "shield_max": 80.0
+    },
+    "77": {
+      "energy_max": 200.0,
+      "health_max": 40.0,
+      "is_flying": false,
+      "proto_name": "Sentry",
+      "shield_max": 40.0
+    },
+    "78": {
+      "energy_max": 200.0,
+      "health_max": 120.0,
+      "is_flying": true,
+      "proto_name": "Phoenix",
+      "shield_max": 60.0
+    },
+    "79": {
+      "energy_max": 0.0,
+      "health_max": 300.0,
+      "is_flying": true,
+      "proto_name": "Carrier",
+      "shield_max": 150.0
+    },
+    "80": {
+      "energy_max": 0.0,
+      "health_max": 150.0,
+      "is_flying": true,
+      "proto_name": "VoidRay",
+      "shield_max": 100.0
+    },
+    "81": {
+      "energy_max": 0.0,
+      "health_max": 80.0,
+      "is_flying": true,
+      "proto_name": "WarpPrism",
+      "shield_max": 100.0
+    },
+    "82": {
+      "energy_max": 0.0,
+      "health_max": 40.0,
+      "is_flying": true,
+      "proto_name": "Observer",
+      "shield_max": 30.0
+    },
+    "83": {
+      "energy_max": 0.0,
+      "health_max": 200.0,
+      "is_flying": false,
+      "proto_name": "Immortal",
+      "shield_max": 100.0
+    },
+    "84": {
+      "energy_max": 0.0,
+      "health_max": 20.0,
+      "is_flying": false,
+      "proto_name": "Probe",
+      "shield_max": 20.0
+    },
+    "85": {
+      "energy_max": 0.0,
+      "health_max": 40.0,
+      "is_flying": true,
+      "proto_name": "Interceptor",
+      "shield_max": 40.0
+    },
+    "86": {
+      "energy_max": 0.0,
+      "health_max": 1500.0,
+      "is_flying": false,
+      "proto_name": "Hatchery",
+      "shield_max": 0.0
+    },
+    "88": {
+      "energy_max": 0.0,
+      "health_max": 500.0,
+      "is_flying": false,
+      "proto_name": "Extractor",
+      "shield_max": 0.0
+    },
+    "89": {
+      "energy_max": 0.0,
+      "health_max": 1000.0,
+      "is_flying": false,
+      "proto_name": "SpawningPool",
+      "shield_max": 0.0
+    },
+    "9": {
+      "energy_max": 0.0,
+      "health_max": 30.0,
+      "is_flying": false,
+      "proto_name": "Baneling",
+      "shield_max": 0.0
+    },
+    "90": {
+      "energy_max": 0.0,
+      "health_max": 750.0,
+      "is_flying": false,
+      "proto_name": "EvolutionChamber",
+      "shield_max": 0.0
+    },
+    "91": {
+      "energy_max": 0.0,
+      "health_max": 850.0,
+      "is_flying": false,
+      "proto_name": "HydraliskDen",
+      "shield_max": 0.0
+    },
+    "92": {
+      "energy_max": 0.0,
+      "health_max": 850.0,
+      "is_flying": false,
+      "proto_name": "Spire",
+      "shield_max": 0.0
+    },
+    "93": {
+      "energy_max": 0.0,
+      "health_max": 850.0,
+      "is_flying": false,
+      "proto_name": "UltraliskCavern",
+      "shield_max": 0.0
+    },
+    "94": {
+      "energy_max": 0.0,
+      "health_max": 850.0,
+      "is_flying": false,
+      "proto_name": "InfestationPit",
+      "shield_max": 0.0
+    },
+    "95": {
+      "energy_max": 0.0,
+      "health_max": 850.0,
+      "is_flying": false,
+      "proto_name": "NydusNetwork",
+      "shield_max": 0.0
+    },
+    "96": {
+      "energy_max": 0.0,
+      "health_max": 850.0,
+      "is_flying": false,
+      "proto_name": "BanelingNest",
+      "shield_max": 0.0
+    },
+    "97": {
+      "energy_max": 0.0,
+      "health_max": 850.0,
+      "is_flying": false,
+      "proto_name": "RoachWarren",
+      "shield_max": 0.0
+    },
+    "98": {
+      "energy_max": 0.0,
+      "health_max": 300.0,
+      "is_flying": false,
+      "proto_name": "SpineCrawler",
+      "shield_max": 0.0
+    },
+    "99": {
+      "energy_max": 0.0,
+      "health_max": 300.0,
+      "is_flying": false,
+      "proto_name": "SporeCrawler",
+      "shield_max": 0.0
+    }
+  },
+  "unobserved": [
+    {
+      "proto_name": "StarportReactor",
+      "reason": "Debug create produced Starport, Reactor.",
+      "unit_id": 42
+    },
+    {
+      "proto_name": "CreepTumor",
+      "reason": "Debug create produced CreepTumorBurrowed.",
+      "unit_id": 87
+    }
+  ]
+}

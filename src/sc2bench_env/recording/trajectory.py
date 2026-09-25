@@ -157,6 +157,12 @@ def _versions() -> Dict[str, Any]:
     return versions
 
 
+def _knowledge_fields() -> Dict[str, Any]:
+    from sc2bench_env.data.knowledge import record_fields
+
+    return record_fields()
+
+
 @dataclass
 class TrajectoryRecorder:
     """Collects reset/step/close events into a fixed JSON structure."""
@@ -206,6 +212,7 @@ class TrajectoryRecorder:
                 "backend": backend,
                 "config": self.config,
                 "versions": _versions(),
+                **_knowledge_fields(),
                 "timestamp_timezone": "UTC",
                 "platform_prompt_char_count": len(prompt),
             }
@@ -261,6 +268,7 @@ class TrajectoryRecorder:
             "result": self._public_result(),
             "tools": self._session_tools,
             "messages": self._session_messages,
+            **_knowledge_fields(),
         })
 
     def record_agent_call_failure(self, agent_context: Dict[str, Any], *, game_time: float) -> None:

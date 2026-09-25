@@ -24,6 +24,7 @@ def _player_config(config: EpisodeConfig, *, race: str, enemy_race: str) -> Epis
         seed=config.seed,
         blocking_decisions=True,
         enemy_style=config.enemy_style,
+        realtime=config.realtime,
     )
 
 

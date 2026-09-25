@@ -19,7 +19,7 @@ _PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
-from agents.llm_agent.agent import (
+from agents.llm_agent import (
     DEFAULT_API_BASE_URL,
     DEFAULT_MODEL,
     DEFAULT_TEMPERATURE,
@@ -27,9 +27,8 @@ from agents.llm_agent.agent import (
     create_agent,
     llm_api_key,
     make_llm_call,
-    positive_float,
-    positive_int,
 )
+from agents.llm_agent.config import positive_float, positive_int
 from sc2bench_env.benchmark import BenchmarkRunner
 from sc2bench_env.interface.config import EpisodeConfig
 from sc2bench_env.interface.opponents import (

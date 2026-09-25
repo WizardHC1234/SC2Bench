@@ -748,7 +748,7 @@ class ActCombatMission(ActBase):
         return self.ai.start_location
 
     def _target_confirmed_clear(self, free_units, zone, target: Point2) -> bool:
-        """Confirm completion of an attack objective before returning home."""
+        """Confirm an attack objective is clear before holding it as defend."""
         from sc2bench_env.backends.sharpy.combat_styles import TARGET_CLEAR_CONFIRM_SECONDS
 
         if self.style != "attack" or self.phase != "fight" or zone is None or not free_units.exists:
@@ -777,6 +777,13 @@ class ActCombatMission(ActBase):
             self._target_clear_since = now
             return False
         return now - self._target_clear_since >= TARGET_CLEAR_CONFIRM_SECONDS
+
+    def _hold_cleared_objective(self) -> None:
+        """Stay on the cleared zone as defend until a new order or retreat."""
+        self.style = "defend"
+        self.phase = "fight"
+        self._target_clear_since = None
+        self._return_reason = "withdrawn"
 
     def _own_adapter(self):
         adapter = getattr(self.ai, "adapter", None)
@@ -1105,9 +1112,10 @@ class ActCombatMission(ActBase):
         self._configure_micro_boundary(zone)
 
         if self._target_confirmed_clear(free, zone, target):
-            self.phase = "withdrawing"
-            self._return_reason = "target_cleared"
-            return self._run_withdraw(free)
+            self._hold_cleared_objective()
+            if zone is not None:
+                target = self._defend_target(zone.center_location, zone)
+            self._configure_micro_boundary(zone)
 
         # No style-selected drops. Decide from current owned units and contact.
         # A delayed LOAD result must not leave cargo trapped in heal/escort.

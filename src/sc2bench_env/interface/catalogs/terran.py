@@ -233,7 +233,7 @@ TERRAN_TARGETS: Tuple[TargetSpec, ...] = (
     _building(
         "command_center",
         description="Expands to a legal resource site chosen by Sharpy, adds mining capacity, trains SCVs and can morph into an Orbital Command or Planetary Fortress.",
-        minerals=400,
+        minerals=300,
         seconds=71,
     ),
     _addon(
@@ -399,7 +399,7 @@ TERRAN_TARGETS: Tuple[TargetSpec, ...] = (
     _morph(
         "planetary_fortress",
         description="Morphs a Command Center into an armored town hall with a ground weapon; it retains SCV production but has no Orbital energy abilities.",
-        minerals=150,
+        minerals=250,
         vespene=150,
         seconds=36,
         morph_from="command_center",
@@ -455,8 +455,8 @@ TERRAN_TARGETS += (
     _building("bunker", description="Defensive garrison. The backend loads free home Marines into a completed bunker; there is no load or unload action.", minerals=100, seconds=29, prerequisites=("barracks",)),
     _building("missile_turret", description="Static anti-air weapon and detector for cloaked or burrowed enemies; cannot attack ground.", minerals=100, seconds=18, prerequisites=("engineering_bay",)),
     _building("sensor_tower", description="Shows enemy movement in its in-game sensor radius through fog, but has no weapon and is not a detector; SC2Bench does not expose sensor contacts in Observation.", minerals=100, vespene=50, seconds=18, prerequisites=("engineering_bay",)),
-    _unit("reaper", description="Fast ground raider that attacks ground and is effective against light targets.", minerals=50, vespene=50, supply=1, seconds=32, producer="barracks"),
-    _unit("ghost", description="Specialist infantry that attacks ground and air. Backend uses cloak, EMP and Steady Targeting when available; nuclear strike is not exposed.", minerals=150, vespene=125, supply=3, seconds=29, producer="barracks", prerequisites=("barracks_techlab", "ghost_academy")),
+    _unit("reaper", description="Fast ground raider that attacks ground and is effective against light targets.", minerals=50, vespene=50, supply=1, seconds=34, producer="barracks"),
+    _unit("ghost", description="Specialist infantry that attacks ground and air. Backend uses cloak, EMP and Steady Targeting when available; nuclear strike is not exposed.", minerals=150, vespene=125, supply=2, seconds=29, producer="barracks", prerequisites=("barracks_techlab", "ghost_academy")),
     _unit("hellion", description="Fast vehicle with a line ground attack that is effective against light targets.", minerals=100, supply=2, seconds=21, producer="factory"),
     _unit("hellbat", description="Durable short-range ground flamethrower effective against groups of light units. Trains directly in this form; no manual transform action.", minerals=100, supply=2, seconds=21, producer="factory", prerequisites=("armory",)),
     _unit("widow_mine", description="Burrowing ambusher that can hit ground or air with splash damage and a cooldown. Burrowing is backend-controlled.", minerals=75, vespene=25, supply=2, seconds=21, producer="factory"),
