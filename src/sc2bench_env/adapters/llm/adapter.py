@@ -14,6 +14,7 @@ from sc2bench_env.interface.platform_prompt import (
     render_prompt,
 )
 from sc2bench_env.interface.platform_rules import DECISION_REQUEST
+from sc2bench_env.interface.races import require_supported_own_race
 from sc2bench_env.interface.tools import ToolCall, ToolResult, ToolSpec
 
 
@@ -21,11 +22,11 @@ class LLMAdapter:
     """Renders platform facts. It does not call a model or keep a session."""
 
     def __init__(self, prompt_parts: Optional[PromptParts] = None, *, race: str = "terran") -> None:
-        self.prompt_parts = prompt_parts if prompt_parts is not None else default_prompt_parts(race)
+        require_supported_own_race(race)
+        self.race = race
+        self.prompt_parts = prompt_parts if prompt_parts is not None else default_prompt_parts(self.race)
 
-    def system_prompt(self, race: str = "terran") -> str:
-        if self.prompt_parts is None:
-            return render_prompt(default_prompt_parts(race))
+    def system_prompt(self) -> str:
         return render_prompt(self.prompt_parts)
 
     def render_tools(self, specs: Sequence[ToolSpec]) -> list[dict[str, Any]]:

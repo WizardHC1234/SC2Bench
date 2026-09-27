@@ -12,6 +12,7 @@ from typing import Any, Callable, Mapping, Optional
 from sc2bench_env.adapters.llm import LLMAdapter
 from sc2bench_env.interface.agent import AgentInput, AgentStopped, AgentTurn
 from sc2bench_env.interface.tools import (
+    ACTION_TOOLS,
     KNOWLEDGE_TOOLS,
     READ_TOOLS,
     ToolCall,
@@ -25,8 +26,12 @@ from .config import (
     llm_model,
 )
 from .prompts import (
+    DECISION_FLOW,
     MAX_TOOL_ROUNDS,
+    MIXED_REPLY_HINT,
     NO_TOOL_HINT,
+    QUERY_AFTER_ACTIONS_HINT,
+    READY_TEXT_HINT,
     TOOL_NOTE_HINT,
     TOOL_NOTE_RULE,
 )
@@ -101,10 +106,13 @@ class LLMAgent:
 
         schemas = tool_schemas(request.tool_specs)
         self._sent_tools = schemas
-        adapter = LLMAdapter()
+        race = str(request.observation.game.race or "terran").strip().lower()
+        adapter = LLMAdapter(race=race)
         provider_tool_calls: list[dict[str, Any]] = []
         failures: list[dict[str, Any]] = []
         last_attempt = 1
+        phase = "querying"
+        query_names, action_names = _tool_roles(request.tool_specs)
         for _round in range(MAX_TOOL_ROUNDS):
             response, attempt, round_failures = self._complete_once(schemas)
             last_attempt = attempt
@@ -116,6 +124,7 @@ class LLMAgent:
             raw = response.get("raw_content", response.get("content", ""))
             content = response.get("content") or ""
             if not tool_calls:
+                hint = READY_TEXT_HINT if phase == "ready_to_advance" else NO_TOOL_HINT
                 self.messages.append(
                     {"role": "assistant", "content": content or raw})
                 if self.verbose:
@@ -123,8 +132,8 @@ class LLMAgent:
                         _print_block("Model reasoning (API returned)",
                                      str(response.get("reasoning") or ""))
                     _print_block("Model reply (raw)", raw or "(empty)")
-                    _print_block("Tool reminder", NO_TOOL_HINT)
-                self.messages.append({"role": "user", "content": NO_TOOL_HINT})
+                    _print_block("Tool reminder", hint)
+                self.messages.append({"role": "user", "content": hint})
                 continue
             if not str(content).strip():
                 self.messages.append(
@@ -133,6 +142,7 @@ class LLMAgent:
                     _print_block("Tool reminder", TOOL_NOTE_HINT)
                 self._reject_tool_reply(tool_calls, TOOL_NOTE_HINT)
                 continue
+            kind, problem = _classify_reply(phase, tool_calls, query_names, action_names)
             self.messages.append(
                 self._assistant_tool_message(content, raw, tool_calls))
             if self.verbose:
@@ -141,15 +151,32 @@ class LLMAgent:
                                  str(response.get("reasoning") or ""))
                 if content:
                     _print_block("Model note", content)
-                print(f"Tool round {_round + 1}: {len(tool_calls)} call(s)",
-                      flush=True)
+            if problem:
+                if self.verbose:
+                    print(
+                        f"Tool round {_round + 1}: submitted none; "
+                        f"provider returned {len(tool_calls)} call(s)",
+                        flush=True,
+                    )
+                    _print_block("Tool reminder", problem)
+                self._reject_tool_reply(tool_calls, problem)
+                continue
+            if kind == "actions":
+                phase = "acting"
+            if self.verbose:
+                submitted_name = ", ".join(
+                    str(call.get("name") or "") for call in tool_calls)
+                print(
+                    f"Tool round {_round + 1}: submitted {submitted_name}; "
+                    f"provider returned {len(tool_calls)} call(s)",
+                    flush=True,
+                )
             ready = False
             for index, call in enumerate(tool_calls):
+                call_id = str(call.get("id") or f"call_{len(self.messages)}_{index}")
                 name = str(call.get("name") or "")
                 arguments = call.get("arguments") if isinstance(
                     call.get("arguments"), dict) else {}
-                call_id = str(
-                    call.get("id") or f"call_{len(self.messages)}_{index}")
                 tool_call = ToolCall(name, dict(arguments))
                 provider_tool_calls.append({
                     "id": call_id, "name": name, "arguments": dict(arguments),
@@ -167,9 +194,9 @@ class LLMAgent:
                     "role": "tool", "tool_call_id": call_id,
                     "content": rendered_result,
                 })
-                if result.status == "decision_ready":
-                    ready = True
-                    break
+                ready = result.status == "decision_ready"
+            if kind == "actions":
+                phase = "ready_to_advance"
             if ready:
                 context = self._turn_context(
                     response, request, last_attempt, failures)
@@ -284,20 +311,67 @@ class LLMAgent:
                     f"skill {self.skill_name!r} requires race {expected_race!r}, "
                     f"but the episode race is {race!r}"
                 )
-        adapter = LLMAdapter()
+        adapter = LLMAdapter(race=race)
         user = {"role": "user", "content": adapter.render_input(request)}
         if not self.messages:
-            content = adapter.system_prompt(race).rstrip()
+            content = adapter.system_prompt().rstrip()
             if self.skill_text:
                 content += (
                     f"\n\n[Agent Skill: {self.skill_name}]\n"
                     f"{self.skill_text}\n"
                 )
+            if DECISION_FLOW not in content:
+                content += f"\n\n{DECISION_FLOW}\n"
             if TOOL_NOTE_RULE not in content:
                 content += f"\n\n{TOOL_NOTE_RULE}\n"
             self.messages = [{"role": "system", "content": content}, user]
             return
         self.messages.append(user)
+
+
+def _tool_roles(tool_specs) -> tuple[set[str], set[str]]:
+    """Use this episode's tools. Race abilities are actions even when absent from the shared list."""
+    queries: set[str] = set()
+    actions: set[str] = set()
+    for spec in tool_specs:
+        name = str(getattr(spec, "name", "") or "")
+        kind = str(getattr(spec, "kind", "") or "")
+        if not name or name == "advance":
+            continue
+        if kind in {"read", "knowledge"} or name in KNOWLEDGE_TOOLS or name in READ_TOOLS:
+            queries.add(name)
+        elif kind == "action" or name in ACTION_TOOLS:
+            actions.add(name)
+    return queries, actions
+
+
+def _call_kind(name: str, queries: set[str], actions: set[str]) -> str:
+    if name == "advance":
+        return "advance"
+    if name in queries or name in KNOWLEDGE_TOOLS or name in READ_TOOLS:
+        return "query"
+    if name in actions or name in ACTION_TOOLS:
+        return "action"
+    return "unknown"
+
+
+def _classify_reply(
+    phase: str, tool_calls: list[dict[str, Any]], queries: set[str], actions: set[str],
+) -> tuple[str, Optional[str]]:
+    """Accept a query batch, an action batch, or advance alone. Reject every other shape."""
+    kinds = [_call_kind(str(call.get("name") or ""), queries, actions) for call in tool_calls]
+    if phase == "ready_to_advance" and "query" in kinds:
+        return "invalid", QUERY_AFTER_ACTIONS_HINT
+    queries = kinds.count("query")
+    actions = kinds.count("action")
+    advances = kinds.count("advance")
+    if advances == 1 and queries == 0 and actions == 0 and len(kinds) == 1:
+        return "advance", None
+    if queries and not actions and not advances and "unknown" not in kinds:
+        return "query", None
+    if actions and not queries and not advances and "unknown" not in kinds:
+        return "actions", None
+    return "invalid", MIXED_REPLY_HINT
 
 
 def _require_tools(call_llm: Callable[..., dict[str, Any]]) -> Callable[..., dict[str, Any]]:

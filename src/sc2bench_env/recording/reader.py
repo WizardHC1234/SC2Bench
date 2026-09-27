@@ -48,10 +48,30 @@ def read_episode(directory: str | Path) -> Dict[str, Any]:
             "tools": None,
             "messages": [],
         }
+    trajectory_path = path / "trajectory.json"
+    trajectory = None
+    if trajectory_path.is_file():
+        trajectory = json.loads(trajectory_path.read_text(encoding="utf-8"))
+        if not isinstance(trajectory, dict) or not isinstance(trajectory.get("events"), list):
+            raise ValueError("Invalid trajectory.json")
+    protocol = None
+    if isinstance(trajectory, dict):
+        protocol = trajectory.get("tool_protocol_version")
+    if not protocol:
+        protocol = metadata.get("tool_protocol_version")
+    notes = []
+    if not protocol:
+        protocol = "legacy"
+        notes.append("legacy record without tool_protocol_version")
+    if trajectory is None:
+        notes.append("model session only; no platform trajectory")
     return {
         "metadata": metadata,
         "platform_prompt": prompt,
         "summary": summary,
         "session": session,
         "messages": session["messages"],
+        "trajectory": trajectory,
+        "tool_protocol_version": protocol,
+        "record_notes": notes,
     }

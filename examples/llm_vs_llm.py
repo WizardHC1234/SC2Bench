@@ -6,6 +6,10 @@
 两边可以是不同的模型、地址和 skill。run_versus 也接受任意两个可调用对象，不要求同一个类。
 """
 from __future__ import annotations
+from sc2bench_env.interface.races import SUPPORTED_OWN_RACES
+from sc2bench_env.versus import VersusMatch, run_versus
+from sc2bench_env import EpisodeConfig
+from agents.llm_agent.config import env_setting
 
 import argparse
 import json
@@ -21,34 +25,40 @@ if __package__:
 else:
     import agent_integration as agent_module
 
-from agents.llm_agent.config import env_setting
-from sc2bench_env import EpisodeConfig
-from sc2bench_env.versus import VersusMatch, run_versus
-from sc2bench_env.interface.races import SUPPORTED_OWN_RACES
-
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--model", default=agent_module.DEFAULT_MODEL)
     parser.add_argument("--opponent-model", default=None)
-    parser.add_argument("--api-base-url", default=agent_module.DEFAULT_API_BASE_URL)
+    parser.add_argument(
+        "--api-base-url", default=agent_module.DEFAULT_API_BASE_URL)
     parser.add_argument("--opponent-api-base-url", default=None)
-    parser.add_argument("--race", choices=SUPPORTED_OWN_RACES, default="terran")
-    parser.add_argument("--enemy-race", choices=SUPPORTED_OWN_RACES, default="terran")
+    parser.add_argument(
+        "--race", choices=SUPPORTED_OWN_RACES, default="terran")
+    parser.add_argument(
+        "--enemy-race", choices=SUPPORTED_OWN_RACES, default="terran")
     parser.add_argument("--map", default="KairosJunctionLE")
-    parser.add_argument("--game-time-limit", type=agent_module.positive_float, default=1800)
-    parser.add_argument("--max-decisions", type=agent_module.positive_int, default=500)
-    parser.add_argument("--max-rejections", type=agent_module.positive_int, default=3)
+    parser.add_argument("--game-time-limit",
+                        type=agent_module.positive_float, default=1800)
+    parser.add_argument("--max-decisions",
+                        type=agent_module.positive_int, default=500)
+    parser.add_argument("--max-rejections",
+                        type=agent_module.positive_int, default=3)
     parser.add_argument("--skill", default="none")
     parser.add_argument("--opponent-skill", default="none")
     parser.add_argument("--temperature", type=agent_module.parse_temperature,
                         default=agent_module.DEFAULT_TEMPERATURE)
-    parser.add_argument("--opponent-temperature", type=agent_module.parse_temperature, default=None)
-    parser.add_argument("--api-timeout", type=agent_module.positive_float, default=180)
-    parser.add_argument("--api-attempts", type=agent_module.positive_int, default=3)
-    parser.add_argument("--api-retry-delay", type=agent_module.nonnegative_float, default=1)
-    parser.add_argument("--thinking", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument("--opponent-temperature",
+                        type=agent_module.parse_temperature, default=None)
+    parser.add_argument(
+        "--api-timeout", type=agent_module.positive_float, default=180)
+    parser.add_argument(
+        "--api-attempts", type=agent_module.positive_int, default=3)
+    parser.add_argument("--api-retry-delay",
+                        type=agent_module.nonnegative_float, default=1)
+    parser.add_argument(
+        "--thinking", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--realtime", action="store_true")
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument("--record-dir", type=Path, default=None)
@@ -81,7 +91,8 @@ def main(argv=None) -> int:
         home = agent_module.make_llm_call(
             api_key=agent_module.llm_api_key(), base_url=args.api_base_url, model=args.model,
             temperature=args.temperature, timeout=args.api_timeout, thinking=args.thinking)
-        opponent_key = env_setting("LLM_OPPONENT_API_KEY", agent_module.llm_api_key())
+        opponent_key = env_setting(
+            "LLM_OPPONENT_API_KEY", agent_module.llm_api_key())
         away = agent_module.make_llm_call(
             api_key=opponent_key, base_url=opponent_url, model=opponent_model,
             temperature=opponent_temperature, timeout=args.api_timeout, thinking=args.thinking)
@@ -93,7 +104,8 @@ def main(argv=None) -> int:
         max_consecutive_rejections=args.max_rejections,
     )
     agent = agent_module.create_agent(home, skill_name=args.skill, **options)
-    opponent = agent_module.create_agent(away, skill_name=args.opponent_skill, **options)
+    opponent = agent_module.create_agent(
+        away, skill_name=args.opponent_skill, **options)
     match = VersusMatch(backend="sharpy", record_dir=args.record_dir)
     try:
         info = run_versus(

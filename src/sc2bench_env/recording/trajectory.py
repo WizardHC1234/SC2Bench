@@ -18,7 +18,14 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-TRAJECTORY_SCHEMA_VERSION = "0.6"
+TRAJECTORY_SCHEMA_VERSION = "0.7"
+TOOL_PROTOCOL_VERSION = "tool_turn_v1"
+_EXECUTION_STATE = {
+    "ok": "completed",
+    "staged": "staged",
+    "decision_ready": "decision_ready",
+    "rejected": "rejected",
+}
 _UNSET = object()
 _CONSOLE_GUARD = threading.Lock()
 _CONSOLE_SINKS: Dict[int, Dict[str, Any]] = {}
@@ -140,6 +147,39 @@ def _json_safe(value: Any) -> Any:
     return {"non_json_type": type(value).__name__}
 
 
+def _public_event(index: int, entry: Dict[str, Any]) -> Dict[str, Any]:
+    event_type = {
+        "reset": "reset",
+        "tool_call": "tool_call",
+        "step": "decision_step",
+        "agent_protocol_error": "agent_error",
+        "agent_call_failure": "agent_error",
+        "error": "environment_error",
+        "end": "episode_end",
+    }.get(str(entry.get("type")), entry.get("type"))
+    payload = {
+        key: value for key, value in entry.items()
+        if key not in {"type", "recorded_at", "game_time_seconds", "decision_index", "turn_id"}
+    }
+    game_time = entry.get("game_time_seconds")
+    if game_time is None and entry.get("type") == "reset":
+        game_time = ((entry.get("observation") or {}).get("game") or {}).get("game_time_seconds")
+    if game_time is None and entry.get("type") == "step":
+        game_time = entry.get("game_time_after_seconds")
+    decision_index = entry.get("decision_index")
+    if decision_index is None and entry.get("type") in {"step", "end"}:
+        decision_index = entry.get("step_index")
+    return {
+        "sequence_index": index,
+        "event_type": event_type,
+        "recorded_at": entry.get("recorded_at"),
+        "game_time_seconds": game_time,
+        "decision_index": decision_index,
+        "turn_id": entry.get("turn_id"),
+        "payload": payload,
+    }
+
+
 def collect_versions() -> Dict[str, Any]:
     versions: Dict[str, Any] = {"python": platform.python_version()}
     for package in ("sc2bench-env", "burnysc2", "sharpy-sc2"):
@@ -207,6 +247,7 @@ class TrajectoryRecorder:
             break
         metadata_payload = {
                 "schema_version": TRAJECTORY_SCHEMA_VERSION,
+                "tool_protocol_version": TOOL_PROTOCOL_VERSION,
                 "episode_id": self.episode_id,
                 "started_at": self._started_at,
                 "backend": backend,
@@ -224,6 +265,7 @@ class TrajectoryRecorder:
         )
         self._write_atomic_text(self.directory / "episode.txt", self._episode_text + "\nStatus: in progress\n")
         self._write_session()
+        self._write_trajectory()
         self._console_log = _ConsoleLog(self.directory / "log.txt")
         self._console_log.start()
         return self.directory
@@ -263,6 +305,8 @@ class TrajectoryRecorder:
         if self.directory is None:
             return
         self._write_atomic(self.directory / "session.json", {
+            "schema_version": TRAJECTORY_SCHEMA_VERSION,
+            "tool_protocol_version": TOOL_PROTOCOL_VERSION,
             "episode_id": self.episode_id,
             "model": self._model,
             "result": self._public_result(),
@@ -317,6 +361,7 @@ class TrajectoryRecorder:
         if self.summary is not None:
             raise RuntimeError("Cannot append to a finalized trajectory")
         self.steps.append(json.loads(json.dumps(_json_safe(entry), ensure_ascii=False)))
+        self._write_trajectory()
 
     @property
     def decision_count(self) -> int:
@@ -332,6 +377,7 @@ class TrajectoryRecorder:
             "type": "tool_call",
             "kind": kind,
             "status": status,
+            "execution_state": _EXECUTION_STATE.get(status, "completed"),
             "name": call.get("name"),
             "arguments": dict(call.get("arguments") or {}),
             "call": call,
@@ -341,7 +387,6 @@ class TrajectoryRecorder:
             "decision_index": decision_index,
             "turn_id": turn_id,
             "next_decision_index": self._decision_count + 1,
-            "executed": False,
             "recorded_at": _utc_now(),
         })
 
@@ -361,11 +406,14 @@ class TrajectoryRecorder:
         self, *, name: str, arguments: Dict[str, Any], result: Dict[str, Any],
         game_time_seconds: float, elapsed_seconds: float,
     ) -> None:
+        status = result.get("status") if isinstance(result, dict) else None
         self._append({
             "type": "tool_call",
             "name": name,
             "arguments": arguments,
             "result": result,
+            "status": status,
+            "execution_state": _EXECUTION_STATE.get(status, "completed"),
             "game_time_seconds": game_time_seconds,
             "next_decision_index": self._decision_count + 1,
             "elapsed_seconds": elapsed_seconds,
@@ -461,6 +509,7 @@ class TrajectoryRecorder:
             self._game_time = float(observation["game"]["game_time_seconds"])
         summary = {
             "schema_version": TRAJECTORY_SCHEMA_VERSION,
+            "tool_protocol_version": TOOL_PROTOCOL_VERSION,
             "episode_id": self.episode_id,
             "status": status,
             "result": result,
@@ -472,10 +521,14 @@ class TrajectoryRecorder:
             "decision_count": self._decision_count,
             "rejected_count": self._rejected_count,
         }
-        end_entry = {"type": "end", **summary}
+        end_entry = {"type": "end", **summary, "replay_saved": self._replay_saved()}
         if observation is not None:
             end_entry["observation"] = deepcopy(observation)
-        self._append(end_entry)
+        self.steps.append(json.loads(json.dumps(_json_safe(end_entry), ensure_ascii=False)))
+        summary["replay_saved"] = self.steps[-1]["replay_saved"]
+        summary["integrity"] = self._integrity()
+        self.steps[-1]["integrity"] = summary["integrity"]
+        self.summary = summary
         if self.directory is not None:
             self._write_atomic_text(
                 self.directory / "episode.txt",
@@ -483,12 +536,107 @@ class TrajectoryRecorder:
                 + json.dumps(_json_safe(summary), ensure_ascii=False, indent=2) + "\n",
             )
             self._write_session()
-        self.summary = summary
+            self._write_trajectory()
         return self.to_dict()
+
+    def _replay_saved(self) -> bool:
+        if self.directory is None:
+            return False
+        replay = self.directory / "replay.SC2Replay"
+        return replay.is_file() and replay.stat().st_size > 0
+
+    def _write_trajectory(self) -> None:
+        if self.directory is None:
+            return
+        events = [_public_event(index, entry) for index, entry in enumerate(self.steps)]
+        self._write_atomic(self.directory / "trajectory.json", {
+            "schema_version": TRAJECTORY_SCHEMA_VERSION,
+            "tool_protocol_version": TOOL_PROTOCOL_VERSION,
+            "episode_id": self.episode_id,
+            "config": dict(self.config),
+            "events": events,
+            "result": {"result": self._public_result(), "summary": deepcopy(self.summary)},
+            "summary": deepcopy(self.summary) or {},
+        })
+
+    def _integrity(self) -> Dict[str, Any]:
+        errors: List[str] = []
+        race = str(self.config.get("race") or "")
+        system = ""
+        for message in self._session_messages:
+            if isinstance(message, dict) and message.get("role") == "system":
+                system = str(message.get("content") or "")
+                break
+        if system and race:
+            if f"controlling {race}" not in system.lower():
+                errors.append(f"system message does not identify race {race}")
+            for other in ("terran", "protoss", "zerg"):
+                if other != race and f"controlling {other}" in system.lower():
+                    errors.append(f"system message identifies {other} during a {race} episode")
+        if self._session_tools is not None and race in {"terran", "protoss", "zerg"}:
+            from sc2bench_env.interface.tools import tool_specs
+            expected = [spec.name for spec in tool_specs(race)]
+            recorded = []
+            for tool in self._session_tools:
+                function = tool.get("function") if isinstance(tool, dict) else None
+                recorded.append(function.get("name") if isinstance(function, dict) else None)
+            if recorded != expected:
+                errors.append("session tool schema does not match the episode race")
+        turns: Dict[str, List[Dict[str, Any]]] = {}
+        previous_after = None
+        for entry in self.steps:
+            if entry.get("type") == "tool_call":
+                if entry.get("status") == "not_submitted" or entry.get("execution_state") == "not_submitted":
+                    errors.append("a local not_submitted call was stored as a platform tool event")
+                if "result" not in entry:
+                    errors.append("platform tool call is missing a result")
+                turn_id = str(entry.get("turn_id") or "")
+                turns.setdefault(turn_id, []).append(entry)
+            if entry.get("type") == "step":
+                before = entry.get("game_time_before_seconds")
+                after = entry.get("game_time_after_seconds")
+                if isinstance(before, (int, float)) and isinstance(after, (int, float)):
+                    if after < before:
+                        errors.append("decision step game time moved backwards")
+                    if previous_after is not None and before < previous_after:
+                        errors.append("decision step started before the previous game time")
+                    previous_after = after
+        for turn_id, calls in turns.items():
+            indexes = {call.get("decision_index") for call in calls}
+            if len(indexes) > 1:
+                errors.append(f"turn {turn_id} mixes decision indexes")
+            advances = [index for index, call in enumerate(calls) if call.get("name") == "advance"]
+            if len(advances) > 1:
+                errors.append(f"turn {turn_id} contains more than one advance")
+            if advances and advances[-1] != len(calls) - 1:
+                errors.append(f"turn {turn_id} does not end on advance")
+            ready = [call for call in calls if call.get("execution_state") == "decision_ready"]
+            if ready:
+                staged = ((ready[-1].get("data") or {}).get("staged_calls") or [])
+                advance_call = {"name": "advance", "arguments": ready[-1].get("arguments") or {}}
+                expected = list(staged) + [advance_call]
+                step = next((
+                    item for item in self.steps
+                    if item.get("type") == "step" and item.get("validation", {}).get("accepted", True)
+                    and item.get("step_index") == int(ready[-1].get("decision_index") or 0) + 1
+                ), None)
+                submitted = step.get("submitted_decision") if step else None
+                if isinstance(submitted, list) and submitted != expected:
+                    errors.append(f"turn {turn_id} staged actions do not match the submitted decision")
+        ends = [entry for entry in self.steps if entry.get("type") == "end"]
+        if not ends:
+            errors.append("episode end is missing")
+        elif ends[-1].get("result") != self.result:
+            errors.append("episode end result does not match the episode summary")
+        replay_saved = self._replay_saved()
+        if ends and bool(ends[-1].get("replay_saved")) != replay_saved:
+            errors.append("episode end replay state does not match the saved replay")
+        return {"ok": not errors, "errors": errors}
 
     def to_dict(self) -> Dict[str, Any]:
         return {
             "schema_version": TRAJECTORY_SCHEMA_VERSION,
+            "tool_protocol_version": TOOL_PROTOCOL_VERSION,
             "episode_id": self.episode_id,
             "config": dict(self.config),
             "steps": deepcopy(self.steps),
