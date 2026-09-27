@@ -12,3 +12,4 @@ dependencies/**/build/
 dependencies/**/dist/
 games/
 records/
+agents/config.json

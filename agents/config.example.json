@@ -1,0 +1,26 @@
+{
+  "llm_agents_pool": {
+    "deepseek-v4-flash": {
+      "api_url": "https://api.deepseek.com",
+      "api_key": "EMPTY",
+      "model_name": "deepseek-v4-flash",
+      "temperature": 0.5,
+      "top_p": null,
+      "max_tokens": null,
+      "is_reasoning": false,
+      "enable_identity": false,
+      "identity_prompt": ""
+    },
+    "kimi-k2.5": {
+      "api_url": "https://api.example.com/v1",
+      "api_key": "EMPTY",
+      "model_name": "kimi-k2.5",
+      "temperature": 0.5,
+      "top_p": null,
+      "max_tokens": null,
+      "is_reasoning": false,
+      "enable_identity": false,
+      "identity_prompt": ""
+    }
+  }
+}

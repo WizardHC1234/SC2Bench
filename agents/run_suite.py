@@ -1,6 +1,7 @@
 """按 Suite 用无技能的 agents.llm_agent 打人机。
 
 模型从 agents/config.json 的 llm_agents_pool 读取，用法和 Commander 一样，用 --model-key 选择。
+先把 agents/config.example.json 复制为 agents/config.json，再填入自己的地址和密钥。
 
     python agents/run_suite.py --dry-run
     python agents/run_suite.py --model-key kimi-k2.5 --suite benchmarks/kimi_k25_ai.json --record-dir records/batch_kimi --max-parallel 5 --quiet
