@@ -1,6 +1,6 @@
 """One SC2 game, two BenchBots. Each bot pauses on its own advance."""
-
 from __future__ import annotations
+
 
 import logging
 import threading
@@ -12,8 +12,8 @@ from sc2bench_env.backends.base import Backend, BackendSnapshot
 from sc2bench_env.backends.sharpy.backend import SharpyBackend, _parse_race
 from sc2bench_env.interface.config import EpisodeConfig
 from sc2bench_env.runtime.scheduler import DecisionTrigger
-from sc2bench_env.runtime.task import Task
-from sc2bench_env.runtime.task_manager import TaskUpdate
+from sc2bench_env.runtime.task import Demand
+from sc2bench_env.runtime.task_manager import DemandUpdate
 
 logger = logging.getLogger("sc2bench_env.backends.sharpy.versus")
 
@@ -55,7 +55,7 @@ class _SharpyPlayerBackend(Backend):
     def start_episode(self, config: EpisodeConfig) -> BackendSnapshot:
         raise RuntimeError("VersusMatch starts the shared game")
 
-    def submit(self, tasks: list[Task]) -> None:
+    def submit(self, tasks: list[Demand]) -> None:
         self._player().submit(tasks)
 
     def run_until(self, trigger: DecisionTrigger) -> bool:
@@ -64,7 +64,7 @@ class _SharpyPlayerBackend(Backend):
     def release(self, trigger: DecisionTrigger) -> None:
         self._player().release(trigger)
 
-    def collect_updates(self) -> list[TaskUpdate]:
+    def collect_updates(self) -> list[DemandUpdate]:
         return self._player().collect_updates()
 
     def snapshot(self) -> BackendSnapshot:

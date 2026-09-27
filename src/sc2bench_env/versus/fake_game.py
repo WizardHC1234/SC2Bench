@@ -1,14 +1,14 @@
 """Shared clock for versus tests. Time moves only while both sides are released."""
-
 from __future__ import annotations
+
 
 from typing import Optional
 
 from sc2bench_env.backends.base import Backend, BackendSnapshot
 from sc2bench_env.interface.config import EpisodeConfig
 from sc2bench_env.runtime.scheduler import DecisionTrigger
-from sc2bench_env.runtime.task import Task
-from sc2bench_env.runtime.task_manager import TaskUpdate
+from sc2bench_env.runtime.task import Demand
+from sc2bench_env.runtime.task_manager import DemandUpdate
 
 
 def _snapshot(game_time: float) -> BackendSnapshot:
@@ -48,7 +48,7 @@ class _FakePlayerBackend(Backend):
     def start_episode(self, config: EpisodeConfig) -> BackendSnapshot:
         raise RuntimeError("VersusMatch starts the shared game")
 
-    def submit(self, tasks: list[Task]) -> None:
+    def submit(self, tasks: list[Demand]) -> None:
         return None
 
     def run_until(self, trigger: DecisionTrigger) -> bool:
@@ -57,7 +57,7 @@ class _FakePlayerBackend(Backend):
     def release(self, trigger: DecisionTrigger) -> None:
         self._game.release(self._index, trigger)
 
-    def collect_updates(self) -> list[TaskUpdate]:
+    def collect_updates(self) -> list[DemandUpdate]:
         return []
 
     def snapshot(self) -> BackendSnapshot:

@@ -1,6 +1,6 @@
 # llm_agent
 
-仓库附带的 LLM Agent。它实现 `AgentInput → AgentTurn`，在一个实例内保存单局消息历史，调用 OpenAI 兼容 Chat Completions，只使用平台 Read / Knowledge / Action 工具。查询可以先进行多轮；当前决策的动作必须在同一次回复里一起给出，并以一次 `advance` 结束。每个含工具调用的回复都要先在正文里写一句依据，查询回复和动作回复都一样。模型正文不会被解析成动作，也不会自动增删动作。
+仓库附带的 LLM Agent。它实现 `AgentInput → AgentTurn`，在一个实例内保存单局消息历史，调用 OpenAI 兼容 Chat Completions。它只转换这一轮 `request.tool_specs`，不按种族重新取全量工具。查询、动作和 `advance` 走同一个循环，可以交错。`advance` 才结束这一决策。示例 Agent 自己要求工具回复先写一句依据；这不是平台合同。模型正文不会被解析成动作。
 
 ## 目录结构
 
@@ -45,7 +45,8 @@ python -m agents.llm_agent --race zerg --skill zerg/roach-hydra --opponent mediu
 用 BenchmarkRunner 加载工厂：
 
 ```python
-from sc2bench_env import BenchmarkRunner, EpisodeConfig
+from sc2bench_env import EpisodeConfig
+from sc2bench_env.benchmark import BenchmarkRunner
 from agents.llm_agent import create_agent
 
 BenchmarkRunner().run(

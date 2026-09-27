@@ -8,21 +8,21 @@ Agent 是接收 `AgentInput` 的可调用对象，不必继承基类：
 
 | 输入 | 含义 |
 | --- | --- |
-| `request.observation` | 当前状态；`to_dict()` 取结构化数据，`section_lines()` 取紧凑文本 |
+| `request.observation` | 当前状态；`to_dict()` 取结构化数据。紧凑文本用 `observation_lines(observation)` |
 | `request.feedback` | 上次提交回执，首轮为 `None` |
-| `request.platform_messages` | 规则和文本观测，已含上轮反馈，不必重复追加 |
-| `request.tool_schemas` | 可选；Read / Knowledge / Action 工具 Schema |
-| `request.call_tool` | 可选；执行 Read / Knowledge 查询，Action 工具只返回待提交条目 |
+| `request.tool_specs` | 当前这一局暴露的工具说明 |
+| `request.call_tool` | 调用一个工具并立刻得到 `ToolResult` |
 
-仓库附带 `agents.llm_agent.create_agent`。该 Agent 在实例内保持单局会话，只通过 Tool Call 查询或行动。查询可以先进行多轮；这一步的动作必须在同一次回复里一起给出，并以一次 `advance` 结束。每次调用工具前，回复正文里要先写一句依据。无状态 callable 应返回规范化 Tool Call 数组 `{"name", "arguments"}`。需要保存实际模型输入输出时，返回 `AgentTurn(decision, agent_context)`。当前任务进度看观测，不能把“已接受”当作完成。
+仓库附带 `agents.llm_agent.create_agent`。该 Agent 在实例内保持单局会话。Knowledge、Read、Action 和 `advance` 走同一个工具循环，可以交错。`staged` 只表示这一决策先记下，还没扣资源、没开工。最后调用 `advance`，平台才提交已暂存的动作并推进游戏时间。提示词按角色、规则、观测、工具交互、执行和决策提醒分成可替换模块；工具参数写在 ToolSpec 里。需要保存实际模型输入输出时，返回 `AgentTurn(agent_context)`。决策本身留在平台的 ToolTurn 上。当前任务进度看观测，不能把“已接受”当作完成。
 
 ```python
-from sc2bench_env import BenchmarkRunner, EpisodeConfig
+from sc2bench_env import AgentTurn, EpisodeConfig, ToolCall
+from sc2bench_env.benchmark import BenchmarkRunner
 
 def create_agent():
     def decide(request):
-        # 在这里调用自己的模型并解析动作；下面只演示接口。
-        return [{"name": "advance", "arguments": {"seconds": 5}}]
+        request.call_tool(ToolCall("advance", {"seconds": 5}))
+        return AgentTurn()
     return decide
 
 batch = BenchmarkRunner(backend_factory=lambda: "fake").run(
@@ -38,9 +38,9 @@ Runner 默认实机 `sharpy`，上例显式选 `fake`。每局调用一次无参
 实际模型调用后可返回：
 
 ```python
-from sc2bench_env import AgentTurn
+from sc2bench_env.interface.agent import AgentTurn
 
-return AgentTurn(decision, agent_context={
+return AgentTurn(agent_context={
     "messages": actual_messages,
     "assistant_content": original_reply,
 })
@@ -70,7 +70,7 @@ python examples/llm_vs_llm.py --dry-run
 
 ### 直接使用环境
 
-`llm_vs_ai.py` 的 `run_episode()` 是完整循环：`reset()` → `get_context()` 加上工具清单 → 调用 Agent → `step()` → 检查 `terminated`，最后 `close()`。API 失败停在记录里，不经过 Runner。
+`llm_vs_ai.py` 的 `run_episode()` 是完整循环：`reset()` → `begin_tool_turn()` → 把观测、`tool_specs()` 和 `call_tool` 交给 Agent → `finish()` 后 `step()` → 检查 `terminated`，最后 `close()`。API 失败停在记录里，不经过 Runner。
 
 具体运行命令和可复制的接入代码见 [示例说明](../examples/README.md)。
 
@@ -78,14 +78,15 @@ python examples/llm_vs_llm.py --dry-run
 
 - `opponent`：`veryeasy/easy/medium/mediumhard/hard/harder/veryhard/cheatvision/cheatmoney/cheatinsane`，默认 `easy`。
 - `enemy_style`：`random/rush/timing/power/macro/air`，默认 `random`，与难度独立。
-- `enemy_race`：`terran/protoss/zerg/random`；当前我方 `race` 仅支持 `terran`。
+- `race`：`terran/protoss/zerg`，默认 `terran`。
+- `enemy_race`：`terran/protoss/zerg/random`。
 
 `vision/money/insane` 会收成 `cheatvision/cheatmoney/cheatinsane`。记录里只保存短名称。风格是内置 AI 的倾向，不保证固定战术；平台不提前向 Agent 透露该设置。
 
 ## 批量、并行与评估
 
 ```python
-from sc2bench_env import BenchmarkRunner, BenchmarkSuite
+from sc2bench_env.benchmark import BenchmarkRunner, BenchmarkSuite
 
 suite = BenchmarkSuite.load("benchmarks/terran_pilot.json")
 suite = suite.with_overrides(repetitions=1, enemy_style="macro")
@@ -113,7 +114,7 @@ python -m sc2bench_env paths
 
 ## 记录和路径
 
-每局保存 `episode.txt`、`session.json`、`log.txt` 和可用的 `replay.SC2Replay`；Fake 没有回放。`episode.txt` 记录配置、平台提示词和终局摘要。`session.json` 包含 `episode_id`、`model`、`result`、这一局发给模型的 `tools`，以及模型实际看到的 `messages`（系统提示、观测、tool call 和 tool result）。`log.txt` 复制这一局写到终端的内容，环境关闭后不再追加。Runner 不另写批次索引。
+每局保存 `episode.txt`、`session.json`、`log.txt` 和可用的 `replay.SC2Replay`；Fake 没有回放。`episode.txt` 记录配置、平台合同和终局摘要。`session.json` 包含 `episode_id`、`model`、`result`、这一局发给模型的 `tools`，以及模型实际看到的 `messages`（系统提示、观测、tool call 和 tool result）。`log.txt` 复制这一局写到终端的内容，环境关闭后不再追加。Runner 不另写批次索引。
 
 源码/可编辑安装默认使用项目 `records/`，普通包使用用户 `~/.sc2bench/records/`。环境变量 `SC2BENCH_OUTPUT_DIR` 可设置绝对输出根；显式 `record_dir` 优先。默认路径不随工作目录改变。`Evaluator.evaluate_batch` 读取一份你自己保存的批次 JSON，并按其中的 `record_directory` 回读 `episode.txt`。
 
@@ -129,6 +130,6 @@ print(episode["messages"])  # 这一局最终保存的完整 session
 
 格式错误返回 `decision_rejected` 和 `info['error']`，整批不执行，旧任务保留。阻塞模式暂停；连续模式可能继续或自然结束，始终检查 `terminated/info`。
 
-Runner 接收 `AgentTurn.call_failures` 保存失败调用；`stop_after_call_failures=True` 须同时提供非空失败记录，用于中断本局。主动停止可抛 `AgentStopped`；意外 Agent 异常归因 `agent_error`，API 中断不当作游戏败局。示例支持有限重试和 JSON repair，修复格式不等于修复动作语义。
+Runner 接收 `AgentTurn.call_failures` 保存失败调用；`stop_after_call_failures=True` 须同时提供非空失败记录，用于中断本局。主动停止可抛 `AgentStopped`；意外 Agent 异常归因 `agent_error`，API 中断不当作游戏败局。示例对 API 失败做有限重试。模型正文不会被解析成动作，也不会自动改写工具调用。
 
 直接使用 Environment 时，`step` 返回 `(obs, feedback, terminated, info)`，不是 Gym 的奖励五元组。自行传入 `agent_context`，并在 `finally` 中调用 `env.close()`；Runner 已负责清理。

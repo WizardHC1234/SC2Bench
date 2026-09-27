@@ -1,6 +1,6 @@
 """Explicit input compatibility; the catalog/schema remain canonical-only."""
-
 from __future__ import annotations
+
 
 from types import MappingProxyType
 from typing import Any, Mapping

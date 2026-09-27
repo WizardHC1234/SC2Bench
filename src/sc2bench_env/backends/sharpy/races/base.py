@@ -1,11 +1,11 @@
 """Race adapter public contract."""
-
 from __future__ import annotations
+
 
 from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional, Tuple
 
-from sc2bench_env.runtime.task import DemandState, Task
+from sc2bench_env.runtime.task import Demand, DemandState
 
 
 class RaceAdapter(ABC):
@@ -98,7 +98,7 @@ class RaceAdapter(ABC):
         return None
 
     @abstractmethod
-    def create_act(self, task: Task, *, to_count: int) -> Any:
+    def create_act(self, task: Demand, *, to_count: int) -> Any:
         """Return a Sharpy ActBase for the task."""
 
     @abstractmethod

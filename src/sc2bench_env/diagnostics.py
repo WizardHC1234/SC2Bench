@@ -1,6 +1,6 @@
 """Read-only installation checks; native imports run in an isolated process."""
-
 from __future__ import annotations
+
 
 import importlib
 import json
@@ -135,7 +135,7 @@ def _probe_sharpy(map_names: Sequence[str]) -> list[dict[str, Any]]:
     try:
         import re
         from sc2.paths import Paths
-        from sc2bench_env.data.knowledge import list_manifests
+        from sc2bench_env.catalog.knowledge import list_manifests
 
         info = Path(Paths.BASE) / ".build.info"
         match = re.findall(r"\d+\.\d+\.\d+\.\d+", info.read_text(encoding="utf-8", errors="replace")) if info.is_file() else []

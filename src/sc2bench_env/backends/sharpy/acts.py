@@ -1,6 +1,6 @@
 """Instant / ability-style Sharpy acts used by the platform adapter."""
-
 from __future__ import annotations
+
 
 from math import isfinite
 from typing import Dict, List, Mapping, Optional, Sequence
@@ -11,14 +11,20 @@ from sc2.ids.unit_typeid import UnitTypeId
 from sc2.position import Point2
 from sharpy.plans.acts import ActBase
 
-from sc2bench_env.interface.action_catalog import get_target
-from sc2bench_env.interface.scouting import ScoutRoute, order_expansions
+from sc2bench_env.catalog.registry import get_target
+from sc2bench_env.interface.actions import ScoutRoute
+from sc2bench_env.runtime.scouting import order_expansions
 
 _MULE_ENERGY = float(get_target("call_mule", race="terran").energy)
 _SCAN_ENERGY = float(get_target("scan", race="terran").energy)
 _CHRONO_ENERGY = float(get_target("chrono_boost", race="protoss").energy)
 _INJECT_ENERGY = float(get_target("inject_larva", race="zerg").energy)
 _TUMOR_ENERGY = float(get_target("spawn_creep_tumor", race="zerg").energy)
+_TOWNHALL_BUILD = frozenset({
+    AbilityId.TERRANBUILD_COMMANDCENTER,
+    AbilityId.PROTOSSBUILD_NEXUS,
+    AbilityId.ZERGBUILD_HATCHERY,
+})
 
 
 def available_orbitals(ai, energy: float = 0):
@@ -619,17 +625,77 @@ class ActCombatMission(ActBase):
             return None
 
         if self.style == "defend":
-            gather = getattr(zone, "gather_point", None) if zone is not None else None
-            self._hold_point = gather or center
+            self._hold_point = self._defend_station(zone, center)
             return self._hold_point
         return center
 
-    def _defend_target(self, zone_center: Point2, zone) -> Point2:
+    @staticmethod
+    def _zone_has_own_base(zone) -> bool:
+        if zone is None:
+            return False
+        townhall = getattr(zone, "our_townhall", None)
+        return (townhall is not None
+                and bool(getattr(townhall, "is_ready", True))
+                and not bool(getattr(townhall, "is_flying", False)))
+
+    def _gather_point(self, zone, center: Point2) -> Point2:
         gather = getattr(zone, "gather_point", None) if zone is not None else None
+        return gather if gather is not None else center
+
+    def _expanding_to(self) -> Optional[Point2]:
+        getter = getattr(getattr(self, "knowledge", None), "get_manager", None)
+        if not callable(getter):
+            return None
+        try:
+            from sharpy.interfaces import IGatherPointSolver
+            solver = getter(IGatherPointSolver)
+        except Exception:
+            return None
+        point = getattr(solver, "expanding_to", None)
+        return point if isinstance(point, Point2) else None
+
+    def _townhall_build_ordered_here(self, center: Point2) -> bool:
+        workers = getattr(self.ai, "workers", None)
+        if workers is None:
+            workers = ()
+        for worker in workers:
+            for order in getattr(worker, "orders", ()) or ():
+                ability = getattr(order, "ability", None)
+                ability_id = getattr(ability, "id", ability)
+                if ability_id not in _TOWNHALL_BUILD and ability not in _TOWNHALL_BUILD:
+                    continue
+                target = getattr(order, "target", None)
+                point = getattr(target, "position", target)
+                try:
+                    if center.distance_to(point) <= 3:
+                        return True
+                except (AttributeError, TypeError):
+                    continue
+        return False
+
+    def _base_is_being_built_here(self, zone, center: Point2) -> bool:
+        townhall = getattr(zone, "our_townhall", None) if zone is not None else None
+        if townhall is not None and not bool(getattr(townhall, "is_ready", True)):
+            return True
+        if self._townhall_build_ordered_here(center):
+            return True
+        expanding = self._expanding_to()
+        return expanding is not None and expanding.distance_to(center) <= 3
+
+    def _defend_station(self, zone, center: Point2) -> Point2:
+        """Own base, or a base being placed here, keeps the old gather point.
+
+        Otherwise the group holds the zone center.
+        """
+        if self._zone_has_own_base(zone) or self._base_is_being_built_here(zone, center):
+            return self._gather_point(zone, center)
+        return center
+
+    def _defend_target(self, zone_center: Point2, zone) -> Point2:
         # Defense holds a stable safe point. Enemy movement must never rewrite
         # the objective and lure defenders across the map. MoveType.Hold handles
         # firing at units in range without pursuing them or attacking structures.
-        return gather or zone_center
+        return self._defend_station(zone, zone_center)
 
     def _configure_micro_boundary(self, zone) -> None:
         if self._micro_rules is None:
@@ -648,9 +714,8 @@ class ActCombatMission(ActBase):
             radius = float(getattr(zone, "radius", 15.0) or 15.0)
             leash = defend_leash_radius(radius)
             self._micro_rules.boundary = lambda position: position.distance_to(center) <= leash
-            gather = getattr(zone, "gather_point", None)
-            self._micro_rules.return_point = (gather if gather is not None
-                                             and gather.distance_to(center) <= leash else center)
+            station = self._defend_station(zone, center)
+            self._micro_rules.return_point = (station if station.distance_to(center) <= leash else center)
             self._micro_rules.hold_position = True
 
     @staticmethod
@@ -1156,11 +1221,62 @@ class ActCombatMission(ActBase):
         await self._drive_combat(free, target, move_type)
         return False
 
-    async def _drive_combat(self, units, target, move_type):
+    def _army_in_contact(self, units) -> bool:
+        """A visible enemy near the army, or already in weapon range, ends the march leash."""
+        from sc2bench_env.backends.sharpy.combat_styles import MARCH_CONTACT_RADIUS
+
+        enemies = [
+            enemy for enemy in list(self.ai.enemy_units) + list(self.ai.enemy_structures)
+            if self._is_visible_enemy(enemy)
+        ]
+        if not enemies:
+            return False
         for unit in units:
-            self.combat.add_unit(unit)
+            if getattr(unit, "is_structure", False):
+                continue
+            for enemy in enemies:
+                try:
+                    distance = float(unit.distance_to(enemy))
+                except (AttributeError, TypeError, ValueError):
+                    continue
+                if distance <= MARCH_CONTACT_RADIUS:
+                    return True
+                if not (self._can_hit(unit, enemy) or self._can_hit(enemy, unit)):
+                    continue
+                attacker, target = (unit, enemy) if self._can_hit(unit, enemy) else (enemy, unit)
+                try:
+                    reach = float(self.unit_values.real_range(attacker, target))
+                except (AttributeError, TypeError, ValueError):
+                    reach = 0.0
+                if reach > 0 and distance <= reach + 0.5:
+                    return True
+        return False
+
+    def _units_to_keep_with_army(self, units, target):
+        """Fast attackers wait just ahead of the slower body instead of stringing out."""
+        from sc2bench_env.backends.sharpy.combat_styles import march_formation
+
+        if self.style != "attack":
+            return [], None
+        ahead, hold, _rear = march_formation(units, target)
+        if not ahead or hold is None or self._army_in_contact(units):
+            return [], None
+        return ahead, hold
+
+    async def _drive_combat(self, units, target, move_type):
+        ahead, hold = [], None
+        if getattr(move_type, "name", "") == "Assault":
+            ahead, hold = self._units_to_keep_with_army(units, target)
+        held = {unit.tag for unit in ahead}
+        for unit in units:
+            if unit.tag not in held:
+                self.combat.add_unit(unit)
         rules = self._micro_rules if self._micro_started else None
         raven_micro = rules.unit_micros.get(UnitTypeId.RAVEN) if rules is not None else None
         if raven_micro is not None and hasattr(raven_micro, "prepare"):
             await raven_micro.prepare(units, self.ai)
-        self.combat.execute(target, move_type, rules)
+        if any(unit.tag not in held for unit in units):
+            self.combat.execute(target, move_type, rules)
+        if hold is not None:
+            for unit in ahead:
+                unit.move(hold)

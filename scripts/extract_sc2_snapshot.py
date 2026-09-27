@@ -3,8 +3,8 @@
 Run on the machine whose client should become a profile. This does not invent
 numbers for a client that is not installed.
 """
-
 from __future__ import annotations
+
 
 import asyncio
 import hashlib
@@ -17,7 +17,7 @@ FRAMES_PER_SECOND = 22.4
 
 
 def _repo_root() -> Path:
-    return Path(__file__).resolve().parents[3]
+    return Path(__file__).resolve().parents[1]
 
 
 def _data_root() -> Path:

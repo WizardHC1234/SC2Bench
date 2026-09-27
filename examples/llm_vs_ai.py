@@ -17,8 +17,10 @@ if __package__:
 else:
     import agent_integration as agent_module
 
-from sc2bench_env import AgentInput, AgentStopped, Environment, EpisodeConfig
+from sc2bench_env import Environment, EpisodeConfig
+from sc2bench_env.interface.agent import AgentInput, AgentStopped, AgentTurn
 from sc2bench_env.interface.observation_text import render_feedback_text
+from sc2bench_env.runtime.tool_turn import ToolTurnError
 
 
 def run_episode(env: Environment, agent: agent_module.LLMAgent,
@@ -30,28 +32,35 @@ def run_episode(env: Environment, agent: agent_module.LLMAgent,
     feedback = None
     print(f"record_dir={env.record_path}", flush=True)
     for index in range(max_decisions):
+        tool_turn = env.begin_tool_turn()
         request = AgentInput(
-            observation, feedback, env.get_context(),
-            tool_schemas=tuple(env.tool_schemas()),
-            call_tool=env.call_tool,
+            observation, feedback, tuple(env.tool_specs()), tool_turn.call,
         )
         try:
             turn = agent(request)
         except AgentStopped as stop:
+            tool_turn.abort()
             env.close(end_reason=stop.end_reason)
             return {"result": None, "end_reason": stop.end_reason}
+        if not isinstance(turn, AgentTurn):
+            env.record_protocol_error("agent_protocol_error")
+            return {"result": None, "end_reason": "agent_protocol_error"}
         for failure in turn.call_failures:
             info = env.record_agent_call_failure(failure)
             if info["terminated"]:
+                tool_turn.abort()
                 return info
         if turn.stop_after_call_failures:
+            tool_turn.abort()
             env.close(end_reason="agent_call_failed")
             return {"result": None, "end_reason": "agent_call_failed"}
-        if turn.decision is None:
-            env.close(end_reason="agent_call_failed")
-            return {"result": None, "end_reason": "agent_call_failed"}
+        try:
+            batch = tool_turn.finish()
+        except ToolTurnError as error:
+            env.record_protocol_error(error.code, agent_context=turn.agent_context)
+            return {"result": None, "end_reason": "agent_protocol_error"}
         observation, feedback, terminated, info = env.step(
-            turn.decision, agent_context=turn.agent_context)
+            batch, agent_context=turn.agent_context)
         print(f"round={index + 1} game_seconds={observation.game.game_time_seconds:.1f} "
               f"terminated={terminated}", flush=True)
         if agent.verbose:

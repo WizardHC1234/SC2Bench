@@ -12,8 +12,8 @@ CONTROL_RULES = """Control boundary:
 INTERACTION_RULES = """- Observation describes the current state, while Feedback reports how the previous submission was handled.
 - Read the current Observation and previous Feedback before choosing actions, then identify the facts needed for the current decision. Use Read tools for map, zone and route information. Use Knowledge tools for static unit, building, research, combat-statistics and technology-path information.
 - If a required fact is absent from the current Observation and earlier tool results, query it before choosing actions that depend on it. Do not rely on recalled values for costs, supply, prerequisites, production sources, durations, attack targets, damage, range or research effects. Query related objects together and reuse results already obtained in this session.
-- Read and Knowledge tools may be called across multiple replies until the information required for the current decision is available. A query reply may contain multiple query calls, but it must not contain Action tools.
-- Once ready to act, submit all Action tool calls for the current decision in one reply. Do not split the action batch across replies, and finish it with exactly one advance call. If no new action is needed, call advance by itself so that the game can continue.
+- Each tool call returns its own result. Use that result before the next call. Queries, actions and advance share one tool loop and may be interleaved.
+- An action result of staged means the call is stored for this decision only. It has not been paid for, started or completed. Call advance last to submit the staged actions and advance game time. If no new action is needed, call advance by itself.
 """
 
 PLANNING_RULES = """Planning context:
@@ -107,9 +107,9 @@ ACTION_RULES = {
         COMBAT_STYLE_RULES,
     )),
     "retreat": "Start an outbound group's immediate return home. Acceptance is not arrival; survivors merge into group_0 and the old group ends only after they arrive home.",
-    "advance": "End the action reply: submit all its actions, advance the requested positive number of game seconds and return the next Observation. Episode end may return early; active work continues.",
+    "advance": "End this decision: submit the actions already staged, advance the requested positive number of game seconds and return the next Observation. Episode end may return early; active work continues.",
 }
 
 DECISION_REQUEST = """[Decision Request]
-Review the current Observation and previous Feedback. Query any missing static or map facts needed for this decision. When enough information is available, submit one complete action batch ending with advance. If no new action is needed, call advance alone.
+Review the current Observation and previous Feedback. Call tools one at a time and use each result. Query missing static or map facts when a decision depends on them. Stage actions as they become ready. Call advance last to submit the staged actions and move game time forward. If no new action is needed, call advance alone.
 """

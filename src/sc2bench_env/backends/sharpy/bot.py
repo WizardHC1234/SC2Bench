@@ -1,6 +1,6 @@
 """SC2Bench KnowledgeBot driven by SharpyBackend bridge state."""
-
 from __future__ import annotations
+
 
 import asyncio
 import logging
@@ -131,7 +131,7 @@ class BenchBot(KnowledgeBot):
         await super().on_before_start()
         pin_lockstep_step(self)
         ping = (await self.client.ping()).ping
-        from sc2bench_env.data.knowledge import require_snapshot_match
+        from sc2bench_env.catalog.knowledge import require_snapshot_match
 
         require_snapshot_match(
             game_version=ping.game_version,

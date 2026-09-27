@@ -1,16 +1,18 @@
 """Two agents, one match. Each side waits on its own advance."""
-
 from __future__ import annotations
+
 
 from pathlib import Path
 from typing import Any, Optional
 
-from sc2bench_env.benchmark import AgentInput, AgentStopped, AgentTurn
+from sc2bench_env.interface.actions import DecisionBatch
+from sc2bench_env.interface.agent import AgentInput, AgentStopped, AgentTurn
 from sc2bench_env.env import Environment
 from sc2bench_env.interface.config import EpisodeConfig
 from sc2bench_env.interface.races import require_supported_own_race
 from sc2bench_env.paths import resolve_record_dir
-from sc2bench_env.recording.trajectory import _episode_folder_name
+from sc2bench_env.recording.trajectory import episode_folder_name
+from sc2bench_env.runtime.tool_turn import ToolTurn, ToolTurnError
 from sc2bench_env.versus.fake_game import FakeVersusGame
 
 
@@ -47,6 +49,7 @@ class VersusMatch:
         self._record_root = resolve_record_dir(record_dir)
         self._match_dir: Optional[Path] = None
         self._sides: list[Environment] = []
+        self._tool_turns: dict[int, ToolTurn] = {}
         self._cursor = 0
         self._closed_match = False
         self._outcome: Optional[dict[str, Any]] = None
@@ -72,6 +75,7 @@ class VersusMatch:
         )
         observations = []
         self._sides = []
+        self._tool_turns = {}
         for index, (backend, player_config, snapshot) in enumerate(
             zip(self._game.backends, configs, snapshots)
         ):
@@ -106,22 +110,41 @@ class VersusMatch:
         environment = self._side(player)
         if environment.latest_observation is None:
             raise RuntimeError("player has no observation")
+        turn = self._tool_turns.get(player)
+        if turn is None:
+            turn = environment.begin_tool_turn()
+            self._tool_turns[player] = turn
         return AgentInput(
             environment.latest_observation, environment.latest_feedback,
-            environment.get_context(), tool_schemas=tuple(environment.tool_schemas()),
-            call_tool=environment.call_tool,
+            tuple(environment.tool_specs()), turn.call,
         )
+
+    def finish_turn(self, player: int) -> DecisionBatch:
+        turn = self._tool_turns.pop(player, None)
+        if turn is None:
+            raise ToolTurnError("missing_advance")
+        return turn.finish()
+
+    def record_protocol_error(
+        self, player: int, code: str, *, agent_context: Optional[dict[str, Any]] = None,
+    ) -> None:
+        self._tool_turns.pop(player, None)
+        self._side(player).record_protocol_error(code, agent_context=agent_context)
 
     def collect(self, player: int) -> None:
         environment = self._side(player)
-        if environment._pending_release is None:
+        if not environment.has_pending_decision:
             return
         snapshot = environment.backend.snapshot()
         if player in self._game.waiting() or snapshot.terminated or self._game.finished():
             environment.complete_pending()
 
-    def submit(self, player: int, decision, *, agent_context: Optional[dict[str, Any]] = None) -> bool:
-        """Release this side. Return True when the decision was rejected and the side stayed paused."""
+    def submit(
+        self, player: int, decision: DecisionBatch, *, agent_context: Optional[dict[str, Any]] = None,
+    ) -> bool:
+        """Release this side with a finished DecisionBatch."""
+        if not isinstance(decision, DecisionBatch):
+            raise TypeError("submit requires a DecisionBatch from finish_turn")
         if player not in self._game.waiting():
             raise RuntimeError(f"player {player} is not waiting for a decision")
         self.collect(player)
@@ -137,7 +160,7 @@ class VersusMatch:
             return
         self._game.close(end_reason=end_reason)
         for player in range(len(self._sides)):
-            if self._sides[player]._pending_release is not None:
+            if self._sides[player].has_pending_decision:
                 self._sides[player].complete_pending()
         for side in self._sides:
             if not side._closed:
@@ -161,7 +184,7 @@ class VersusMatch:
     def _allocate_dir(self, config: EpisodeConfig) -> Path:
         root = self._record_root
         root.mkdir(parents=True, exist_ok=True)
-        name = _episode_folder_name({**config.to_dict(), "opponent": "agent"})
+        name = episode_folder_name({**config.to_dict(), "opponent": "agent"})
         suffix = 1
         while True:
             directory = root / (name if suffix == 1 else f"{name}_{suffix}")
@@ -211,7 +234,7 @@ def run_versus(
 
     ``agent`` plays the configured race and ``opponent`` plays ``enemy_race``.
     They do not have to be the same class or share a model. Each is called with
-    an ``AgentInput`` and may return an ``AgentTurn`` or a decision batch.
+    an ``AgentInput`` and must return an ``AgentTurn``.
     ``max_decisions`` is counted per side.
     """
     agents = (agent, opponent)
@@ -241,7 +264,9 @@ def run_versus(
                 match.close(end_reason=stop.end_reason)
                 break
             if not isinstance(turn, AgentTurn):
-                turn = AgentTurn(decision=turn)
+                match.record_protocol_error(player, "agent_protocol_error")
+                match.close(end_reason="agent_protocol_error")
+                break
             for failure in turn.call_failures:
                 info = match._side(player).record_agent_call_failure(failure)
                 if info["terminated"]:
@@ -249,11 +274,19 @@ def run_versus(
             else:
                 info = None
             if info and info["terminated"]:
+                match._tool_turns.pop(player, None)
                 break
-            if turn.stop_after_call_failures or turn.decision is None:
+            if turn.stop_after_call_failures:
+                match._tool_turns.pop(player, None)
                 match.close(end_reason="agent_call_failed")
                 break
-            match.submit(player, turn.decision, agent_context=turn.agent_context)
+            try:
+                batch = match.finish_turn(player)
+            except ToolTurnError as error:
+                match.record_protocol_error(player, error.code, agent_context=turn.agent_context)
+                match.close(end_reason="agent_protocol_error")
+                break
+            match.submit(player, batch, agent_context=turn.agent_context)
             calls[player] += 1
     finally:
         match.close()

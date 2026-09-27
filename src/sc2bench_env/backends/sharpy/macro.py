@@ -1,13 +1,13 @@
 """Keep Sharpy Acts running for active platform tasks."""
-
 from __future__ import annotations
+
 
 import logging
 from typing import Any, Callable, Dict, List, Optional
 
 from sharpy.plans.acts.act_base import ActBase
 
-from sc2bench_env.interface.action_catalog import get_target
+from sc2bench_env.catalog.registry import get_target
 from sc2bench_env.interface.races import require_supported_own_race
 from sc2bench_env.backends.sharpy.races import get_adapter
 

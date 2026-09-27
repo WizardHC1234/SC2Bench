@@ -1,0 +1,152 @@
+{
+  "title": "SC2Bench 平台运行架构",
+  "subtitle": "外部 Agent 通过 LLM Adapter 感知并操作 Environment",
+  "evidence": [
+    "src/sc2bench_env/benchmark/runner.py",
+    "src/sc2bench_env/versus/match.py",
+    "src/sc2bench_env/env.py",
+    "src/sc2bench_env/runtime/query_tools.py",
+    "src/sc2bench_env/runtime/task_manager.py",
+    "src/sc2bench_env/runtime/scheduler.py",
+    "src/sc2bench_env/backends/sharpy/backend.py",
+    "src/sc2bench_env/recording/trajectory.py",
+    "src/sc2bench_env/benchmark/evaluator.py",
+    "agents/llm_agent/agent.py"
+  ],
+  "boundaries": [
+    {
+      "id": "external_agent",
+      "label": "External Agent",
+      "contains": ["agent"],
+      "note": "Model + Harness；每局一个 Session；模型、Harness 和 Skill 可替换"
+    },
+    {
+      "id": "platform",
+      "label": "SC2Bench Platform",
+      "contains": ["controller", "environment", "agent_api", "execution_runtime", "recording_evaluation"]
+    },
+    {
+      "id": "game_process",
+      "label": "Game Process",
+      "contains": ["starcraft_ii"]
+    }
+  ],
+  "nodes": [
+    {
+      "id": "agent",
+      "label": "External Agent",
+      "detail": "Model + Harness + Session + Skill + Tool Loop"
+    },
+    {
+      "id": "controller",
+      "label": "Episode Controller",
+      "detail": "BenchmarkRunner 创建每局 Agent 与 Environment；Agent 对战使用 VersusMatch"
+    },
+    {
+      "id": "environment",
+      "label": "Environment",
+      "detail": "reset / tool_specs / begin_tool_turn / step / close；协调工具循环、持续任务、观测与反馈"
+    },
+    {
+      "id": "agent_api",
+      "label": "LLM Adapter",
+      "detail": "LLM Adapter 提供提示词与文本渲染；Knowledge、Read、Action 共用一组 ToolSpec"
+    },
+    {
+      "id": "execution_runtime",
+      "label": "Execution Runtime",
+      "detail": "TaskManager + Scheduler + Sharpy Backend；执行持续需求并推进到 advance 决策边界"
+    },
+    {
+      "id": "recording_evaluation",
+      "label": "Recording & Evaluation",
+      "detail": "Recorder 保存轨迹；Evaluator 局后读取并汇总到 BenchmarkRunner"
+    },
+    {
+      "id": "starcraft_ii",
+      "label": "StarCraft II",
+      "detail": "实时游戏进程"
+    }
+  ],
+  "edges": [
+    {
+      "from": "controller",
+      "to": "agent",
+      "label": "AgentInput: Observation + Feedback + ToolSpec + call_tool",
+      "kind": "feedback"
+    },
+    {
+      "from": "agent",
+      "to": "controller",
+      "label": "AgentTurn: DecisionBatch + agent_context",
+      "kind": "action"
+    },
+    {
+      "from": "controller",
+      "to": "environment",
+      "label": "reset / step",
+      "kind": "action"
+    },
+    {
+      "from": "environment",
+      "to": "controller",
+      "label": "Observation + Feedback",
+      "kind": "feedback"
+    },
+    {
+      "from": "agent",
+      "to": "agent_api",
+      "label": "unified tool schemas and tool calls",
+      "kind": "query"
+    },
+    {
+      "from": "agent_api",
+      "to": "agent",
+      "label": "rendered input / ToolResult",
+      "kind": "query"
+    },
+    {
+      "from": "environment",
+      "to": "agent_api",
+      "label": "tool_specs / call_tool / current Observation",
+      "kind": "state"
+    },
+    {
+      "from": "environment",
+      "to": "execution_runtime",
+      "label": "DecisionBatch + advance",
+      "kind": "action"
+    },
+    {
+      "from": "execution_runtime",
+      "to": "environment",
+      "label": "TaskUpdates + BackendSnapshot",
+      "kind": "feedback"
+    },
+    {
+      "from": "execution_runtime",
+      "to": "starcraft_ii",
+      "label": "commands / unit control",
+      "kind": "action"
+    },
+    {
+      "from": "starcraft_ii",
+      "to": "execution_runtime",
+      "label": "game state / events",
+      "kind": "feedback"
+    },
+    {
+      "from": "environment",
+      "to": "recording_evaluation",
+      "label": "reset / query / step / terminal",
+      "kind": "record"
+    }
+  ],
+  "notes": [
+    "AgentInput 与 AgentTurn 是 Controller 和外部 Agent 之间的数据契约，不是独立运行服务。",
+    "LLMAdapter 是平台提供、外部 LLM Harness 调用的提示词与文本渲染库，不参与 Environment 执行链。",
+    "Knowledge、Read、Action 都属于统一 Tool Interface。查询可以在同一次 Agent 调用内执行多轮，不推进游戏时间；动作汇总进 AgentTurn 后一次提交。",
+    "动作以完整 DecisionBatch 提交；末尾 advance 决定 Environment 返回下一次观测的时刻。",
+    "Recording 与 Evaluation 是旁路，不参与游戏控制。"
+  ]
+}

@@ -3,8 +3,8 @@
 Legal target names and kinds come from Action Catalog. This module only
 owns the SC2/Sharpy ID bridge (UnitTypeId / UpgradeId) and act wiring.
 """
-
 from __future__ import annotations
+
 
 from typing import Any, Dict, Optional, Tuple
 
@@ -30,8 +30,8 @@ from sc2bench_env.backends.sharpy.defense_placement import DEFENSE_KINDS, Defens
 from sc2bench_env.backends.sharpy.bunker import PlanBunkerDefense
 from sc2bench_env.backends.sharpy.gather import PlanHomeGather
 from sc2bench_env.backends.sharpy.races.base import RaceAdapter
-from sc2bench_env.interface.action_catalog import TargetSpec, get_target, targets_for_action
-from sc2bench_env.runtime.task import DemandState, Task
+from sc2bench_env.catalog.registry import TargetSpec, get_target, targets_for_action
+from sc2bench_env.runtime.task import Demand, DemandState
 
 TOWNHALL_TARGETS = frozenset({"command_center", "orbital_command", "planetary_fortress"})
 
@@ -357,7 +357,7 @@ class TerranAdapter(RaceAdapter):
         from sc2bench_env.backends.sharpy.races.terran_production import read_production_capacity
         return read_production_capacity(ai, self)
 
-    def create_act(self, task: Task, *, to_count: int) -> Any:
+    def create_act(self, task: Demand, *, to_count: int) -> Any:
         if task.action == "build":
             _require_catalog("build", task.target)
             if task.target == "command_center":

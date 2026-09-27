@@ -8,17 +8,17 @@ cross-round semantics. Downstream consumers:
 - FakeBackend costs and prerequisites
 - known-target checks in the parser
 """
-
 from __future__ import annotations
+
 
 import json
 from functools import lru_cache
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple
 
 from sc2bench_env.interface.races import require_supported_own_race
-from sc2bench_env.interface.catalog_types import TargetSpec
-from sc2bench_env.interface.catalogs import get_catalog
-from sc2bench_env.interface.catalogs.terran import TERRAN_TARGETS
+from sc2bench_env.catalog.models import TargetSpec
+from sc2bench_env.catalog.races import get_catalog
+from sc2bench_env.catalog.races.terran import TERRAN_TARGETS
 
 from sc2bench_env.interface.platform_rules import (
     ACTION_RULES, ARMY_RULES, COMBAT_DISPATCH_RULES, COMBAT_RETARGET_RULES,
@@ -26,27 +26,6 @@ from sc2bench_env.interface.platform_rules import (
     PROTOSS_CONTROL_RULES, PROTOSS_GAME_RULES, PROTOSS_ROLE_RULES,
     ZERG_CONTROL_RULES, ZERG_GAME_RULES, ZERG_ROLE_RULES,
     PLANNING_RULES, ROLE_RULES,
-)
-
-
-COMBAT_STYLES: Tuple[str, ...] = ("attack", "defend")
-
-
-ACTION_VERBS: Tuple[str, ...] = (
-    "build",
-    "train",
-    "research",
-    "cancel",
-    "scan",
-    "call_mule",
-    "chrono_boost",
-    "inject_larva",
-    "spawn_creep_tumor",
-    "scout",
-    "upgrade",
-    "combat",
-    "retreat",
-    "advance",
 )
 
 
@@ -67,7 +46,7 @@ def _catalog_indexes(race: str) -> Tuple[Mapping[str, TargetSpec], Mapping[str, 
 
 
 def _numbered(spec: TargetSpec, race: str) -> TargetSpec:
-    from sc2bench_env.data.knowledge import apply_action_numbers
+    from sc2bench_env.catalog.knowledge import apply_action_numbers
 
     return apply_action_numbers(spec, race)
 
@@ -104,6 +83,8 @@ def prerequisite_table(*, race: str = "terran") -> Dict[str, List[str]]:
 
 def validate_catalog(specs: Iterable[TargetSpec] = TERRAN_TARGETS) -> None:
     """Fail fast on duplicate names or unknown prerequisite references."""
+    from sc2bench_env.interface.decision_rules import ACTION_VERBS
+
     specs = tuple(specs)
     seen = set()
     names = {spec.name for spec in specs}
@@ -180,33 +161,9 @@ def render_action_catalog(*, race: str = "terran") -> str:
 
 
 def render_system_prompt(*, race: str = "terran") -> str:
-    require_supported_own_race(race)
-    if race == "protoss":
-        role = (
-            "You are an autonomous StarCraft II agent controlling protoss through SC2Bench.\n"
-            + PROTOSS_ROLE_RULES + "\n" + PROTOSS_CONTROL_RULES
-        )
-        game = PROTOSS_GAME_RULES
-    elif race == "zerg":
-        role = (
-            "You are an autonomous StarCraft II agent controlling zerg through SC2Bench.\n"
-            + ZERG_ROLE_RULES + "\n" + ZERG_CONTROL_RULES
-        )
-        game = ZERG_GAME_RULES
-    else:
-        role = (
-            f"You are an autonomous StarCraft II agent controlling {race} through SC2Bench.\n"
-            + ROLE_RULES + "\n" + CONTROL_RULES
-        )
-        game = GAME_RULES
-    sections = (
-        ("1. Role and objective", role),
-        ("2. Decision process", INTERACTION_RULES),
-        ("3. Platform execution model", PLANNING_RULES + "\n" + EXECUTION_RULES + "\n" + ARMY_RULES),
-        ("4. Reading Observation", render_observation_guide()),
-        ("5. Game basics", game),
-    )
-    return "\n\n".join(f"{heading}\n{body.rstrip()}" for heading, body in sections) + "\n"
+    from sc2bench_env.interface.platform_prompt import default_prompt_parts, render_prompt
+
+    return render_prompt(default_prompt_parts(race))
 
 
 def decision_examples(*, race: str = "terran") -> Tuple[List[Dict[str, Any]], ...]:
@@ -378,15 +335,6 @@ def render_observation_guide() -> str:
         "- Group phase reports progress only. Phase, nearest zone and nearby-enemy counts do not prove arrival or mission completion; use the current group list and recent events to determine whether a mission ended. combat_ended refers to the group mission, not the match result.",
         "- Names and IDs keep their exact platform spelling. Copy zone_id and group_id from Observation.",
     ]) + "\n"
-
-
-def decision_json_schema(*, race: str = "terran") -> Dict[str, Any]:
-    """Platform-owned JSON Schema for one decision array (draft-07 style)."""
-    from sc2bench_env.interface.decision_rules import (
-        decision_json_schema as _decision_json_schema,
-    )
-
-    return _decision_json_schema(race=race)
 
 
 def catalog_as_dicts(*, race: str = "terran") -> List[Dict[str, Any]]:

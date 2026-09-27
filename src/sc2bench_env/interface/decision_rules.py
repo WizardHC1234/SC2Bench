@@ -4,26 +4,35 @@ Owns required / optional / forbidden fields for each action verb.
 `decision_json_schema()` and `parse_decision()` both consume these definitions
 so they cannot drift apart.
 """
-
 from __future__ import annotations
+
 
 import re
 from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
-from sc2bench_env.interface.action_catalog import (
-    ACTION_VERBS,
-    COMBAT_STYLES,
-    decision_examples,
-    known_target_names,
+from sc2bench_env.interface.observations import WORKER_UNIT_NAMES
+from sc2bench_env.interface.races import require_supported_own_race
+
+COMBAT_STYLES: Tuple[str, ...] = ("attack", "defend")
+ACTION_VERBS: Tuple[str, ...] = (
+    "build",
+    "train",
+    "research",
+    "cancel",
+    "scan",
+    "call_mule",
+    "chrono_boost",
+    "inject_larva",
+    "spawn_creep_tumor",
+    "scout",
+    "upgrade",
+    "combat",
+    "retreat",
+    "advance",
 )
 
-from sc2bench_env.interface.races import require_supported_own_race
-from sc2bench_env.interface.observations import WORKER_UNIT_NAMES
-from sc2bench_env.interface.tools import (
-    LEGACY_ACTION_FORMAT_ERROR,
-    parse_normalized_tool_call,
-)
+from sc2bench_env.catalog.registry import decision_examples, known_target_names
 
 ZONE_PATTERN = r"^zone_[A-Za-z0-9_]+$"
 # Townhall object ids currently exposed as cc_<n>.
@@ -97,21 +106,16 @@ def require_fields(raw: Mapping[str, Any], rule: VerbFieldRule) -> None:
 
 
 def validate_entry_fields(raw: Mapping[str, Any], *, index: int, race: str = "terran") -> str:
-    """Validate one NormalizedToolCall; return its action verb."""
+    """Validate one already-parsed internal entry; return its action verb."""
     try:
         require_supported_own_race(race)
     except ValueError as exc:
         raise DecisionSchemaError(str(exc)) from exc
-    try:
-        call = parse_normalized_tool_call(raw, index=index)
-    except ValueError as exc:
-        raise DecisionSchemaError(str(exc)) from exc
-    try:
-        internal = call.to_internal_entry()
-    except ValueError as exc:
-        raise DecisionSchemaError(f"entry[{index}]: {exc}") from exc
-    reject_forbidden_global_fields(internal, where=f"entry[{index}]")
-    verb = call.name.strip().lower()
+    if not isinstance(raw, Mapping):
+        raise DecisionSchemaError(f"entry[{index}] must be an object")
+    reject_forbidden_global_fields(raw, where=f"entry[{index}]")
+    verb = str(raw.get("action") or "").strip().lower()
+    internal = raw
     if verb == "wait":
         raise DecisionSchemaError(
             "wait is no longer supported; end with "
@@ -120,7 +124,7 @@ def validate_entry_fields(raw: Mapping[str, Any], *, index: int, race: str = "te
     rule = VERB_FIELD_RULES.get(verb)
     if rule is None:
         raise DecisionSchemaError(
-            f"unsupported action {call.name!r}; allowed={list(ACTION_VERBS)}"
+            f"unsupported action {raw.get('action')!r}; allowed={list(ACTION_VERBS)}"
         )
     reject_unknown_fields(internal, rule)
     require_fields(internal, rule)

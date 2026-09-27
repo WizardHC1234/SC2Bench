@@ -1,6 +1,6 @@
 """Stable zone_id registry keyed by expansion center coordinates."""
-
 from __future__ import annotations
+
 
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple

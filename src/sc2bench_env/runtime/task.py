@@ -1,6 +1,6 @@
 """Internal demand / execution-task model (not Agent-visible IDs)."""
-
 from __future__ import annotations
+
 
 from dataclasses import dataclass, field
 from enum import Enum
@@ -8,7 +8,7 @@ from typing import Optional
 from uuid import uuid4
 
 from sc2bench_env.interface.actions import GameAction
-from sc2bench_env.interface.scouting import ScoutRoute
+from sc2bench_env.interface.actions import ScoutRoute
 
 
 class DemandState(str, Enum):
@@ -94,11 +94,6 @@ class Demand:
         )
 
     @property
-    def task_id(self) -> str:
-        """Back-compat alias for backends still using task_id."""
-        return self.demand_id
-
-    @property
     def remaining(self) -> int:
         return max(0, self.count - self.produced)
 
@@ -140,8 +135,3 @@ class Demand:
         self.waiting_for = None
         self.updated_at = game_time
 
-
-# Temporary aliases while modules migrate off Task naming.
-TaskStatus = DemandState
-Task = Demand
-ACTIVE_STATUSES = ACTIVE_DEMAND_STATES

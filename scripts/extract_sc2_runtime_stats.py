@@ -2,8 +2,8 @@
 
 This starts its own StarCraft II process and closes only that process.
 """
-
 from __future__ import annotations
+
 
 import asyncio
 import hashlib

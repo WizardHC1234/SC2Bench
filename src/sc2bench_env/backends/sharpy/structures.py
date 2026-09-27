@@ -1,6 +1,6 @@
 """Stable structure object IDs for object-level actions (e.g. CC upgrade)."""
-
 from __future__ import annotations
+
 
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional

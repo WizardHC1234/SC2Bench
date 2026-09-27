@@ -1,11 +1,11 @@
 """Terran targets, costs, prerequisites and reference notes."""
-
 from __future__ import annotations
+
 
 from types import MappingProxyType
 from typing import Tuple
 
-from sc2bench_env.interface.catalog_types import CatalogData, TargetSpec
+from sc2bench_env.catalog.models import CatalogData, TargetSpec
 
 
 def _building(

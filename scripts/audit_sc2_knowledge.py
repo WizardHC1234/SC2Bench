@@ -1,6 +1,6 @@
 """Audit knowledge catalogs. Exit 1 when a gap is not on the allowlist."""
-
 from __future__ import annotations
+
 
 import json
 import sys
@@ -9,11 +9,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from sc2bench_env.data.knowledge import (  # noqa: E402
-    _forms, _movement, _roles, bound_snapshot, names_for,
+from sc2bench_env.catalog.knowledge import (  # noqa: E402
+    _forms, _movement, bound_snapshot,
 )
-from sc2bench_env.interface.action_catalog import get_catalog, get_target  # noqa: E402
-from sc2bench_env.interface.tools import query_unit_data  # noqa: E402
+from sc2bench_env.catalog.registry import get_catalog, get_target  # noqa: E402
+from sc2bench_env.runtime.query_tools import catalog_roles as _roles, names_for  # noqa: E402
+from sc2bench_env.runtime.query_tools import query_unit_data  # noqa: E402
 
 
 def _allowlist() -> set[str]:

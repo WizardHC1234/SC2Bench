@@ -1,6 +1,6 @@
 """Platform entry point; external agents own their model calls and policy."""
-
 from __future__ import annotations
+
 
 import argparse
 import importlib

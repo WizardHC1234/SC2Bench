@@ -1,6 +1,6 @@
 """SharpyBackend: threaded SC2/Sharpy bridge for Environment.reset/step/close."""
-
 from __future__ import annotations
+
 
 import logging
 import os
@@ -293,17 +293,17 @@ class SharpyBackend(Backend):
         # later orders. This preserves interleaved production priorities.
         ordered_tasks = sorted(
             (task for task in tasks if task.is_active),
-            key=lambda task: (int(task.order_index), str(task.task_id)),
+            key=lambda task: (int(task.order_index), str(task.demand_id)),
         )
         snap = self.snapshot()
         train_prefix: Dict[str, int] = {}
         build_prefix: Dict[str, int] = {}
 
         for task in ordered_tasks:
-            active_ids.append(task.task_id)
+            active_ids.append(task.demand_id)
             baseline = int(task.baseline_owned)
-            baselines[task.task_id] = baseline
-            task_meta[task.task_id] = (task.action, task.target, task.count)
+            baselines[task.demand_id] = baseline
+            task_meta[task.demand_id] = (task.action, task.target, task.count)
             if task.action == "train":
                 key = str(task.target or "")
                 train_prefix[key] = train_prefix.get(key, 0) + max(0, int(task.remaining))
@@ -322,7 +322,7 @@ class SharpyBackend(Backend):
 
             specs.append(
                 {
-                    "task_id": task.task_id,
+                    "task_id": task.demand_id,
                     "action": task.action,
                     "target": task.target,
                     "to": task.to,

@@ -1,16 +1,10 @@
-"""Scout intent serialization and geometry-only one-pass route ordering."""
+"""Geometry-only one-pass expansion ordering. No enemy inference."""
 
-from typing import Optional, Sequence, Tuple, Union
-
-ScoutRoute = Union[str, Tuple[str, ...]]
-
-
-def route_payload(route: Optional[ScoutRoute]):
-    return route if isinstance(route, str) else list(route or ())
+from typing import Sequence
 
 
 def order_expansions(candidates: Sequence[tuple], origin: Sequence[float]):
-    """Prefer fogged centers, then nearest next center; no enemy inference.
+    """Prefer fogged centers, then nearest next center.
 
     Candidates contain (zone_id, center_xy, center_visible), excluding own bases.
     Distance is straight-line ordering, not a promise of terrain reachability.

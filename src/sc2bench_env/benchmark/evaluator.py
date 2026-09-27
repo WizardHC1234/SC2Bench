@@ -1,6 +1,6 @@
 """Read only persisted episode metadata and terminal results, never agent strategy."""
-
 from __future__ import annotations
+
 
 import hashlib
 import json

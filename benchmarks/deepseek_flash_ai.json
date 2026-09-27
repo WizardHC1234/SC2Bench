@@ -1,0 +1,501 @@
+{
+  "schema_version": "1",
+  "suite_id": "deepseek_flash_ai",
+  "suite_version": "1",
+  "purpose": "evaluation",
+  "repetitions": 20,
+  "max_decisions": 500,
+  "episode_defaults": {
+    "enemy_style": "random",
+    "blocking_decisions": true,
+    "game_time_limit_seconds": 1800.0
+  },
+  "cases": [
+    {
+      "case_id": "kairos_t_vs_t_medium",
+      "episode": {
+        "race": "terran",
+        "enemy_race": "terran",
+        "map_name": "KairosJunctionLE",
+        "opponent": "medium"
+      }
+    },
+    {
+      "case_id": "acropolis_t_vs_t_medium",
+      "episode": {
+        "race": "terran",
+        "enemy_race": "terran",
+        "map_name": "AcropolisLE",
+        "opponent": "medium"
+      }
+    },
+    {
+      "case_id": "kairos_t_vs_t_mediumhard",
+      "episode": {
+        "race": "terran",
+        "enemy_race": "terran",
+        "map_name": "KairosJunctionLE",
+        "opponent": "mediumhard"
+      }
+    },
+    {
+      "case_id": "acropolis_t_vs_t_mediumhard",
+      "episode": {
+        "race": "terran",
+        "enemy_race": "terran",
+        "map_name": "AcropolisLE",
+        "opponent": "mediumhard"
+      }
+    },
+    {
+      "case_id": "kairos_t_vs_t_hard",
+      "episode": {
+        "race": "terran",
+        "enemy_race": "terran",
+        "map_name": "KairosJunctionLE",
+        "opponent": "hard"
+      }
+    },
+    {
+      "case_id": "acropolis_t_vs_t_hard",
+      "episode": {
+        "race": "terran",
+        "enemy_race": "terran",
+        "map_name": "AcropolisLE",
+        "opponent": "hard"
+      }
+    },
+    {
+      "case_id": "kairos_t_vs_p_medium",
+      "episode": {
+        "race": "terran",
+        "enemy_race": "protoss",
+        "map_name": "KairosJunctionLE",
+        "opponent": "medium"
+      }
+    },
+    {
+      "case_id": "acropolis_t_vs_p_medium",
+      "episode": {
+        "race": "terran",
+        "enemy_race": "protoss",
+        "map_name": "AcropolisLE",
+        "opponent": "medium"
+      }
+    },
+    {
+      "case_id": "kairos_t_vs_p_mediumhard",
+      "episode": {
+        "race": "terran",
+        "enemy_race": "protoss",
+        "map_name": "KairosJunctionLE",
+        "opponent": "mediumhard"
+      }
+    },
+    {
+      "case_id": "acropolis_t_vs_p_mediumhard",
+      "episode": {
+        "race": "terran",
+        "enemy_race": "protoss",
+        "map_name": "AcropolisLE",
+        "opponent": "mediumhard"
+      }
+    },
+    {
+      "case_id": "kairos_t_vs_p_hard",
+      "episode": {
+        "race": "terran",
+        "enemy_race": "protoss",
+        "map_name": "KairosJunctionLE",
+        "opponent": "hard"
+      }
+    },
+    {
+      "case_id": "acropolis_t_vs_p_hard",
+      "episode": {
+        "race": "terran",
+        "enemy_race": "protoss",
+        "map_name": "AcropolisLE",
+        "opponent": "hard"
+      }
+    },
+    {
+      "case_id": "kairos_t_vs_z_medium",
+      "episode": {
+        "race": "terran",
+        "enemy_race": "zerg",
+        "map_name": "KairosJunctionLE",
+        "opponent": "medium"
+      }
+    },
+    {
+      "case_id": "acropolis_t_vs_z_medium",
+      "episode": {
+        "race": "terran",
+        "enemy_race": "zerg",
+        "map_name": "AcropolisLE",
+        "opponent": "medium"
+      }
+    },
+    {
+      "case_id": "kairos_t_vs_z_mediumhard",
+      "episode": {
+        "race": "terran",
+        "enemy_race": "zerg",
+        "map_name": "KairosJunctionLE",
+        "opponent": "mediumhard"
+      }
+    },
+    {
+      "case_id": "acropolis_t_vs_z_mediumhard",
+      "episode": {
+        "race": "terran",
+        "enemy_race": "zerg",
+        "map_name": "AcropolisLE",
+        "opponent": "mediumhard"
+      }
+    },
+    {
+      "case_id": "kairos_t_vs_z_hard",
+      "episode": {
+        "race": "terran",
+        "enemy_race": "zerg",
+        "map_name": "KairosJunctionLE",
+        "opponent": "hard"
+      }
+    },
+    {
+      "case_id": "acropolis_t_vs_z_hard",
+      "episode": {
+        "race": "terran",
+        "enemy_race": "zerg",
+        "map_name": "AcropolisLE",
+        "opponent": "hard"
+      }
+    },
+    {
+      "case_id": "kairos_p_vs_t_medium",
+      "episode": {
+        "race": "protoss",
+        "enemy_race": "terran",
+        "map_name": "KairosJunctionLE",
+        "opponent": "medium"
+      }
+    },
+    {
+      "case_id": "acropolis_p_vs_t_medium",
+      "episode": {
+        "race": "protoss",
+        "enemy_race": "terran",
+        "map_name": "AcropolisLE",
+        "opponent": "medium"
+      }
+    },
+    {
+      "case_id": "kairos_p_vs_t_mediumhard",
+      "episode": {
+        "race": "protoss",
+        "enemy_race": "terran",
+        "map_name": "KairosJunctionLE",
+        "opponent": "mediumhard"
+      }
+    },
+    {
+      "case_id": "acropolis_p_vs_t_mediumhard",
+      "episode": {
+        "race": "protoss",
+        "enemy_race": "terran",
+        "map_name": "AcropolisLE",
+        "opponent": "mediumhard"
+      }
+    },
+    {
+      "case_id": "kairos_p_vs_t_hard",
+      "episode": {
+        "race": "protoss",
+        "enemy_race": "terran",
+        "map_name": "KairosJunctionLE",
+        "opponent": "hard"
+      }
+    },
+    {
+      "case_id": "acropolis_p_vs_t_hard",
+      "episode": {
+        "race": "protoss",
+        "enemy_race": "terran",
+        "map_name": "AcropolisLE",
+        "opponent": "hard"
+      }
+    },
+    {
+      "case_id": "kairos_p_vs_p_medium",
+      "episode": {
+        "race": "protoss",
+        "enemy_race": "protoss",
+        "map_name": "KairosJunctionLE",
+        "opponent": "medium"
+      }
+    },
+    {
+      "case_id": "acropolis_p_vs_p_medium",
+      "episode": {
+        "race": "protoss",
+        "enemy_race": "protoss",
+        "map_name": "AcropolisLE",
+        "opponent": "medium"
+      }
+    },
+    {
+      "case_id": "kairos_p_vs_p_mediumhard",
+      "episode": {
+        "race": "protoss",
+        "enemy_race": "protoss",
+        "map_name": "KairosJunctionLE",
+        "opponent": "mediumhard"
+      }
+    },
+    {
+      "case_id": "acropolis_p_vs_p_mediumhard",
+      "episode": {
+        "race": "protoss",
+        "enemy_race": "protoss",
+        "map_name": "AcropolisLE",
+        "opponent": "mediumhard"
+      }
+    },
+    {
+      "case_id": "kairos_p_vs_p_hard",
+      "episode": {
+        "race": "protoss",
+        "enemy_race": "protoss",
+        "map_name": "KairosJunctionLE",
+        "opponent": "hard"
+      }
+    },
+    {
+      "case_id": "acropolis_p_vs_p_hard",
+      "episode": {
+        "race": "protoss",
+        "enemy_race": "protoss",
+        "map_name": "AcropolisLE",
+        "opponent": "hard"
+      }
+    },
+    {
+      "case_id": "kairos_p_vs_z_medium",
+      "episode": {
+        "race": "protoss",
+        "enemy_race": "zerg",
+        "map_name": "KairosJunctionLE",
+        "opponent": "medium"
+      }
+    },
+    {
+      "case_id": "acropolis_p_vs_z_medium",
+      "episode": {
+        "race": "protoss",
+        "enemy_race": "zerg",
+        "map_name": "AcropolisLE",
+        "opponent": "medium"
+      }
+    },
+    {
+      "case_id": "kairos_p_vs_z_mediumhard",
+      "episode": {
+        "race": "protoss",
+        "enemy_race": "zerg",
+        "map_name": "KairosJunctionLE",
+        "opponent": "mediumhard"
+      }
+    },
+    {
+      "case_id": "acropolis_p_vs_z_mediumhard",
+      "episode": {
+        "race": "protoss",
+        "enemy_race": "zerg",
+        "map_name": "AcropolisLE",
+        "opponent": "mediumhard"
+      }
+    },
+    {
+      "case_id": "kairos_p_vs_z_hard",
+      "episode": {
+        "race": "protoss",
+        "enemy_race": "zerg",
+        "map_name": "KairosJunctionLE",
+        "opponent": "hard"
+      }
+    },
+    {
+      "case_id": "acropolis_p_vs_z_hard",
+      "episode": {
+        "race": "protoss",
+        "enemy_race": "zerg",
+        "map_name": "AcropolisLE",
+        "opponent": "hard"
+      }
+    },
+    {
+      "case_id": "kairos_z_vs_t_medium",
+      "episode": {
+        "race": "zerg",
+        "enemy_race": "terran",
+        "map_name": "KairosJunctionLE",
+        "opponent": "medium"
+      }
+    },
+    {
+      "case_id": "acropolis_z_vs_t_medium",
+      "episode": {
+        "race": "zerg",
+        "enemy_race": "terran",
+        "map_name": "AcropolisLE",
+        "opponent": "medium"
+      }
+    },
+    {
+      "case_id": "kairos_z_vs_t_mediumhard",
+      "episode": {
+        "race": "zerg",
+        "enemy_race": "terran",
+        "map_name": "KairosJunctionLE",
+        "opponent": "mediumhard"
+      }
+    },
+    {
+      "case_id": "acropolis_z_vs_t_mediumhard",
+      "episode": {
+        "race": "zerg",
+        "enemy_race": "terran",
+        "map_name": "AcropolisLE",
+        "opponent": "mediumhard"
+      }
+    },
+    {
+      "case_id": "kairos_z_vs_t_hard",
+      "episode": {
+        "race": "zerg",
+        "enemy_race": "terran",
+        "map_name": "KairosJunctionLE",
+        "opponent": "hard"
+      }
+    },
+    {
+      "case_id": "acropolis_z_vs_t_hard",
+      "episode": {
+        "race": "zerg",
+        "enemy_race": "terran",
+        "map_name": "AcropolisLE",
+        "opponent": "hard"
+      }
+    },
+    {
+      "case_id": "kairos_z_vs_p_medium",
+      "episode": {
+        "race": "zerg",
+        "enemy_race": "protoss",
+        "map_name": "KairosJunctionLE",
+        "opponent": "medium"
+      }
+    },
+    {
+      "case_id": "acropolis_z_vs_p_medium",
+      "episode": {
+        "race": "zerg",
+        "enemy_race": "protoss",
+        "map_name": "AcropolisLE",
+        "opponent": "medium"
+      }
+    },
+    {
+      "case_id": "kairos_z_vs_p_mediumhard",
+      "episode": {
+        "race": "zerg",
+        "enemy_race": "protoss",
+        "map_name": "KairosJunctionLE",
+        "opponent": "mediumhard"
+      }
+    },
+    {
+      "case_id": "acropolis_z_vs_p_mediumhard",
+      "episode": {
+        "race": "zerg",
+        "enemy_race": "protoss",
+        "map_name": "AcropolisLE",
+        "opponent": "mediumhard"
+      }
+    },
+    {
+      "case_id": "kairos_z_vs_p_hard",
+      "episode": {
+        "race": "zerg",
+        "enemy_race": "protoss",
+        "map_name": "KairosJunctionLE",
+        "opponent": "hard"
+      }
+    },
+    {
+      "case_id": "acropolis_z_vs_p_hard",
+      "episode": {
+        "race": "zerg",
+        "enemy_race": "protoss",
+        "map_name": "AcropolisLE",
+        "opponent": "hard"
+      }
+    },
+    {
+      "case_id": "kairos_z_vs_z_medium",
+      "episode": {
+        "race": "zerg",
+        "enemy_race": "zerg",
+        "map_name": "KairosJunctionLE",
+        "opponent": "medium"
+      }
+    },
+    {
+      "case_id": "acropolis_z_vs_z_medium",
+      "episode": {
+        "race": "zerg",
+        "enemy_race": "zerg",
+        "map_name": "AcropolisLE",
+        "opponent": "medium"
+      }
+    },
+    {
+      "case_id": "kairos_z_vs_z_mediumhard",
+      "episode": {
+        "race": "zerg",
+        "enemy_race": "zerg",
+        "map_name": "KairosJunctionLE",
+        "opponent": "mediumhard"
+      }
+    },
+    {
+      "case_id": "acropolis_z_vs_z_mediumhard",
+      "episode": {
+        "race": "zerg",
+        "enemy_race": "zerg",
+        "map_name": "AcropolisLE",
+        "opponent": "mediumhard"
+      }
+    },
+    {
+      "case_id": "kairos_z_vs_z_hard",
+      "episode": {
+        "race": "zerg",
+        "enemy_race": "zerg",
+        "map_name": "KairosJunctionLE",
+        "opponent": "hard"
+      }
+    },
+    {
+      "case_id": "acropolis_z_vs_z_hard",
+      "episode": {
+        "race": "zerg",
+        "enemy_race": "zerg",
+        "map_name": "AcropolisLE",
+        "opponent": "hard"
+      }
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 """Platform-owned Sharpy configuration, available in source and wheel installs."""
-
 from __future__ import annotations
+
 
 import os
 from configparser import ConfigParser

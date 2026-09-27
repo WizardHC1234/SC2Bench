@@ -8,7 +8,7 @@ from typing import Any, Dict, Optional, Tuple
 
 def parse_episode_text(text: str) -> Tuple[Dict[str, Any], str, Optional[Dict[str, Any]]]:
     """Split episode.txt into configuration, the platform prompt, and an optional result."""
-    marker = "\n\nPlatform prompt\n"
+    marker = "\n\nPlatform contract\n"
     config_marker = "\nConfiguration and versions\n"
     if marker not in text or config_marker not in text:
         raise ValueError("Missing episode configuration")

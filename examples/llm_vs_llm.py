@@ -22,7 +22,8 @@ else:
     import agent_integration as agent_module
 
 from agents.llm_agent.config import env_setting
-from sc2bench_env import EpisodeConfig, VersusMatch, run_versus
+from sc2bench_env import EpisodeConfig
+from sc2bench_env.versus import VersusMatch, run_versus
 from sc2bench_env.interface.races import SUPPORTED_OWN_RACES
 
 
@@ -39,8 +40,8 @@ def main(argv=None) -> int:
     parser.add_argument("--game-time-limit", type=agent_module.positive_float, default=1800)
     parser.add_argument("--max-decisions", type=agent_module.positive_int, default=500)
     parser.add_argument("--max-rejections", type=agent_module.positive_int, default=3)
-    parser.add_argument("--skill", default="tank")
-    parser.add_argument("--opponent-skill", default="tank")
+    parser.add_argument("--skill", default="none")
+    parser.add_argument("--opponent-skill", default="none")
     parser.add_argument("--temperature", type=agent_module.parse_temperature,
                         default=agent_module.DEFAULT_TEMPERATURE)
     parser.add_argument("--opponent-temperature", type=agent_module.parse_temperature, default=None)

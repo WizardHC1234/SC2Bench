@@ -1,6 +1,6 @@
 """Agent-independent, seed-free serial benchmark specifications."""
-
 from __future__ import annotations
+
 
 import hashlib
 import json

@@ -3,8 +3,8 @@
 Legal grid points are scored here. When no defensive spot is usable, the
 caller falls back to the normal Terran grid so the build does not stall.
 """
-
 from __future__ import annotations
+
 
 from math import hypot
 from typing import Any, Optional, Sequence

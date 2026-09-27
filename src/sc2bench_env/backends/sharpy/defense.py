@@ -1,6 +1,6 @@
 """Auto zone defense that never pulls model combat-bound units."""
-
 from __future__ import annotations
+
 
 from typing import List, Optional
 

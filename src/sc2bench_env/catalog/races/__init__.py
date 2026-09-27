@@ -1,21 +1,21 @@
 """Select implemented race catalogs without importing game libraries."""
 
-from sc2bench_env.interface.catalog_types import CatalogData
+from sc2bench_env.catalog.models import CatalogData
 from sc2bench_env.interface.races import require_supported_own_race
 
 
 def get_catalog(*, race: str = "terran") -> CatalogData:
     require_supported_own_race(race)
     if race == "terran":
-        from sc2bench_env.interface.catalogs.terran import CATALOG
+        from sc2bench_env.catalog.races.terran import CATALOG
 
         return CATALOG
     if race == "protoss":
-        from sc2bench_env.interface.catalogs.protoss import CATALOG
+        from sc2bench_env.catalog.races.protoss import CATALOG
 
         return CATALOG
     if race == "zerg":
-        from sc2bench_env.interface.catalogs.zerg import CATALOG
+        from sc2bench_env.catalog.races.zerg import CATALOG
 
         return CATALOG
     # Extending the support list alone must never fall back to Terran data.

@@ -1,20 +1,20 @@
 """Session state and tool loop for the example SC2Bench LLM agent."""
-
 from __future__ import annotations
 
+
+import inspect
 import json
 import math
 import time
 from http.client import HTTPException
 from typing import Any, Callable, Mapping, Optional
 
-from sc2bench_env.benchmark import AgentInput, AgentStopped, AgentTurn
+from sc2bench_env.adapters.llm import LLMAdapter
+from sc2bench_env.interface.agent import AgentInput, AgentStopped, AgentTurn
 from sc2bench_env.interface.tools import (
     KNOWLEDGE_TOOLS,
     READ_TOOLS,
-    NormalizedToolCall,
-    queued_tool_result,
-    render_tool_result,
+    ToolCall,
 )
 
 from .client import make_llm_call
@@ -25,15 +25,13 @@ from .config import (
     llm_model,
 )
 from .prompts import (
-    ACTION_BATCH_HINT,
     MAX_TOOL_ROUNDS,
     NO_TOOL_HINT,
     TOOL_NOTE_HINT,
     TOOL_NOTE_RULE,
-    action_names,
-    reply_kind,
 )
 from .skills import DEFAULT_SKILL, load_skill, skill_race
+from .tools import tool_schemas
 
 
 class InvalidDecisionLimit(AgentStopped):
@@ -71,7 +69,7 @@ class LLMAgent:
                 or type(max_consecutive_rejections) is not int or max_consecutive_rejections < 1):
             raise ValueError(
                 "invalid external Agent retry or rejection limits")
-        self.call_llm = call_llm
+        self.call_llm = _require_tools(call_llm)
         self.max_api_attempts = max_api_attempts
         self.api_retry_delay_seconds = api_retry_delay_seconds
         self.max_consecutive_rejections = max_consecutive_rejections
@@ -101,9 +99,9 @@ class LLMAgent:
                 if message.get("role") == "user":
                     _print_block("Agent input", message.get("content") or "")
 
-        schemas = list(request.tool_schemas or ())
+        schemas = tool_schemas(request.tool_specs)
         self._sent_tools = schemas
-        queued: list[dict[str, Any]] = []
+        adapter = LLMAdapter()
         provider_tool_calls: list[dict[str, Any]] = []
         failures: list[dict[str, Any]] = []
         last_attempt = 1
@@ -145,72 +143,45 @@ class LLMAgent:
                     _print_block("Model note", content)
                 print(f"Tool round {_round + 1}: {len(tool_calls)} call(s)",
                       flush=True)
-            names = [str(call.get("name") or "") for call in tool_calls]
-            available_actions = action_names(schemas)
-            if reply_kind(names, available_actions) == "invalid":
-                if self.verbose:
-                    _print_block("Tool reminder", ACTION_BATCH_HINT)
-                self._reject_tool_reply(tool_calls, ACTION_BATCH_HINT)
-                continue
-            finished = False
+            ready = False
             for index, call in enumerate(tool_calls):
                 name = str(call.get("name") or "")
                 arguments = call.get("arguments") if isinstance(
                     call.get("arguments"), dict) else {}
                 call_id = str(
                     call.get("id") or f"call_{len(self.messages)}_{index}")
-                normalized = NormalizedToolCall(name, dict(arguments)).to_dict()
+                tool_call = ToolCall(name, dict(arguments))
                 provider_tool_calls.append({
                     "id": call_id, "name": name, "arguments": dict(arguments),
                 })
-                if name in available_actions:
-                    queued.append(normalized)
-                    result = queued_tool_result(NormalizedToolCall(name, dict(arguments)))
-                    rendered_result = render_tool_result(name, result)
-                    self.messages.append({
-                        "role": "tool", "tool_call_id": call_id,
-                        "content": rendered_result,
-                    })
-                    if self.verbose:
-                        _print_block("Queued action", _pretty_json(normalized))
-                    if name == "advance":
-                        finished = True
-                        break
-                    continue
-                if self.verbose:
+                if self.verbose and name not in {"advance"}:
                     _print_block(
                         _tool_query_title(name),
                         f"{name} {_pretty_json(arguments)}",
                     )
-                if request.call_tool is None:
-                    result = {"error": "tools_unavailable"}
-                else:
-                    result = request.call_tool(name, arguments)
-                rendered_result = render_tool_result(name, result)
+                result = request.call_tool(tool_call)
+                rendered_result = adapter.render_tool_result(tool_call, result)
                 if self.verbose:
                     _print_block("Tool result", rendered_result)
                 self.messages.append({
                     "role": "tool", "tool_call_id": call_id,
                     "content": rendered_result,
                 })
-            if finished:
+                if result.status == "decision_ready":
+                    ready = True
+                    break
+            if ready:
                 context = self._turn_context(
                     response, request, last_attempt, failures)
-                context["normalized_tool_calls"] = list(queued)
                 context["provider_tool_calls"] = list(provider_tool_calls)
                 if self.verbose:
-                    _print_block("Submitted actions", _pretty_json(queued))
-                print(
-                    f"LLM game_seconds={request.observation.game.game_time_seconds:.1f} "
-                    f"attempt={last_attempt} parsed=True repaired=False tools={len(queued)}",
-                    flush=True,
-                )
-                return AgentTurn(queued, context, call_failures=tuple(failures))
-        context = {"messages": list(self.messages), "tools": list(self._sent_tools),
-                   "assistant_content": "", "error": "tool_round_limit",
-                   "normalized_tool_calls": queued,
-                   "provider_tool_calls": provider_tool_calls}
-        return AgentTurn(None, context, call_failures=tuple(failures))
+                    print(
+                        f"LLM game_seconds={request.observation.game.game_time_seconds:.1f} "
+                        f"attempt={last_attempt} decision_ready=True",
+                        flush=True,
+                    )
+                return AgentTurn(context, call_failures=tuple(failures))
+        raise AgentStopped("tool_round_limit")
 
     def _complete_once(self, schemas: list[dict[str, Any]]) -> tuple[dict[str, Any], int, list[dict[str, Any]]]:
         response: dict[str, Any] = {}
@@ -260,12 +231,7 @@ class LLMAgent:
 
     def _invoke_llm(self, schemas: list[dict[str, Any]]) -> dict[str, Any]:
         messages = [dict(message) for message in self.messages]
-        if schemas:
-            try:
-                return self.call_llm(messages, tools=schemas)
-            except TypeError:
-                return self.call_llm(messages)
-        return self.call_llm(messages)
+        return self.call_llm(messages, tools=schemas)
 
     def _assistant_tool_message(self, content: str, raw: str, tool_calls: list[dict[str, Any]]) -> dict[str, Any]:
         serialized = []
@@ -310,37 +276,48 @@ class LLMAgent:
             })
 
     def _append_turn_input(self, request: AgentInput) -> None:
+        race = str(request.observation.game.race or "terran").strip().lower()
         if self.skill_name:
-            actual_race = str(request.observation.race).strip().lower()
             expected_race = skill_race(self.skill_name)
-            if actual_race != expected_race:
+            if race != expected_race:
                 raise ValueError(
                     f"skill {self.skill_name!r} requires race {expected_race!r}, "
-                    f"but the episode race is {actual_race!r}"
+                    f"but the episode race is {race!r}"
                 )
-        incoming = [dict(message) for message in request.platform_messages]
-        if not incoming:
-            raise ValueError("platform_messages must not be empty")
+        adapter = LLMAdapter()
+        user = {"role": "user", "content": adapter.render_input(request)}
         if not self.messages:
-            self.messages = incoming
-            system = self.messages[0]
-            if system.get("role") == "system":
-                content = str(system.get("content") or "").rstrip()
-                if self.skill_text:
-                    content += (
-                        f"\n\n[Agent Skill: {self.skill_name}]\n"
-                        f"{self.skill_text}\n"
-                    )
-                if TOOL_NOTE_RULE not in content:
-                    content += f"\n\n{TOOL_NOTE_RULE}\n"
-                system["content"] = content
+            content = adapter.system_prompt(race).rstrip()
+            if self.skill_text:
+                content += (
+                    f"\n\n[Agent Skill: {self.skill_name}]\n"
+                    f"{self.skill_text}\n"
+                )
+            if TOOL_NOTE_RULE not in content:
+                content += f"\n\n{TOOL_NOTE_RULE}\n"
+            self.messages = [{"role": "system", "content": content}, user]
             return
-        user = next((message for message in reversed(incoming)
-                    if message.get("role") == "user"), None)
-        if user is None:
-            raise ValueError(
-                "platform_messages must include a user Observation")
         self.messages.append(user)
+
+
+def _require_tools(call_llm: Callable[..., dict[str, Any]]) -> Callable[..., dict[str, Any]]:
+    """Adapt a test double that only accepts messages. Live providers must take tools."""
+    try:
+        signature = inspect.signature(call_llm)
+    except (TypeError, ValueError):
+        return call_llm
+    parameters = list(signature.parameters.values())
+    if any(item.kind == inspect.Parameter.VAR_KEYWORD for item in parameters):
+        return call_llm
+    if "tools" in signature.parameters:
+        return call_llm
+    if any(item.kind == inspect.Parameter.VAR_POSITIONAL for item in parameters):
+        return call_llm
+
+    def adapted(messages, tools=None, **kwargs):
+        return call_llm(messages)
+
+    return adapted
 
 
 def create_agent(call_llm=None, **agent_options) -> LLMAgent:

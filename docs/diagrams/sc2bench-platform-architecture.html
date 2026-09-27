@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="generator" content="Archify fallback authoring">
+<title>SC2Bench 平台运行架构</title>
+<style>
+:root{color-scheme:light;--page:#edf3f8;--panel:#fff;--ink:#102033;--muted:#617286;--line:#cbd7e2;--grid:#e9eff5;--platform:#f8fbfe;--platform-line:#7da9ce;--agent:#f4efff;--agent-line:#8a63cf;--adapter:#eaf4ff;--adapter-line:#438fc4;--env:#e9f8f3;--env-line:#25866e;--task:#fff1e7;--task-line:#d66f2c;--record:#eef8ee;--record-line:#5c9a62;--game:#e9eef5;--game-line:#50677f;--action:#e46b2c;--feedback:#2679c7;--query:#8057c8;--aux:#7d8ea0;--shadow:0 13px 36px rgba(24,51,80,.12)}
+html[data-theme="dark"]{color-scheme:dark;--page:#07111d;--panel:#0e1c2b;--ink:#edf5ff;--muted:#9eb0c2;--line:#2a4055;--grid:#142739;--platform:#0a1826;--platform-line:#3a719b;--agent:#241b39;--agent-line:#a88ae5;--adapter:#102b3d;--adapter-line:#55a9df;--env:#102f2a;--env-line:#48b497;--task:#342216;--task-line:#e58b4c;--record:#142b1b;--record-line:#74b77c;--game:#172434;--game-line:#7890a8;--action:#ff934f;--feedback:#5ca8ef;--query:#b093ed;--aux:#9aabbb;--shadow:0 13px 36px rgba(0,0,0,.34)}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 50% 0,rgba(83,148,205,.1),transparent 34%),var(--page);color:var(--ink);font-family:Inter,"Microsoft YaHei UI","PingFang SC",system-ui,sans-serif}.shell{min-height:100vh;padding:20px 26px 16px;display:flex;flex-direction:column}.topbar{max-width:1740px;width:100%;margin:0 auto 13px;display:flex;justify-content:space-between;align-items:center;gap:18px}.title h1{font-size:25px;line-height:1.2;margin:0 0 4px;letter-spacing:-.02em}.title p{margin:0;color:var(--muted);font-size:13px}.controls{display:flex;gap:8px}.controls button{border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:9px;padding:8px 11px;font:600 12px inherit;cursor:pointer}.diagram-container{max-width:1740px;width:100%;margin:auto;background:var(--panel);border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow);overflow:hidden}.canvas{width:100%;height:auto;display:block;touch-action:none;user-select:none}.caption{max-width:1740px;width:100%;margin:11px auto 0;color:var(--muted);font-size:12px;display:flex;justify-content:space-between;gap:16px}.caption strong{color:var(--ink)}
+svg text{font-family:Inter,"Microsoft YaHei UI","PingFang SC",system-ui,sans-serif}.grid-line{stroke:var(--grid);stroke-width:1}.boundary{fill:var(--platform);stroke:var(--platform-line);stroke-width:2;stroke-dasharray:9 7}.agent-boundary{fill:var(--agent);fill-opacity:.28;stroke:var(--agent-line);stroke-width:2;stroke-dasharray:9 7}.game-boundary{fill:var(--game);fill-opacity:.34;stroke:var(--game-line);stroke-width:2;stroke-dasharray:9 7}.boundary-tab{fill:var(--panel);stroke-width:1.5}.platform-tab{stroke:var(--platform-line)}.agent-tab{stroke:var(--agent-line)}.game-tab{stroke:var(--game-line)}.node .box{stroke-width:2}.node-agent .box{fill:var(--agent);stroke:var(--agent-line)}.node-adapter .box,.node-controller .box{fill:var(--adapter);stroke:var(--adapter-line)}.node-env .box{fill:var(--env);stroke:var(--env-line)}.node-task .box{fill:var(--task);stroke:var(--task-line)}.node-record .box{fill:var(--record);stroke:var(--record-line)}.node-game .box{fill:var(--game);stroke:var(--game-line)}.node-title{fill:var(--ink);font-size:18px;font-weight:760;text-anchor:middle}.node-sub{fill:var(--muted);font-size:12px;text-anchor:middle}.node-tag{fill:var(--muted);font-size:11px;text-anchor:middle}.section-title{fill:var(--ink);font-size:14px;font-weight:760}.section-sub{fill:var(--muted);font-size:11px}.divider{stroke:var(--line);stroke-width:1}.route{fill:none;stroke-linecap:round;stroke-linejoin:round}.action{stroke:var(--action);stroke-width:3}.feedback{stroke:var(--feedback);stroke-width:2.8}.query{stroke:var(--query);stroke-width:2.5;stroke-dasharray:8 7}.aux{stroke:var(--aux);stroke-width:2;stroke-dasharray:5 6}.label-bg{fill:var(--panel);stroke:var(--line);stroke-width:1}.edge-label{fill:var(--ink);font-size:10.5px;font-weight:680;text-anchor:middle}.edge-note{fill:var(--muted);font-size:10px;text-anchor:middle}.chip{fill:var(--panel);stroke:var(--adapter-line);stroke-width:1}.task-chip{fill:var(--panel);stroke:var(--task-line);stroke-width:1}.chip-text{fill:var(--ink);font-size:10.5px;font-weight:700;text-anchor:middle}.legend text{fill:var(--muted);font-size:11px}.legend line{stroke-width:3;stroke-linecap:round}.note-box{fill:var(--panel);stroke:var(--line);stroke-width:1}.note-title{fill:var(--ink);font-size:12px;font-weight:760}.note-copy{fill:var(--muted);font-size:11px}.node{cursor:pointer}.node:hover .box{stroke-width:3}.node:focus{outline:none}.node:focus .box{stroke-width:4}.dimmed{opacity:.16}.focused{opacity:1}
+@media(max-width:900px){.shell{padding:13px}.topbar{align-items:flex-start;flex-direction:column}.diagram-container{overflow:auto}.canvas{min-width:1200px}.caption{flex-direction:column}}@media print{body{background:#fff}.shell{padding:0}.topbar .controls,.caption{display:none}.diagram-container{border:0;box-shadow:none;border-radius:0}}
+</style>
+</head>
+<body><div class="shell">
+<header class="topbar"><div class="title"><h1>SC2Bench 平台运行架构</h1><p>外部 Agent 通过 LLM Adapter 感知并操作 Environment</p></div><div class="controls"><button id="themeBtn">深色主题</button><button id="resetBtn">重置视图</button><button id="svgBtn">导出 SVG</button><button id="pngBtn">导出 PNG</button></div></header>
+<main class="diagram-container">
+<svg id="diagram" class="canvas" viewBox="0 0 1800 900" role="img" aria-labelledby="svgTitle svgDesc">
+<title id="svgTitle">SC2Bench 平台运行架构</title>
+<desc id="svgDesc">外部 Agent 通过 LLM Adapter 与 Environment 交互。Episode Controller 在上方编排单局循环。Environment 调用持续执行运行时，Sharpy 控制 StarCraft II，记录评测作为旁路。</desc>
+<defs>
+  <pattern id="grid" width="42" height="42" patternUnits="userSpaceOnUse"><path d="M42 0H0V42" class="grid-line" fill="none"/></pattern>
+  <marker id="arrowAction" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10Z" fill="var(--action)"/></marker>
+  <marker id="arrowFeedback" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10Z" fill="var(--feedback)"/></marker>
+  <marker id="arrowQuery" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10Z" fill="var(--query)"/></marker>
+  <marker id="arrowAux" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10Z" fill="var(--aux)"/></marker>
+  <filter id="softShadow" x="-20%" y="-20%" width="140%" height="150%"><feDropShadow dx="0" dy="6" stdDeviation="7" flood-color="#10243a" flood-opacity=".13"/></filter>
+</defs>
+<rect width="1800" height="900" fill="var(--panel)"/><rect width="1800" height="900" fill="url(#grid)" opacity=".63"/>
+
+<!-- Ownership boundaries -->
+<rect class="agent-boundary" x="35" y="250" width="300" height="335" rx="24"/>
+<rect class="boundary-tab agent-tab" x="60" y="228" width="190" height="42" rx="11"/><text class="section-title" x="84" y="255">External Agent</text><text class="section-sub" x="209" y="255">平台外部</text>
+<rect class="boundary" x="385" y="130" width="1165" height="655" rx="26"/>
+<rect class="boundary-tab platform-tab" x="420" y="108" width="250" height="42" rx="11"/><text class="section-title" x="446" y="135">SC2Bench Platform</text><text class="section-sub" x="614" y="135">平台边界</text>
+<rect class="game-boundary" x="1580" y="250" width="190" height="335" rx="24"/>
+<rect class="boundary-tab game-tab" x="1598" y="228" width="154" height="42" rx="11"/><text class="section-title" x="1622" y="255">Game Process</text>
+
+<!-- Control plane -->
+<path class="route aux" marker-start="url(#arrowAux)" marker-end="url(#arrowAux)" d="M185 340V220H700"/>
+<g><rect class="label-bg" x="369" y="183" width="148" height="25" rx="8"/><text class="edge-label" x="443" y="200">AgentInput / AgentTurn</text></g>
+<path class="route aux" marker-start="url(#arrowAux)" marker-end="url(#arrowAux)" d="M980 285V340"/>
+<g><rect class="label-bg" x="1000" y="297" width="166" height="25" rx="8"/><text class="edge-label" x="1083" y="314">reset / step · Observation / Feedback</text></g>
+
+<!-- Aligned data-flow rails -->
+<path class="route feedback" marker-end="url(#arrowFeedback)" d="M420 390H300"/>
+<path class="route action" marker-end="url(#arrowAction)" d="M300 490H420"/>
+<g><rect class="label-bg" x="310" y="352" width="100" height="25" rx="8"/><text class="edge-label" x="360" y="369">rendered input</text></g>
+<g><rect class="label-bg" x="324" y="501" width="72" height="25" rx="8"/><text class="edge-label" x="360" y="518">tool calls</text></g>
+
+<path class="route feedback" marker-end="url(#arrowFeedback)" d="M830 390H750"/>
+<path class="route action" marker-end="url(#arrowAction)" d="M750 490H830"/>
+<g><rect class="label-bg" x="752" y="352" width="76" height="25" rx="8"/><text class="edge-label" x="790" y="369">state / result</text></g>
+<g><rect class="label-bg" x="752" y="501" width="76" height="25" rx="8"/><text class="edge-label" x="790" y="518">query / batch</text></g>
+
+<path class="route feedback" marker-end="url(#arrowFeedback)" d="M1210 390H1130"/>
+<path class="route action" marker-end="url(#arrowAction)" d="M1130 490H1210"/>
+<g><rect class="label-bg" x="1132" y="352" width="76" height="25" rx="8"/><text class="edge-label" x="1170" y="369">updates</text></g>
+<g><rect class="label-bg" x="1125" y="501" width="90" height="25" rx="8"/><text class="edge-label" x="1170" y="518">batch / advance</text></g>
+
+<path class="route feedback" marker-end="url(#arrowFeedback)" d="M1610 390H1510"/>
+<path class="route action" marker-end="url(#arrowAction)" d="M1510 490H1610"/>
+<g><rect class="label-bg" x="1515" y="352" width="90" height="25" rx="8"/><text class="edge-label" x="1560" y="369">game state</text></g>
+<g><rect class="label-bg" x="1520" y="501" width="80" height="25" rx="8"/><text class="edge-label" x="1560" y="518">commands</text></g>
+
+<!-- Recording sidecar -->
+<path class="route aux" marker-end="url(#arrowAux)" d="M980 540V630"/>
+<g><rect class="label-bg" x="1000" y="572" width="164" height="25" rx="8"/><text class="edge-label" x="1082" y="589">reset · query · step · terminal</text></g>
+
+<!-- Components -->
+<g class="node node-agent" data-id="agent" tabindex="0" transform="translate(70 340)">
+  <rect class="box" width="230" height="200" rx="18" filter="url(#softShadow)"/><text class="node-title" x="115" y="44">External Agent</text><text class="node-sub" x="115" y="79">LLM Model + Harness</text><text class="node-sub" x="115" y="105">Session · Skill · Tool Loop</text><line class="divider" x1="32" y1="132" x2="198" y2="132"/><text class="node-tag" x="115" y="158">接收平台渲染的状态与工具</text><text class="node-tag" x="115" y="180">输出 Tool Calls</text>
+</g>
+<g class="node node-controller" data-id="controller" tabindex="0" transform="translate(700 170)">
+  <rect class="box" width="440" height="115" rx="17" filter="url(#softShadow)"/><text class="node-title" x="220" y="36">Episode Controller</text><text class="node-sub" x="220" y="65">BenchmarkRunner 创建每局 Agent 与 Environment，并驱动单局循环</text><text class="node-tag" x="220" y="91">双 Agent 对战使用 VersusMatch</text>
+</g>
+<g class="node node-adapter" data-id="adapter" tabindex="0" transform="translate(420 340)">
+  <rect class="box" width="330" height="200" rx="18" filter="url(#softShadow)"/><text class="node-title" x="165" y="39">LLM Adapter</text><text class="node-sub" x="165" y="68">平台面向 Agent Harness 的适配层</text>
+  <rect class="chip" x="22" y="88" width="88" height="34" rx="10"/><text class="chip-text" x="66" y="110">LLM Adapter</text>
+  <rect class="chip" x="121" y="88" width="92" height="34" rx="10"/><text class="chip-text" x="167" y="110">Knowledge / Read</text>
+  <rect class="chip" x="224" y="88" width="84" height="34" rx="10"/><text class="chip-text" x="266" y="110">Action Tools</text>
+  <text class="node-tag" x="165" y="148">统一 ToolSpec · Catalog / Game Data</text><text class="node-tag" x="165" y="169">prompt · input · tool-result rendering</text><text class="node-tag" x="165" y="188">查询即时返回；动作汇总成一次 AgentTurn</text>
+</g>
+<g class="node node-env" data-id="environment" tabindex="0" transform="translate(830 340)">
+  <rect class="box" width="300" height="200" rx="18" filter="url(#softShadow)"/><text class="node-title" x="150" y="42">Environment</text><text class="node-sub" x="150" y="77">reset · tool_specs · call_tool</text><text class="node-sub" x="150" y="103">parse / validate · step · close</text><line class="divider" x1="38" y1="129" x2="262" y2="129"/><text class="node-tag" x="150" y="155">协调工具、持续任务、观测与反馈</text><text class="node-tag" x="150" y="178">Agent-facing platform core</text>
+</g>
+<g class="node node-task" data-id="execution" tabindex="0" transform="translate(1210 340)">
+  <rect class="box" width="300" height="200" rx="18" filter="url(#softShadow)"/><text class="node-title" x="150" y="39">Execution Runtime</text><text class="node-sub" x="150" y="68">持续任务与游戏推进</text>
+  <rect class="task-chip" x="25" y="88" width="112" height="34" rx="10"/><text class="chip-text" x="81" y="110">TaskManager</text>
+  <rect class="task-chip" x="162" y="88" width="112" height="34" rx="10"/><text class="chip-text" x="218" y="110">Scheduler</text>
+  <text class="node-sub" x="150" y="150">Sharpy Backend</text><text class="node-tag" x="150" y="174">生产 · 军队控制 · 底层微操</text>
+</g>
+<g class="node node-game" data-id="game" tabindex="0" transform="translate(1610 340)">
+  <rect class="box" width="140" height="200" rx="18" filter="url(#softShadow)"/><text class="node-title" x="70" y="46">StarCraft II</text><text class="node-sub" x="70" y="84">经济 · 生产</text><text class="node-sub" x="70" y="110">地图 · 战斗</text><text class="node-sub" x="70" y="136">战争迷雾</text><line class="divider" x1="26" y1="157" x2="114" y2="157"/><text class="node-tag" x="70" y="181">实时游戏进程</text>
+</g>
+<g class="node node-record" data-id="recording" tabindex="0" transform="translate(830 630)">
+  <rect class="box" width="300" height="95" rx="16" filter="url(#softShadow)"/><text class="node-title" x="150" y="37">Recording &amp; Evaluation</text><text class="node-sub" x="150" y="65">保存完整轨迹；局后读取结果并汇总</text>
+</g>
+
+<!-- Explanatory notes -->
+<g transform="translate(90 810)"><rect class="note-box" width="500" height="55" rx="14"/><circle cx="28" cy="27" r="7" fill="var(--aux)"/><text class="note-title" x="48" y="23">控制平面</text><text class="note-copy" x="48" y="41">Controller 调用完整 Agent，并负责 Environment 的 reset / step</text></g>
+<g transform="translate(650 810)"><rect class="note-box" width="500" height="55" rx="14"/><circle cx="28" cy="27" r="7" fill="var(--query)"/><text class="note-title" x="48" y="23">统一工具接口</text><text class="note-copy" x="48" y="41">Knowledge、Read 与 Action 都是 Tool，仅执行与返回时机不同</text></g>
+<g transform="translate(1210 810)"><rect class="note-box" width="500" height="55" rx="14"/><circle cx="28" cy="27" r="7" fill="var(--action)"/><text class="note-title" x="48" y="23">数据平面</text><text class="note-copy" x="48" y="41">Agent 通过 Adapter 获取状态和工具，Environment 负责实际执行</text></g>
+<g class="legend" transform="translate(1195 180)"><line x1="0" y1="0" x2="34" y2="0" stroke="var(--action)"/><text x="43" y="4">调用 / 动作</text><line x1="113" y1="0" x2="147" y2="0" stroke="var(--feedback)"/><text x="156" y="4">返回 / 状态</text><line x1="227" y1="0" x2="261" y2="0" stroke="var(--aux)" stroke-dasharray="5 5"/><text x="270" y="4">编排 / 记录</text></g>
+</svg></main>
+<div class="caption"><span><strong>阅读顺序：</strong>上方是单局编排；中间是 Agent 到游戏的双向数据流；下方是记录评测旁路。</span><span>点击模块聚焦；滚轮缩放，拖动画布。</span></div>
+</div>
+<script>
+(function(){const root=document.documentElement,svg=document.getElementById('diagram'),theme=document.getElementById('themeBtn');const themeName=()=>root.dataset.theme==='dark'?'浅色主题':'深色主题';theme.textContent=themeName();theme.onclick=()=>{root.dataset.theme=root.dataset.theme==='dark'?'light':'dark';theme.textContent=themeName()};const original={x:0,y:0,w:1800,h:900};let vb={...original},drag=null;const apply=()=>svg.setAttribute('viewBox',`${vb.x} ${vb.y} ${vb.w} ${vb.h}`);document.getElementById('resetBtn').onclick=()=>{vb={...original};apply()};svg.addEventListener('wheel',e=>{e.preventDefault();const r=svg.getBoundingClientRect(),px=vb.x+(e.clientX-r.left)/r.width*vb.w,py=vb.y+(e.clientY-r.top)/r.height*vb.h,f=e.deltaY>0?1.12:.89,nw=Math.max(760,Math.min(2700,vb.w*f)),nh=nw/2;vb.x=px-(px-vb.x)*(nw/vb.w);vb.y=py-(py-vb.y)*(nh/vb.h);vb.w=nw;vb.h=nh;apply()},{passive:false});svg.addEventListener('pointerdown',e=>{if(e.target.closest('.node'))return;drag={x:e.clientX,y:e.clientY,vx:vb.x,vy:vb.y};svg.setPointerCapture(e.pointerId)});svg.addEventListener('pointermove',e=>{if(!drag)return;const r=svg.getBoundingClientRect();vb.x=drag.vx-(e.clientX-drag.x)*vb.w/r.width;vb.y=drag.vy-(e.clientY-drag.y)*vb.h/r.height;apply()});svg.addEventListener('pointerup',()=>drag=null);svg.addEventListener('pointercancel',()=>drag=null);document.querySelectorAll('.node').forEach(n=>n.addEventListener('click',()=>{const active=n.classList.contains('focused');document.querySelectorAll('.node').forEach(x=>x.classList.remove('focused','dimmed'));if(!active)document.querySelectorAll('.node').forEach(x=>x===n?x.classList.add('focused'):x.classList.add('dimmed'))}));svg.addEventListener('click',e=>{if(!e.target.closest('.node'))document.querySelectorAll('.node').forEach(x=>x.classList.remove('focused','dimmed'))});function exportSvg(){const c=svg.cloneNode(true);c.setAttribute('xmlns','http://www.w3.org/2000/svg');c.setAttribute('width','1800');c.setAttribute('height','900');c.setAttribute('viewBox','0 0 1800 900');const s=document.createElementNS('http://www.w3.org/2000/svg','style');s.textContent=[...document.styleSheets].map(x=>{try{return[...x.cssRules].map(r=>r.cssText).join('\n')}catch(_){return''}}).join('\n');c.insertBefore(s,c.firstChild);return new XMLSerializer().serializeToString(c)}function download(b,n){const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=n;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)}document.getElementById('svgBtn').onclick=()=>download(new Blob([exportSvg()],{type:'image/svg+xml'}),'sc2bench-platform-architecture.svg');document.getElementById('pngBtn').onclick=()=>{const i=new Image(),u=URL.createObjectURL(new Blob([exportSvg()],{type:'image/svg+xml'}));i.onload=()=>{const c=document.createElement('canvas');c.width=1800;c.height=900;const x=c.getContext('2d');x.drawImage(i,0,0);URL.revokeObjectURL(u);c.toBlob(b=>download(b,'sc2bench-platform-architecture.png'),'image/png')};i.src=u}})();
+</script></body></html>

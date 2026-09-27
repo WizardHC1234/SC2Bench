@@ -1,24 +1,31 @@
 """Agent-facing action data structures and validation."""
-
 from __future__ import annotations
+
 
 import re
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Union
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple, Union
 
-from sc2bench_env.interface.action_catalog import COMBAT_STYLES, known_target_names
-from sc2bench_env.interface.target_aliases import normalize_target_aliases
-from sc2bench_env.interface.races import require_supported_own_race
-from sc2bench_env.interface.observations import WORKER_UNIT_NAMES
-from sc2bench_env.interface.scouting import ScoutRoute, route_payload
+from sc2bench_env.catalog.aliases import normalize_target_aliases
+from sc2bench_env.catalog.registry import known_target_names
 from sc2bench_env.interface.decision_rules import (
+    COMBAT_STYLES,
     STRUCTURE_ID_PATTERN,
     ZONE_PATTERN,
     DecisionSchemaError,
     validate_batch_shape,
     validate_entry_fields,
 )
-from sc2bench_env.interface.tools import parse_normalized_tool_call
+from sc2bench_env.interface.observations import WORKER_UNIT_NAMES
+from sc2bench_env.interface.races import require_supported_own_race
+from sc2bench_env.interface.tools import parse_tool_call
+
+ScoutRoute = Union[str, Tuple[str, ...]]
+
+
+def route_payload(route: Optional[ScoutRoute]):
+    return route if isinstance(route, str) else list(route or ())
+
 
 _ZONE_TARGET_RE = re.compile(ZONE_PATTERN)
 _STRUCTURE_ID_RE = re.compile(STRUCTURE_ID_PATTERN)
@@ -163,7 +170,7 @@ def _validate_race(race: str) -> None:
 
 def _internal_entry(raw: Mapping[str, Any], *, index: int = 0, race: str = "terran") -> dict[str, Any]:
     try:
-        call = parse_normalized_tool_call(raw, index=index)
+        call = parse_tool_call(raw, index=index)
         internal = call.to_internal_entry()
     except ValueError as exc:
         raise ActionValidationError(str(exc)) from exc
@@ -172,13 +179,13 @@ def _internal_entry(raw: Mapping[str, Any], *, index: int = 0, race: str = "terr
 
 
 def parse_advance_action(raw: Mapping[str, Any], *, race: str = "terran") -> AdvanceAction:
+    internal = _internal_entry(raw, race=race)
     try:
-        verb = validate_entry_fields(raw, index=0, race=race)
+        verb = validate_entry_fields(internal, index=0, race=race)
     except DecisionSchemaError as exc:
         raise _as_validation_error(exc) from exc
     if verb != "advance":
         raise ActionValidationError("trailing action must be advance")
-    internal = _internal_entry(raw, race=race)
     seconds = internal.get("seconds")
     if not isinstance(seconds, (int, float)) or isinstance(seconds, bool) or seconds <= 0:
         raise ActionValidationError("advance.seconds must be a positive number")
@@ -191,11 +198,7 @@ def parse_game_action(raw: Mapping[str, Any], *, race: str = "terran") -> GameAc
     _validate_race(race)
     raw = _internal_entry(raw, race=race)
     try:
-        rebuilt = {
-            "name": raw["action"],
-            "arguments": {key: value for key, value in raw.items() if key != "action"},
-        }
-        action = validate_entry_fields(rebuilt, index=0, race=race)
+        action = validate_entry_fields(raw, index=0, race=race)
     except DecisionSchemaError as exc:
         raise _as_validation_error(exc) from exc
     if action in {"advance", "wait"}:
@@ -331,32 +334,32 @@ def parse_game_action(raw: Mapping[str, Any], *, race: str = "terran") -> GameAc
 
 def parse_decision(raw_actions: Sequence[Mapping[str, Any]] | None, *, race: str = "terran") -> DecisionBatch:
     """Parse one Agent decision of NormalizedToolCall objects. Requires a trailing advance."""
-    return parse_tool_decision(raw_actions, race=race)
-
-
-def parse_tool_decision(raw_actions: Sequence[Mapping[str, Any]] | None, *, race: str = "terran") -> DecisionBatch:
-    """Parse a NormalizedToolCall batch. Rejects the legacy flat action format."""
     _validate_race(race)
     normalized = raw_actions
+    internals = raw_actions
     normalizations = []
     if isinstance(raw_actions, Sequence) and not isinstance(raw_actions, (str, bytes)):
         normalized = []
+        internals = []
         for index, entry in enumerate(raw_actions):
             if isinstance(entry, Mapping):
                 try:
-                    call = parse_normalized_tool_call(entry, index=index)
+                    call = parse_tool_call(entry, index=index)
                     internal = call.to_internal_entry()
                 except ValueError as exc:
                     raise ActionValidationError(str(exc)) from exc
                 internal, changes = normalize_target_aliases(internal, index=index, race=race)
                 normalizations.extend(changes)
+                internals.append(internal)
                 entry = {
                     "name": internal["action"],
                     "arguments": {key: value for key, value in internal.items() if key != "action"},
                 }
+            else:
+                internals.append(entry)
             normalized.append(entry)
     try:
-        validate_batch_shape(normalized, race=race)
+        validate_batch_shape(internals, race=race)
     except DecisionSchemaError as exc:
         raise _as_validation_error(exc) from exc
 
@@ -400,30 +403,6 @@ def attach_retry_ids(
         )
     return DecisionBatch(actions=tuple(attached), advance=batch.advance, raw=batch.raw,
                          normalizations=batch.normalizations)
-
-
-# Back-compat aliases used while older modules are migrated.
-Action = GameAction
-
-
-def parse_action(raw: Mapping[str, Any] | GameAction, *, race: str = "terran") -> GameAction:
-    _validate_race(race)
-    if isinstance(raw, GameAction):
-        return raw
-    return parse_game_action(raw, race=race)
-
-
-def parse_actions(raw_actions: Sequence[Mapping[str, Any] | GameAction] | None, *, race: str = "terran") -> List[GameAction]:
-    """Parse game actions only (no trailing advance). Prefer parse_decision for Agent input."""
-    _validate_race(race)
-    if raw_actions is None:
-        return []
-    if not isinstance(raw_actions, Sequence) or isinstance(raw_actions, (str, bytes)):
-        raise ActionValidationError("actions must be a sequence")
-    return [
-        item if isinstance(item, GameAction) else parse_game_action(item, race=race)
-        for item in raw_actions
-    ]
 
 
 def action_batch_to_dicts(actions: Iterable[GameAction] | DecisionBatch) -> List[dict[str, Any]]:

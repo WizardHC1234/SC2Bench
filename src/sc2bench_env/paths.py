@@ -1,6 +1,6 @@
 """One output-path policy for Environment, Runner and all example entry points."""
-
 from __future__ import annotations
+
 
 import os
 from pathlib import Path

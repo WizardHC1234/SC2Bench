@@ -1,6 +1,6 @@
 """Configuration helpers for the example LLM agent."""
-
 from __future__ import annotations
+
 
 import argparse
 import math
@@ -8,8 +8,9 @@ import os
 
 
 DEFAULT_API_KEY = "EMPTY"
-DEFAULT_API_BASE_URL = "http://172.18.132.20:2325/v1"
-DEFAULT_MODEL = "DeepSeek-V4-Flash"
+DEFAULT_API_BASE_URL = "https://api.deepseek.com"
+DEFAULT_MODEL = "deepseek-v4-flash"
+
 DEFAULT_TEMPERATURE = 0.5
 
 SAFE_API_ERROR_TYPES = frozenset({

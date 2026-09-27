@@ -1,6 +1,6 @@
 """Standard Observation returned to external agents."""
-
 from __future__ import annotations
+
 
 from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Optional
@@ -25,13 +25,13 @@ BRIEFING_SECTIONS = tuple(
 
 
 def render_observation_text(observation: Dict[str, Any], *, previous: Optional[Dict[str, Any]] = None) -> str:
-    """Compact turn briefing for agent context and Observation.section_lines.
+    """Compact turn briefing for agent context.
 
     Structured Observation.to_dict() still carries full zone and topology data
     for tools. Text omits the static map table and zones unrelated to current
     bases, enemy contact, army orders or scouting.
     """
-    from sc2bench_env.interface.briefing import compact_observation
+    from sc2bench_env.runtime.observation_builder import compact_observation
     from sc2bench_env.interface.observation_text import render_text
 
     return render_text(compact_observation(observation, previous), BRIEFING_SECTIONS)
@@ -191,9 +191,9 @@ class Observation:
             "terminated": self.terminated,
         }
 
-    def section_lines(self) -> List[str]:
-        """Complete semantic view, identical to the platform context renderer."""
-        return render_observation_text(self.to_dict()).splitlines()
+def observation_lines(observation: "Observation") -> List[str]:
+    """Complete semantic view, identical to the platform context renderer."""
+    return render_observation_text(observation.to_dict()).splitlines()
 
 
 def split_own_forces(

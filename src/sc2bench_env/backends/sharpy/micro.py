@@ -4,8 +4,8 @@ Stim / Tank reuse Sharpy defaults. Banshee cloak and Medivac heal/escort
 fill gaps called out in PLATFORM_PLAN and the original encapsulation notes.
 Transport load/unload is owned by ActCombatMission, not these micros.
 """
-
 from __future__ import annotations
+
 
 from sc2.ids.ability_id import AbilityId
 from sc2.ids.unit_typeid import UnitTypeId

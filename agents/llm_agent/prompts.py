@@ -1,15 +1,16 @@
-"""Agent-side rules for the query and action tool loop."""
-
+"""Example-harness reminders. Platform facts stay in PromptParts."""
 from __future__ import annotations
 
-from sc2bench_env.interface.tools import ACTION_TOOLS, KNOWLEDGE_TOOLS, READ_TOOLS
+
+from sc2bench_env.adapters.llm import LLMAdapter
+from sc2bench_env.interface.agent import AgentInput
 
 
 MAX_TOOL_ROUNDS = 24
 TOOL_NOTE_RULE = (
     "Before any reply that calls tools, write one short note in the reply content: "
     "which facts you are using and why these calls are next. "
-    "Do this for query replies and action replies. The note is not an action."
+    "The note is this example agent's own habit, not a platform requirement."
 )
 TOOL_NOTE_HINT = (
     "This reply was not submitted because it called tools without a content note. "
@@ -17,41 +18,18 @@ TOOL_NOTE_HINT = (
     "Then call the tools again."
 )
 NO_TOOL_HINT = (
-    "Text without tool calls does not submit actions. "
-    "Put the short content note in the same reply as the tool calls. "
-    "Use additional query replies when more information is needed. "
-    "When you act, put every action for this decision in one reply and end it with exactly one advance."
-)
-ACTION_BATCH_HINT = (
-    "This reply was not submitted. Finish queries before acting. "
-    "A query reply contains only query tools. "
-    "An action reply contains only actions, includes every action for this decision, "
-    "and ends with exactly one advance."
+    "Text without tool calls does not act. "
+    "Call the tools you need and use each result before the next call. "
+    "Queries and actions may be interleaved. "
+    "Call advance last to submit the staged actions and move game time."
 )
 
-_QUERY_TOOLS = frozenset(READ_TOOLS) | frozenset(KNOWLEDGE_TOOLS)
-_ACTION_TOOL_NAMES = frozenset(ACTION_TOOLS)
 
-
-def action_names(schemas) -> frozenset[str]:
-    """Actions offered for this race, including race-specific verbs."""
-    names = set(_ACTION_TOOL_NAMES)
-    for schema in schemas or ():
-        function = schema.get("function") if isinstance(schema, dict) else None
-        if isinstance(function, dict) and function.get("name"):
-            names.add(str(function["name"]))
-    return frozenset(names - _QUERY_TOOLS)
-
-
-def reply_kind(names: list[str], available_actions: frozenset[str]) -> str:
-    """Classify one model reply as a query round, action batch, or invalid."""
-    if names and all(name in _QUERY_TOOLS for name in names):
-        return "query"
-    if (
-        names
-        and all(name in available_actions for name in names)
-        and names.count("advance") == 1
-        and names[-1] == "advance"
-    ):
-        return "action"
-    return "invalid"
+def platform_turn_messages(observation, feedback, race: str = "terran"):
+    """Example harness messages. Tests use this in place of Environment.get_context."""
+    adapter = LLMAdapter(race=race)
+    request = AgentInput(observation, feedback)
+    return [
+        {"role": "system", "content": adapter.system_prompt(race)},
+        {"role": "user", "content": adapter.render_input(request)},
+    ]

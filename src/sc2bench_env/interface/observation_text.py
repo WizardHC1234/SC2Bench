@@ -137,6 +137,19 @@ def combat_lines(groups):
             lines.append(f"  Nearest zone to group center: {value(row['nearest_zone'])}")
         if "assigned" in row:
             lines.append(f"  Assigned to outbound order: {value(row['assigned'])}")
+        transition = row.get("order_transition")
+        if isinstance(transition, dict):
+            if (transition.get("from") == "attack" and transition.get("to") == "defend"
+                    and transition.get("reason") == "target_confirmed_clear"):
+                lines.append(
+                    "  Order transition: attack -> defend automatically after the target "
+                    "was confirmed clear; now holding the target zone"
+                )
+            else:
+                lines.append(
+                    f"  Order transition: {value(transition.get('from'))} -> "
+                    f"{value(transition.get('to'))}; reason {value(transition.get('reason'))}"
+                )
         if "visible_enemy_nearby" in row:
             nearby = row["visible_enemy_nearby"]
             lines.append("  Visible enemies within 15 of on-map members: " + (
@@ -154,7 +167,8 @@ def combat_lines(groups):
             lines.extend(extras(transport, {"activity", "loaded_units"}, "    "))
         lines.extend(extras(row, {"status", "style", "target", "phase", "alive", "requested",
                                  "nearest_zone", "assigned", "visible_enemy_nearby",
-                                 "weapon_cooldown_active_count", "cloaked", "forms", "skill_evidence", "transport"}))
+                                 "weapon_cooldown_active_count", "cloaked", "forms", "skill_evidence",
+                                 "transport", "order_transition"}))
     return lines
 
 
@@ -273,7 +287,7 @@ def execution_state_text(state):
 
 def _production_catalog(race):
     """Observation rendering remains usable for unavailable race catalogs."""
-    from sc2bench_env.interface.catalogs import get_catalog
+    from sc2bench_env.catalog.races import get_catalog
 
     try:
         return get_catalog(race=race)

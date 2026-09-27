@@ -1,6 +1,6 @@
 """Backend abstraction shared by FakeBackend and SharpyBackend."""
-
 from __future__ import annotations
+
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
@@ -9,8 +9,8 @@ from typing import Any, Dict, List, Optional
 
 from sc2bench_env.interface.config import EpisodeConfig
 from sc2bench_env.runtime.scheduler import DecisionTrigger
-from sc2bench_env.runtime.task import Task
-from sc2bench_env.runtime.task_manager import TaskUpdate
+from sc2bench_env.runtime.task import Demand
+from sc2bench_env.runtime.task_manager import DemandUpdate
 
 
 @dataclass
@@ -62,7 +62,7 @@ class Backend(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def submit(self, tasks: List[Task]) -> None:
+    def submit(self, tasks: List[Demand]) -> None:
         """Register currently active tasks with the backend."""
         raise NotImplementedError
 
@@ -72,7 +72,7 @@ class Backend(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def collect_updates(self) -> List[TaskUpdate]:
+    def collect_updates(self) -> List[DemandUpdate]:
         """Return progress deltas since the previous collect call."""
         raise NotImplementedError
 

@@ -3,13 +3,13 @@
 Mineral and gas figures are the current multiplayer cost of that action.
 Morph rows are the extra cost, not the source unit plus the morph.
 """
-
 from __future__ import annotations
+
 
 from types import MappingProxyType
 from typing import Tuple
 
-from sc2bench_env.interface.catalog_types import CatalogData, TargetSpec
+from sc2bench_env.catalog.models import CatalogData, TargetSpec
 
 
 def _building(

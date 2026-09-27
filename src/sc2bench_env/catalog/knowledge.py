@@ -3,10 +3,9 @@
 Numbers come from the snapshot. The overlay only adds names, roles and
 platform behavior. A client that does not match a stored snapshot is refused.
 """
-
 from __future__ import annotations
 
-import difflib
+
 import json
 from functools import lru_cache
 from pathlib import Path
@@ -305,24 +304,6 @@ def _roles(name: str, forms: Sequence[Mapping[str, Any]] = (), race: str = "") -
     has_weapon = any(bool(item.get("weapons")) for item in forms)
     if is_unit and has_weapon and "worker" not in found and "combat" not in found:
         found.append("combat")
-    if race and not found:
-        from sc2bench_env.interface.action_catalog import get_catalog
-
-        targets = list(get_catalog(race=race).targets)
-        spec = next((item for item in targets if item.name == name), None)
-        if spec is not None and spec.action == "research":
-            found.append("tech")
-        elif spec is not None and spec.action in {"build", "upgrade"}:
-            if has_weapon:
-                found.append("defense")
-            elif "techlab" in name or name.endswith("reactor"):
-                found.append("production")
-            elif any(item.action == "train" and item.produced_at == name for item in targets):
-                found.append("production")
-            elif any(item.action == "research" and item.produced_at == name for item in targets):
-                found.append("tech")
-            else:
-                found.append("tech")
     return found or ["unknown"]
 
 
@@ -456,85 +437,3 @@ def attach(payload: Dict[str, Any], race: str, name: str) -> Dict[str, Any]:
         payload["form_note"] = behavior
     return payload
 
-
-def names_for(race: str, kind: str) -> List[str]:
-    """Canonical names a knowledge query of this kind can resolve."""
-    from sc2bench_env.interface.action_catalog import get_catalog
-
-    names = []
-    for spec in get_catalog(race=race).targets:
-        if kind == "unit" and spec.action == "train":
-            names.append(spec.name)
-        elif kind == "building" and spec.action in {"build", "upgrade"}:
-            names.append(spec.name)
-        elif kind == "research" and spec.action == "research":
-            names.append(spec.name)
-    for entry, row in (_platform().get("observable_only") or {}).items():
-        if row.get("kind") == kind and row.get("race") == race:
-            names.append(entry)
-    return names
-
-
-def close_names(race: str, query: str, kind: str) -> List[str]:
-    pool = names_for(race, kind)
-    return difflib.get_close_matches(str(query or "").strip().lower(), pool, n=5, cutoff=0.5)
-
-
-def observable_groups(race: str) -> Dict[str, List[str]]:
-    from sc2bench_env.interface.action_catalog import get_catalog
-
-    controllable = {spec.name for spec in get_catalog(race=race).targets}
-    mapping = ((_aliases().get("units") or {}).get(race) or {})
-    units, buildings = [], []
-    for canonical in sorted(set(mapping.values())):
-        if canonical in controllable:
-            continue
-        row = _observable(canonical, race) or {}
-        kind = row.get("kind")
-        if kind is None:
-            forms = _forms(race, canonical)
-            kind = "building" if forms and all(item.get("is_structure") for item in forms) else "unit"
-        if kind == "building":
-            buildings.append(canonical)
-        else:
-            units.append(canonical)
-    return {"units": units, "buildings": buildings}
-
-
-def observable_payload(race: str, name: str, kind: str) -> Optional[Dict[str, Any]]:
-    """A query hit for an observation alias that is not a production target."""
-    canonical = str(name or "").strip().lower()
-    forms = _forms(race, canonical)
-    observed = _observable(canonical, race)
-    listed = (_platform().get("observable_only") or {}).get(canonical)
-    if isinstance(listed, Mapping) and listed.get("race") not in (None, "", race):
-        return None
-    if observed is None and not forms:
-        return None
-    from sc2bench_env.interface.action_catalog import get_target
-
-    if get_target(canonical, race=race) is not None:
-        return None
-    resolved_kind = (observed or {}).get("kind")
-    if resolved_kind is None:
-        resolved_kind = "building" if forms and all(item.get("is_structure") for item in forms) else "unit"
-    if resolved_kind != kind:
-        return {"name": canonical, "error": f"not_a_{kind}_target"}
-    row = primary_unit(race, canonical)
-    payload: Dict[str, Any] = {
-        "name": canonical,
-        "minerals": "unknown" if row is None else row.get("mineral_incremental"),
-        "vespene": "unknown" if row is None else row.get("vespene_incremental"),
-        "time_seconds": "unknown" if row is None else row.get("build_time_seconds"),
-        "prerequisites": [],
-        "description": (observed or {}).get("platform_behavior") or "Observation alias. Not a direct production target.",
-    }
-    if kind == "unit":
-        food = None if row is None else row.get("food_required")
-        payload.update({
-            "supply": food if food is not None else "unknown",
-            "produced_at": "unknown",
-        })
-    elif kind == "building":
-        payload.update({"builder": "unknown", "kind": "building"})
-    return attach(payload, race, canonical)

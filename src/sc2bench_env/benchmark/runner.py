@@ -1,11 +1,10 @@
 """Serial or bounded parallel episodes; no built-in policy or model calls."""
-
 from __future__ import annotations
+
 
 import json
 import hashlib
 from collections.abc import Mapping
-from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional, Sequence
@@ -14,10 +13,10 @@ from uuid import uuid4
 from sc2bench_env.benchmark.evaluator import Evaluator
 from sc2bench_env.benchmark.suite import BenchmarkSuite
 from sc2bench_env.env import Environment
+from sc2bench_env.interface.agent import AgentInput, AgentStopped, AgentTurn
 from sc2bench_env.interface.config import EpisodeConfig
-from sc2bench_env.interface.feedback import Feedback
-from sc2bench_env.interface.observations import Observation
-from sc2bench_env.recording.trajectory import _versions
+from sc2bench_env.runtime.tool_turn import ToolTurnError
+from sc2bench_env.recording.trajectory import collect_versions
 from sc2bench_env.paths import resolve_record_dir
 
 
@@ -31,34 +30,6 @@ def _platform_fingerprint() -> str:
         digest.update(len(name).to_bytes(8, "big") + name)
         digest.update(len(content).to_bytes(8, "big") + content)
     return digest.hexdigest()
-
-
-@dataclass(frozen=True)
-class AgentInput:
-    observation: Observation
-    feedback: Optional[Feedback]
-    platform_messages: list[dict[str, str]]
-    tool_schemas: tuple[dict[str, Any], ...] = ()
-    call_tool: Optional[Callable[..., dict[str, Any]]] = None
-
-class AgentStopped(RuntimeError):
-    """An external Agent's deliberate stop, distinct from an unexpected error."""
-
-    def __init__(self, end_reason: str = "agent_stopped") -> None:
-        if end_reason not in {"agent_stopped", "invalid_decision_limit"}:
-            raise ValueError("Unsupported Agent stop reason")
-        super().__init__(end_reason)
-        self.end_reason = end_reason
-
-
-@dataclass(frozen=True)
-class AgentTurn:
-    decision: Any
-    # Only messages/output supplied by the external Agent are actual interactions.
-    agent_context: Optional[dict[str, Any]] = None
-    # Failed external calls are recorded without submitting an environment action.
-    call_failures: tuple[dict[str, Any], ...] = ()
-    stop_after_call_failures: bool = False
 
 
 def _snapshot_agent_metadata(value: Optional[Mapping[str, Any]]) -> Optional[dict[str, Any]]:
@@ -134,7 +105,7 @@ class BenchmarkRunner:
             "agent_metadata": frozen_agent_metadata,
             "suite": ({"specification": suite.to_dict(), "sha256": suite.sha256,
                        "episode_count": len(configs)} if suite is not None else None),
-            "platform_versions": _versions(),
+            "platform_versions": collect_versions(),
             "platform_source_sha256": _platform_fingerprint(),
             "output_paths": {"record_dir": str(self.record_dir)},
             "planned_configs": [config.to_dict() for config in configs],
@@ -202,8 +173,10 @@ class BenchmarkRunner:
         record_directory = None
         runtime_versions = {"game_version": None}
         try:
-            env = Environment(self.backend_factory(), record_dir=self.record_dir)
-            env._record_started_callback = record_callback
+            env = Environment(
+                self.backend_factory(), record_dir=self.record_dir,
+                on_record_started=record_callback,
+            )
             observation = env.reset(config)
             record_directory = env.record_path
             runtime_versions = {"game_version": env.backend.snapshot().info.get("game_version")}
@@ -213,15 +186,18 @@ class BenchmarkRunner:
                 if cancel_event is not None and cancel_event.is_set():
                     env.close(end_reason="caller_interrupted")
                     break
+                tool_turn = env.begin_tool_turn()
                 response = agent(AgentInput(
-                    observation, feedback, env.get_context(),
-                    tool_schemas=tuple(env.tool_schemas()),
-                    call_tool=env.call_tool,
+                    observation, feedback, tuple(env.tool_specs()), tool_turn.call,
                 ))
                 if cancel_event is not None and cancel_event.is_set():
+                    tool_turn.abort()
                     env.close(end_reason="caller_interrupted")
                     break
-                turn = response if isinstance(response, AgentTurn) else AgentTurn(response)
+                if not isinstance(response, AgentTurn):
+                    env.record_protocol_error("agent_protocol_error")
+                    continue
+                turn = response
                 if turn.stop_after_call_failures and not turn.call_failures:
                     raise ValueError("Cannot stop for a call failure without a failure record")
                 game_ended_during_call = False
@@ -233,12 +209,19 @@ class BenchmarkRunner:
                         game_ended_during_call = True
                         break
                 if game_ended_during_call:
+                    tool_turn.abort()
                     break
                 if turn.stop_after_call_failures:
+                    tool_turn.abort()
                     env.close(end_reason="agent_call_failed")
                     break
+                try:
+                    batch = tool_turn.finish()
+                except ToolTurnError as error:
+                    env.record_protocol_error(error.code, agent_context=turn.agent_context)
+                    continue
                 observation, feedback, terminated, _ = env.step(
-                    turn.decision, agent_context=turn.agent_context,
+                    batch, agent_context=turn.agent_context,
                 )
                 if terminated:
                     break

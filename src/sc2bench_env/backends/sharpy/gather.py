@@ -9,7 +9,7 @@ from sc2.ids.unit_typeid import UnitTypeId
 from sharpy.plans.acts import ActBase
 
 from sc2bench_env.backends.sharpy.combat_styles import available_for_mission
-from sc2bench_env.interface.action_catalog import get_target
+from sc2bench_env.catalog.registry import get_target
 from sc2bench_env.interface.observations import WORKER_UNIT_NAMES
 
 HOME_GATHER_RADIUS = 6.5

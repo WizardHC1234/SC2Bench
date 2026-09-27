@@ -4,8 +4,8 @@ Only completed bunkers and free group_0 Marines are used. Loaded passengers
 stay out of the home pool. This version does not unload; a rejected combat
 order reports the garrison instead of cycling load and unload.
 """
-
 from __future__ import annotations
+
 
 from typing import Any, Mapping, Sequence
 

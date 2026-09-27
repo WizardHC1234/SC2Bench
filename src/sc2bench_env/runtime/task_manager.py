@@ -1,6 +1,6 @@
 """Ordered demand queue: append, idempotent research, cancel, action_id retry."""
-
 from __future__ import annotations
+
 
 from dataclasses import dataclass, field
 from typing import Dict, Iterable, List, Optional, Sequence, Set
@@ -9,11 +9,10 @@ from sc2bench_env.interface.actions import (
     ActionValidationError,
     DecisionBatch,
     GameAction,
-    parse_decision,
 )
 from sc2bench_env.interface.feedback import ActionReceipt
 from sc2bench_env.interface.races import require_supported_own_race
-from sc2bench_env.interface.scouting import route_payload
+from sc2bench_env.interface.actions import route_payload
 from sc2bench_env.runtime.task import (
     ACTIVE_DEMAND_STATES,
     Demand,
@@ -39,10 +38,6 @@ class DemandUpdate:
     status: Optional[DemandState] = None
 
 
-# Back-compat name.
-TaskUpdate = DemandUpdate
-
-
 @dataclass
 class TaskManager:
     """Pure-Python demand runtime used by Environment."""
@@ -58,19 +53,11 @@ class TaskManager:
     def __post_init__(self) -> None:
         require_supported_own_race(self.race)
 
-    # Back-compat for older Environment code.
-    @property
-    def tasks(self) -> Dict[str, Demand]:
-        return self.demands
-
     def active_demands(self) -> List[Demand]:
         return sorted(
             (d for d in self.demands.values() if d.is_active),
             key=lambda d: d.order_index,
         )
-
-    def active_tasks(self) -> List[Demand]:
-        return self.active_demands()
 
     def reset(self, *, race: Optional[str] = None) -> None:
         selected_race = self.race if race is None else race
@@ -94,7 +81,7 @@ class TaskManager:
 
     def submit_decision(
         self,
-        decision: DecisionBatch | Sequence[dict] | None,
+        decision: DecisionBatch,
         *,
         game_time: float,
         baseline_owned: Dict[tuple[str, str], int] | None = None,
@@ -104,26 +91,14 @@ class TaskManager:
         bunker_garrison: Dict[str, int] | None = None,
     ) -> List[ActionReceipt]:
         """Apply one validated decision batch in array order."""
+        if not isinstance(decision, DecisionBatch):
+            raise TypeError("submit_decision requires a DecisionBatch")
         receipts: List[ActionReceipt] = []
         baselines = baseline_owned or {}
         upgrades = known_upgrades or set()
         in_research = researching or set()
         available_army = dict(idle_army or {})
-
-        try:
-            if isinstance(decision, DecisionBatch):
-                batch = decision
-            else:
-                batch = parse_decision(decision, race=self.race)
-        except ActionValidationError as exc:
-            receipts.append(
-                ActionReceipt(
-                    action="?",
-                    result="rejected",
-                    reason=str(exc),
-                )
-            )
-            return receipts
+        batch = decision
 
         for action in batch.actions:
             receipts.append(
@@ -138,45 +113,6 @@ class TaskManager:
                 )
             )
         return receipts
-
-    # Back-compat wrapper used by older Environment.step paths.
-    def submit(
-        self,
-        raw_actions: Sequence[dict | GameAction] | DecisionBatch | None,
-        *,
-        game_time: float,
-        baseline_owned: Dict[tuple[str, str], int] | None = None,
-        known_upgrades: Set[str] | None = None,
-        researching: Set[str] | None = None,
-    ) -> List[ActionReceipt]:
-        if isinstance(raw_actions, DecisionBatch):
-            return self.submit_decision(
-                raw_actions,
-                game_time=game_time,
-                baseline_owned=baseline_owned,
-                known_upgrades=known_upgrades,
-                researching=researching,
-            )
-        # Legacy callers without trailing advance: wrap with a short advance.
-        items: List[dict] = []
-        for item in raw_actions or []:
-            if isinstance(item, GameAction):
-                items.append(item.to_tool_call())
-                continue
-            payload = dict(item)
-            if "action" in payload and "name" not in payload:
-                name = payload.pop("action")
-                payload = {"name": name, "arguments": payload}
-            items.append(payload)
-        if not items or items[-1].get("name") != "advance":
-            items.append({"name": "advance", "arguments": {"seconds": 5}})
-        return self.submit_decision(
-            items,
-            game_time=game_time,
-            baseline_owned=baseline_owned,
-            known_upgrades=known_upgrades,
-            researching=researching,
-        )
 
     def _apply_game_action(
         self,
@@ -375,7 +311,7 @@ class TaskManager:
             baseline_owned=baseline,
         )
         if action.action == "scout":
-            from sc2bench_env.interface.action_catalog import get_target
+            from sc2bench_env.catalog.registry import get_target
             spec = get_target("scout", race=self.race)
             if spec is not None and spec.prerequisites:
                 demand.target = spec.prerequisites[0]

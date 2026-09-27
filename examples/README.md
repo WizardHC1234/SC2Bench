@@ -18,9 +18,9 @@ python examples/llm_vs_ai.py --opponent mediumhard --enemy-style macro --map Kai
 `run_episode()` 的顺序：
 
 1. `env.reset(config)` 开始一局。
-2. `env.get_context()` 取出规则和文本观测。同时把 `tool_schemas` 和 `call_tool` 交给 Agent。
-3. `agent(request)` 调用模型。查询可以多轮；这一步的动作在同一次回复里给出，并以一次 `advance` 结束。
-4. `env.step(turn.decision, agent_context=turn.agent_context)` 提交动作。
+2. `begin_tool_turn()` 后，把 `observation`、`feedback`、`tool_specs()` 和 `call_tool` 交给 Agent。文本由示例 Agent 的 `LLMAdapter` 渲染。
+3. `agent(request)` 调用模型。查询和动作可以交错，每次调用都立刻返回结果。
+4. `advance` 之后 `finish()`，再 `env.step(batch, agent_context=turn.agent_context)` 提交这一决策。
 5. 看 `terminated`。结束或中断时 `env.close()`。
 
 ```python
@@ -52,10 +52,11 @@ python examples/llm_vs_llm.py --game-time-limit 1200
 python examples/llm_vs_llm.py --race protoss --enemy-race zerg --skill none --opponent-skill none --map KairosJunctionLE
 ```
 
-`--race` 和 `--enemy-race` 都是 `terran`、`protoss`、`zerg`。默认 Skill 是人族的 `tank`。神族或虫族要写成 `--skill none` 和 `--opponent-skill none`。两边可以分别用 `--model`、`--opponent-model`、`--api-base-url`、`--opponent-api-base-url` 指向不同模型。
+`--race` 和 `--enemy-race` 都是 `terran`、`protoss`、`zerg`。默认 `--skill` 和 `--opponent-skill` 都是 `none`。要用策略时写成 `种族/策略`，前缀必须和该侧种族相同。两边可以分别用 `--model`、`--opponent-model`、`--api-base-url`、`--opponent-api-base-url` 指向不同模型。
 
 ```python
-from sc2bench_env import EpisodeConfig, VersusMatch, run_versus
+from sc2bench_env import EpisodeConfig
+from sc2bench_env.versus import VersusMatch, run_versus
 from agents.llm_agent import create_agent
 
 match = VersusMatch(backend="sharpy")

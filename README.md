@@ -29,7 +29,7 @@ env = Environment("fake")  # 实机改为 "sharpy"
 try:
     obs = env.reset(EpisodeConfig(opponent="easy", enemy_style="macro",
                                   game_time_limit_seconds=2))
-    messages = env.get_context()  # 规则和文本观测，不调用模型
+    specs = env.tool_specs()  # 当前种族的工具清单，不调用模型
     obs, feedback, terminated, info = env.step([{"name": "advance", "arguments": {"seconds": 5}}])
 finally:
     env.close()
@@ -39,21 +39,18 @@ finally:
 
 Agent 在 [`agents/llm_agent`](agents/llm_agent/README.md)。从仓库根目录运行。模型默认是 DeepSeek-V4-Flash，用 `LLM_API_KEY`、`LLM_BASE_URL`、`LLM_MODEL` 覆盖。`--dry-run` 只打印本局配置，不启动游戏，也不调用模型。
 
-对人族内置电脑，默认加载 `skills/tank.md`：
+默认不加载 Skill。`--skill` 使用 `种族/策略`；省略或写成 `none` 都是无 Skill 基线。策略目录前缀必须和 `--race` 相同。现成策略在 `agents/llm_agent/skills/`：人族 10 个、神族 11 个、虫族 11 个。
 
 ```bash
 python -m agents.llm_agent --help
 python -m agents.llm_agent --dry-run --opponent mediumhard --enemy-style macro
 python -m agents.llm_agent --opponent mediumhard --enemy-style macro --map KairosJunctionLE
-python -m agents.llm_agent --skill none --opponent mediumhard
+python -m agents.llm_agent --skill terran/two-base-tanks --opponent mediumhard
+python -m agents.llm_agent --race protoss --skill protoss/macro-stalkers --enemy-race zerg --opponent mediumhard
+python -m agents.llm_agent --race zerg --skill zerg/roach-hydra --enemy-race terran --enemy-style rush
 ```
 
-`--race` 是己方种族，`terran`、`protoss` 或 `zerg`。`--enemy-race` 只改电脑种族，还可以是 `random`。现成 Skill 只有人族的 `tank`；神族、虫族和无 Skill 基线都要加 `--skill none`：
-
-```bash
-python -m agents.llm_agent --race protoss --skill none --enemy-race zerg --opponent mediumhard
-python -m agents.llm_agent --race zerg --skill none --enemy-race terran --enemy-style rush
-```
+`--race` 是己方种族，`terran`、`protoss` 或 `zerg`。`--enemy-race` 只改电脑种族，还可以是 `random`。
 
 `--opponent` 用短名称：`veryeasy`、`easy`、`medium`、`mediumhard`、`hard`、`harder`、`veryhard`、`cheatvision`、`cheatmoney`、`cheatinsane`。`--enemy-style` 是 `random`、`rush`、`timing`、`power`、`macro`、`air`。`--map` 是 SC2 `Maps` 目录里 `.SC2Map` 的文件名，不含扩展名，默认 `KairosJunctionLE`。
 
@@ -68,9 +65,9 @@ python examples/llm_vs_llm.py --dry-run
 python examples/llm_vs_llm.py --race protoss --enemy-race zerg --skill none --opponent-skill none --map KairosJunctionLE
 ```
 
-`llm_vs_ai.py` 自己写 `reset` / `step` / `close`。`agent_integration.py` 把同一局交给 Runner。`run_llm_benchmark.py` 按 Suite 批量开局，`--max-parallel` 大于 1 时并行。`llm_vs_llm.py` 是两个 Agent 对战：一边的 `advance` 到点才询问那一边，另一边还停在自己的决策上时，游戏时间不往前走。两边都可以换模型、地址和 Skill；非人族同样使用 `--skill none` 和 `--opponent-skill none`。
+`llm_vs_ai.py` 自己写 `reset` / `step` / `close`，己方种族固定为人族。`agent_integration.py` 把同一局交给 Runner。`run_llm_benchmark.py` 按 Suite 批量开局，`--max-parallel` 大于 1 时并行。`llm_vs_llm.py` 是两个 Agent 对战：一边的 `advance` 到点才询问那一边，另一边还停在自己的决策上时，游戏时间不往前走。两边都可以换模型、地址和 Skill；Skill 的种族前缀必须和该侧种族相同，不用策略时写 `--skill none` 和 `--opponent-skill none`。
 
-直接接入先看 [llm_vs_ai.py](examples/llm_vs_ai.py) 的 `run_episode()`：开始对局，取出上下文和工具，调用模型，提交动作，判断终局，最后关闭环境。逐步说明见 [示例说明](examples/README.md)。
+直接接入先看 [llm_vs_ai.py](examples/llm_vs_ai.py) 的 `run_episode()`：`reset` 之后开始一轮工具调用，把观测、`tool_specs()` 和 `call_tool` 交给 Agent。查询和动作都立刻返回结果，`advance` 之后环境才 `step`。逐步说明见 [示例说明](examples/README.md)。
 
 ## 范围与记录
 

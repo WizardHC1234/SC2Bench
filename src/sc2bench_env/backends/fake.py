@@ -1,12 +1,12 @@
 """Deterministic FakeBackend for contract tests (no SC2)."""
-
 from __future__ import annotations
+
 
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Set
 
 from sc2bench_env.backends.base import Backend, BackendSnapshot
-from sc2bench_env.interface.action_catalog import cost_table, prerequisite_table, get_target
+from sc2bench_env.catalog.registry import cost_table, prerequisite_table, get_target
 from sc2bench_env.interface.config import EpisodeConfig
 from sc2bench_env.runtime.scheduler import DecisionTrigger, trigger_satisfied
 from sc2bench_env.runtime.task import Demand, DemandState
@@ -151,7 +151,7 @@ class FakeBackend(Backend):
         self.minerals = 50
         self.vespene = 0
         self.supply_used = 12
-        from sc2bench_env.data.knowledge import food_provided, opening_supply_cap
+        from sc2bench_env.catalog.knowledge import food_provided, opening_supply_cap
 
         self.supply_cap = opening_supply_cap(config.race)
         self.units = opening_units
@@ -921,7 +921,7 @@ class FakeBackend(Backend):
             if item.action == "train" and item.phase == "producing":
                 self.units[item.target] = self.units.get(item.target, 0) + 1
                 if self._race == "zerg" and item.target == "overlord":
-                    from sc2bench_env.data.knowledge import food_provided
+                    from sc2bench_env.catalog.knowledge import food_provided
 
                     self.supply_cap += food_provided(self._race, "overlord")
                 self._updates.append(
@@ -997,7 +997,7 @@ class FakeBackend(Backend):
             self.orbital_energy = max(self.orbital_energy, 50.0)
             return
         self.buildings[target] = self.buildings.get(target, 0) + 1
-        from sc2bench_env.data.knowledge import food_provided
+        from sc2bench_env.catalog.knowledge import food_provided
 
         if target == self._supply_name:
             self.supply_cap += food_provided(self._race, target)

@@ -1,6 +1,6 @@
 """Discover and load the race-specific strategy prompts shipped with llm_agent."""
-
 from __future__ import annotations
+
 
 from pathlib import Path
 from typing import Optional

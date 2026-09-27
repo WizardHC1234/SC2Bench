@@ -1,9 +1,10 @@
 """OpenAI-compatible chat-completions client used by the example agent."""
-
 from __future__ import annotations
+
 
 import json
 import re
+import ssl
 import time
 from http.client import HTTPException
 from typing import Any, Callable, Mapping, Optional
@@ -12,6 +13,15 @@ from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
 from .config import DEFAULT_API_BASE_URL, DEFAULT_MODEL
+
+
+def _https_context() -> ssl.SSLContext:
+    """Use certifi so a broken Windows certificate store cannot abort HTTPS calls."""
+    try:
+        import certifi
+    except ImportError:
+        return ssl.create_default_context()
+    return ssl.create_default_context(cafile=certifi.where())
 
 def split_reasoning(text: str) -> tuple[str, str]:
     pattern = r"<think\b[^>]*>(.*?)</think>"
@@ -100,8 +110,9 @@ def make_llm_call(
             method="POST",
         )
         started = time.perf_counter()
+        context = _https_context() if parsed_url.scheme == "https" else None
         try:
-            with urlopen(request, timeout=timeout) as http_response:
+            with urlopen(request, timeout=timeout, context=context) as http_response:
                 completion = json.loads(http_response.read().decode("utf-8"))
             choice = completion["choices"][0]
             message = choice["message"]

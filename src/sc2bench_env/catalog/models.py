@@ -1,6 +1,6 @@
 """Dependency-free action metadata shared by race catalogs."""
-
 from __future__ import annotations
+
 
 from dataclasses import asdict, dataclass
 from typing import Any, Dict, Mapping, Tuple

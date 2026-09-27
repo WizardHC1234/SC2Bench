@@ -1,6 +1,6 @@
 """Standard interaction trajectory recording."""
-
 from __future__ import annotations
+
 
 import json
 import os
@@ -112,7 +112,7 @@ def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _episode_folder_name(config: Mapping[str, Any]) -> str:
+def episode_folder_name(config: Mapping[str, Any]) -> str:
     """Readable match metadata, without exposing the internal episode UUID."""
     stamp = datetime.now(timezone.utc).strftime("%y%m%d_%H%M%S")
     races = {"terran": "T", "protoss": "P", "zerg": "Z", "random": "R"}
@@ -140,7 +140,7 @@ def _json_safe(value: Any) -> Any:
     return {"non_json_type": type(value).__name__}
 
 
-def _versions() -> Dict[str, Any]:
+def collect_versions() -> Dict[str, Any]:
     versions: Dict[str, Any] = {"python": platform.python_version()}
     for package in ("sc2bench-env", "burnysc2", "sharpy-sc2"):
         try:
@@ -158,7 +158,7 @@ def _versions() -> Dict[str, Any]:
 
 
 def _knowledge_fields() -> Dict[str, Any]:
-    from sc2bench_env.data.knowledge import record_fields
+    from sc2bench_env.catalog.knowledge import record_fields
 
     return record_fields()
 
@@ -193,7 +193,7 @@ class TrajectoryRecorder:
             raise RuntimeError("Recorder already started")
         root = Path(root).resolve()
         root.mkdir(parents=True, exist_ok=True)
-        name = folder_name or _episode_folder_name(self.config)
+        name = folder_name or episode_folder_name(self.config)
         suffix = 1
         while True:
             directory = root / (name if suffix == 1 else f"{name}_{suffix}")
@@ -211,7 +211,7 @@ class TrajectoryRecorder:
                 "started_at": self._started_at,
                 "backend": backend,
                 "config": self.config,
-                "versions": _versions(),
+                "versions": collect_versions(),
                 **_knowledge_fields(),
                 "timestamp_timezone": "UTC",
                 "platform_prompt_char_count": len(prompt),
@@ -220,7 +220,7 @@ class TrajectoryRecorder:
             "SC2Bench episode\n\n"
             + "Configuration and versions\n"
             + json.dumps(_json_safe(metadata_payload), ensure_ascii=False, indent=2)
-            + "\n\nPlatform prompt\n" + prompt + "\n"
+            + "\n\nPlatform contract\n" + prompt + "\n"
         )
         self._write_atomic_text(self.directory / "episode.txt", self._episode_text + "\nStatus: in progress\n")
         self._write_session()
@@ -317,6 +317,60 @@ class TrajectoryRecorder:
         if self.summary is not None:
             raise RuntimeError("Cannot append to a finalized trajectory")
         self.steps.append(json.loads(json.dumps(_json_safe(entry), ensure_ascii=False)))
+
+    @property
+    def decision_count(self) -> int:
+        return self._decision_count
+
+    def record_tool_event(
+        self, *, kind: str, call: Dict[str, Any], result: Any,
+        game_time_seconds: float, decision_index: int, turn_id: str,
+    ) -> None:
+        payload = result.to_dict() if hasattr(result, "to_dict") else result
+        status = payload.get("status") if isinstance(payload, dict) else None
+        self._append({
+            "type": "tool_call",
+            "kind": kind,
+            "status": status,
+            "name": call.get("name"),
+            "arguments": dict(call.get("arguments") or {}),
+            "call": call,
+            "result": payload,
+            "data": payload.get("data") if isinstance(payload, dict) else None,
+            "game_time_seconds": game_time_seconds,
+            "decision_index": decision_index,
+            "turn_id": turn_id,
+            "next_decision_index": self._decision_count + 1,
+            "executed": False,
+            "recorded_at": _utc_now(),
+        })
+
+    def record_protocol_error(
+        self, *, code: str, agent_context: Optional[Dict[str, Any]] = None,
+        game_time_seconds: float = 0.0,
+    ) -> None:
+        self._append({
+            "type": "agent_protocol_error",
+            "code": code,
+            "game_time_seconds": game_time_seconds,
+            "agent_context": agent_context,
+            "recorded_at": _utc_now(),
+        })
+
+    def record_tool_call(
+        self, *, name: str, arguments: Dict[str, Any], result: Dict[str, Any],
+        game_time_seconds: float, elapsed_seconds: float,
+    ) -> None:
+        self._append({
+            "type": "tool_call",
+            "name": name,
+            "arguments": arguments,
+            "result": result,
+            "game_time_seconds": game_time_seconds,
+            "next_decision_index": self._decision_count + 1,
+            "elapsed_seconds": elapsed_seconds,
+            "recorded_at": _utc_now(),
+        })
 
     def record_reset(self, observation: Dict[str, Any]) -> None:
         self._game_time = float((observation.get("game") or {}).get("game_time_seconds", 0))
