@@ -1,8 +1,8 @@
 {
-  "profile_id": "linux-official-4.10",
-  "ruleset": "native",
   "expected_base_build": 75689,
-  "snapshot_dir": null,
-  "status": "not_extracted",
-  "reason": "This Windows machine cannot produce the Linux 4.10 official data hash. A missing snapshot fails closed. Windows client numbers are not copied here."
+  "profile_id": "linux-official-4.10.0",
+  "reason": "Profile alias for the Linux official client extracted on this machine.",
+  "ruleset": "native",
+  "snapshot_dir": "4.10.0.75689_B89B5D6FA7CBF6452E721311BFBC6CB2",
+  "status": "extracted"
 }

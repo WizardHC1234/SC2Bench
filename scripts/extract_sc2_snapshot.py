@@ -268,8 +268,39 @@ async def _dump_client() -> Dict[str, Any]:
         }
 
 
+def _write_profile(payload: Dict[str, Any], folder_name: str) -> Path:
+    """Bind the extracted snapshot to the host OS profile without clobbering the other."""
+    import sys
+
+    profiles = _data_root() / "profiles"
+    profiles.mkdir(parents=True, exist_ok=True)
+    short = ".".join(str(payload["game_version"]).split(".")[:3])
+    if sys.platform.startswith("linux"):
+        path = profiles / "linux_official.json"
+        _write(path, {
+            "profile_id": f"linux-official-{short}",
+            "ruleset": "native",
+            "expected_base_build": int(payload["base_build"]),
+            "snapshot_dir": folder_name,
+            "status": "extracted",
+            "reason": "Profile alias for the Linux official client extracted on this machine.",
+        })
+        return path
+    path = profiles / "windows_retail.json"
+    _write(path, {
+        "profile_id": "windows-retail-" + short,
+        "ruleset": "native",
+        "snapshot_dir": folder_name,
+        "reason": "Profile alias for the Windows retail client extracted on this machine.",
+    })
+    return path
+
+
 def main() -> None:
-    os.environ.setdefault("SC2PATH", r"D:\StarCraft II")
+    if os.name == "nt":
+        os.environ.setdefault("SC2PATH", r"D:\StarCraft II")
+    else:
+        os.environ.setdefault("SC2PATH", "/data/hc/sc2/StarCraftII")
     payload = asyncio.run(_dump_client())
     folder = _data_root() / "snapshots" / f"{payload['game_version']}_{payload['data_version']}"
     folder.mkdir(parents=True, exist_ok=True)
@@ -315,31 +346,20 @@ def main() -> None:
         ],
     }
     _write(folder / "manifest.json", manifest)
-    profiles = _data_root() / "profiles"
-    profiles.mkdir(parents=True, exist_ok=True)
-    _write(profiles / "windows_retail.json", {
-        "profile_id": "windows-retail-" + ".".join(payload["game_version"].split(".")[:3]),
-        "ruleset": "native",
-        "snapshot_dir": folder.name,
-        "reason": "Profile alias for the Windows retail client extracted on this machine.",
-    })
+    profile_path = _write_profile(payload, folder.name)
     common = _data_root() / "common"
     common.mkdir(parents=True, exist_ok=True)
-    _write(common / "aliases.json", {
-        "schema_version": 1,
-        "reason": "Observation names mapped onto canonical knowledge names. Not client costs.",
-        "units": {"terran": {}, "protoss": {}, "zerg": {}},
-        "upgrades": {"terran": {}, "protoss": {}, "zerg": {}},
-    })
     _write(common / "aliases.json", _aliases())
     print(json.dumps({
         "snapshot": str(folder),
+        "profile": str(profile_path),
         "game_version": payload["game_version"],
         "data_version": payload["data_version"],
         "base_build": payload["base_build"],
         "hash": hashed,
         "units": len(units),
         "buildings": len(buildings),
+        "SC2PATH": os.environ.get("SC2PATH"),
     }, indent=2))
 
 

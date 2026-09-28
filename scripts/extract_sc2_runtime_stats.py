@@ -17,6 +17,16 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 
+def _profile_path() -> Path:
+    name = "linux_official.json" if sys.platform.startswith("linux") else "windows_retail.json"
+    return ROOT / "data" / "sc2" / "profiles" / name
+
+
+def _load_profile() -> dict:
+    path = _profile_path()
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
 def _write(path: Path, payload: dict) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
@@ -33,7 +43,7 @@ async def _extract() -> dict:
     from sc2.sc2process import SC2Process
 
     aliases = json.loads((ROOT / "data" / "sc2" / "common" / "aliases.json").read_text(encoding="utf-8"))
-    profile = json.loads((ROOT / "data" / "sc2" / "profiles" / "windows_retail.json").read_text(encoding="utf-8"))
+    profile = _load_profile()
     folder = ROOT / "data" / "sc2" / "snapshots" / profile["snapshot_dir"]
     manifest = json.loads((folder / "manifest.json").read_text(encoding="utf-8"))
     rows = json.loads((folder / "units.json").read_text(encoding="utf-8"))["units"]
@@ -175,7 +185,7 @@ async def _fill_missing(existing: dict) -> dict:
     from sc2.player import Bot, Computer
     from sc2.sc2process import SC2Process
 
-    profile = json.loads((ROOT / "data" / "sc2" / "profiles" / "windows_retail.json").read_text(encoding="utf-8"))
+    profile = _load_profile()
     folder = ROOT / "data" / "sc2" / "snapshots" / profile["snapshot_dir"]
     manifest = json.loads((folder / "manifest.json").read_text(encoding="utf-8"))
     rows = json.loads((folder / "units.json").read_text(encoding="utf-8"))["units"]
@@ -275,15 +285,18 @@ async def _fill_missing(existing: dict) -> dict:
 
 
 def main() -> None:
-    os.environ.setdefault("SC2PATH", r"D:\StarCraft II")
-    profile = json.loads((ROOT / "data" / "sc2" / "profiles" / "windows_retail.json").read_text(encoding="utf-8"))
+    if os.name == "nt":
+        os.environ.setdefault("SC2PATH", r"D:\StarCraft II")
+    else:
+        os.environ.setdefault("SC2PATH", "/data/hc/sc2/StarCraftII")
+    profile = _load_profile()
     folder = ROOT / "data" / "sc2" / "snapshots" / profile["snapshot_dir"]
     target = folder / "runtime_stats.json"
     if "--fill-missing" in sys.argv and target.is_file():
         payload = asyncio.run(_fill_missing(json.loads(target.read_text(encoding="utf-8"))))
     else:
         payload = asyncio.run(_extract())
-    profile = json.loads((ROOT / "data" / "sc2" / "profiles" / "windows_retail.json").read_text(encoding="utf-8"))
+    profile = _load_profile()
     folder = ROOT / "data" / "sc2" / "snapshots" / profile["snapshot_dir"]
     target = folder / "runtime_stats.json"
     _write(target, payload)
