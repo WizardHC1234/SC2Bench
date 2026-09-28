@@ -4,7 +4,23 @@ SC2Bench 已按标准 Python 包组织：`pyproject.toml` 声明安装信息，`
 
 ## 核心安装
 
-Python 3.9 及以上，不需要 SC2 或 native 组件：
+Python 3.9 及以上，不需要 SC2 或 native 组件。先在项目根创建并激活 `venv`，Windows 和 Linux 使用同一个目录名。
+
+Windows PowerShell：
+
+```powershell
+python -m venv venv
+venv\Scripts\activate
+```
+
+Linux：
+
+```bash
+python3.9 -m venv venv
+source venv/bin/activate
+```
+
+然后安装：
 
 ```bash
 python -m pip install -e .
@@ -17,9 +33,11 @@ python -m sc2bench_env doctor --backend fake
 
 ## Windows 实机
 
-当前已验证 Windows x64、CPython 3.9。先安装 SC2 客户端和地图，再从项目根安装：
+当前已验证 Windows x64、CPython 3.9。先安装 SC2 客户端和地图。用 Python 3.9 在项目根创建 `venv` 并激活，再安装：
 
-```bash
+```powershell
+python -m venv venv
+venv\Scripts\activate
 python -m pip install -e dependencies/sc2-pathlib -e dependencies/sharpy-sc2 -e '.[sharpy,llm]'
 python -m pip check
 python -m sc2bench_env doctor --suite benchmarks/terran_pilot.json
@@ -35,8 +53,8 @@ python -m sc2bench_env doctor --suite benchmarks/terran_pilot.json
 
 ```bash
 set -euo pipefail
-python3.9 -m venv .venv
-source .venv/bin/activate
+python3.9 -m venv venv
+source venv/bin/activate
 python -m pip install --upgrade pip setuptools wheel
 export PYO3_PYTHON="$(python -c 'import sys; print(sys.executable)')"
 

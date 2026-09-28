@@ -4,14 +4,30 @@
 
 ## 安装
 
-核心包无需游戏或模型 API，Python 3.9 及以上可用：
+先在项目根创建虚拟环境并激活。Windows 和 Linux 都使用目录名 `venv`。实机必须用 Python 3.9 创建，寻路二进制只支持 Windows x64 的 CPython 3.9。只装核心包时，3.9 及以上即可。
+
+Windows PowerShell：
+
+```powershell
+python -m venv venv
+venv\Scripts\activate
+```
+
+Linux：
+
+```bash
+python3.9 -m venv venv
+source venv/bin/activate
+```
+
+核心包无需游戏或模型 API：
 
 ```bash
 python -m pip install -e .
 python -m sc2bench_env doctor --backend fake
 ```
 
-实机使用 Python 3.9、已安装的 SC2 客户端和地图：
+实机还需要已安装的 SC2 客户端和地图：
 
 ```bash
 python -m pip install -e dependencies/sc2-pathlib -e dependencies/sharpy-sc2 -e '.[sharpy,llm]'
