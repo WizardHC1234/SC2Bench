@@ -204,9 +204,17 @@ class VersionManager(ManagerBase):
             )
 
     def _set_enum_mapping(self, enum: Any, items: Dict[Any, int]):
+        # Remap enum *values* for older SC2 builds (especially Linux 4.10).
+        # Member map must keep the enum member object — assigning the raw int
+        # makes ``UnitTypeId.X`` / iteration yield ints, so later ``.name``
+        # access crashes with: 'int' object has no attribute 'name'.
+        # Windows 5.0.x skips most of these remaps, which is why the bug was
+        # easy to miss there.
         for enum_key, value in items.items():
+            old_value = enum_key.value
             enum_key._value_ = value
-            enum._member_map_[enum_key.name] = value
+            enum._member_map_[enum_key.name] = enum_key
+            enum._value2member_map_.pop(old_value, None)
             enum._value2member_map_[value] = enum_key
             self.print(f"Setting {enum_key.name} to {enum_key.value}")
 
