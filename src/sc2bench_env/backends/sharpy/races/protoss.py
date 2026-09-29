@@ -8,13 +8,13 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional, Tuple
 
-from sc2.ids.ability_id import AbilityId
 from sc2.ids.unit_typeid import UnitTypeId
 from sc2.ids.upgrade_id import UpgradeId
 from sc2.position import Point2
+from sharpy.constants import Constants
 from sharpy.managers.core.grids import ZoneArea
 from sharpy.plans import BuildOrder
-from sharpy.plans.acts import ActBase, ActUnit, BuildGas, Expand, GridBuilding, MineOpenBlockedBase, Tech
+from sharpy.plans.acts import ActUnit, BuildGas, Expand, GridBuilding, MineOpenBlockedBase, Tech
 from sharpy.plans.acts.protoss import ProtossUnit
 from sharpy.plans.build_step import Step
 from sharpy.plans.tactics import DistributeWorkers, PlanCancelBuilding, SpeedMining
@@ -23,6 +23,9 @@ from sc2bench_env.backends.sharpy.acts import ActChrono, ActCombatMission, ActSc
 from sc2bench_env.backends.sharpy.defense import PlanZoneDefenseSafe
 from sc2bench_env.backends.sharpy.defense_placement import DEFENSE_KINDS, DefensiveGridBuilding
 from sc2bench_env.backends.sharpy.gather import PlanHomeGather
+from sc2bench_env.backends.sharpy.races.protoss_warp import (
+    ActArchonMerge, ActGatewayTrain, ActWarpGateConversion, PlanWarpGateStatus,
+)
 from sc2bench_env.backends.sharpy.races.base import RaceAdapter
 from sc2bench_env.catalog.registry import TargetSpec, get_target, targets_for_action
 from sc2bench_env.runtime.task import Demand, DemandState
@@ -97,6 +100,8 @@ for _prefix, _id_prefix in (
 _TYPE_ALIASES: Dict[str, str] = {
     "ASSIMILATORRICH": "assimilator",
     "WARPGATE": "gateway",
+    "ARCHON": "archon",
+    "OBSERVERSIEGEMODE": "observer",
     "WARPPRISMPHASING": "warp_prism",
     "NEXUS": "nexus",
 }
@@ -179,7 +184,8 @@ class ProtossGridBuilding(GridBuilding):
         matrix = self.ai.state.psionic_matrix
         points = solver.buildings2x2 if is_pylon else solver.buildings3x3
         wall = set(solver.wall2x2 if is_pylon else solver.wall3x3)
-        pending = [] if is_pylon else self.cache.own(UnitTypeId.PYLON).not_ready
+        pending_pylons = list(self.cache.own(UnitTypeId.PYLON).not_ready)
+        pending = [] if is_pylon else pending_pylons
 
         def zone(point: Point2):
             return getattr(grid[point], "ZoneIndex", None)
@@ -199,6 +205,54 @@ class ProtossGridBuilding(GridBuilding):
             point for point in points
             if point not in wall and zone(point) == ZoneArea.OwnMainZone
         ]
+        if is_pylon:
+            # Pylons are strategic placement infrastructure, not just supply.
+            # Prefer the point that powers the most currently usable 3x3 slots,
+            # and count unfinished Pylons as future power to avoid overlap.
+            free_building_slots = [
+                point for point in solver.buildings3x3
+                if point not in set(solver.wall3x3)
+                and not buildings.closer_than(1, point)
+            ]
+
+            def future_powered(point: Point2) -> bool:
+                if matrix.covers(point):
+                    return True
+                return any(
+                    point.distance_to(getattr(pylon, "position", pylon))
+                    < Constants.PYLON_POWERED_DISTANCE
+                    for pylon in pending_pylons
+                )
+
+            uncovered_slots = [point for point in free_building_slots if not future_powered(point)]
+
+            def best_pylon(candidates):
+                available = [point for point in candidates if not buildings.closer_than(1, point)]
+                if not available:
+                    return None, 0
+                scored = []
+                for index, point in enumerate(available):
+                    new_coverage = sum(
+                        slot.distance_to(point) < Constants.PYLON_POWERED_DISTANCE
+                        for slot in uncovered_slots
+                    )
+                    total_coverage = sum(
+                        slot.distance_to(point) < Constants.PYLON_POWERED_DISTANCE
+                        for slot in free_building_slots
+                    )
+                    scored.append((new_coverage, total_coverage, -index, point))
+                best = max(scored, key=lambda item: item[:3])
+                return best[3], best[0]
+
+            others = [point for point in points if point not in wall and point not in main]
+            main_choice, main_gain = best_pylon(main)
+            other_choice, other_gain = best_pylon(others)
+            if main_gain > 0:
+                return main_choice
+            if other_gain > 0:
+                return other_choice
+            return main_choice or other_choice
+
         chosen = place(main)
         if chosen is not None:
             return chosen
@@ -207,17 +261,6 @@ class ProtossGridBuilding(GridBuilding):
             return None
         others = [point for point in points if point not in wall and point not in main]
         return place(others)
-
-
-class PlanWarpGateMorph(ActBase):
-    """Morph completed idle Gateways after Warp Gate research. No agent action."""
-
-    async def execute(self) -> bool:
-        if float(self.ai.already_pending_upgrade(UpgradeId.WARPGATERESEARCH)) < 1:
-            return True
-        for gate in self.ai.structures(UnitTypeId.GATEWAY).ready.idle:
-            gate(AbilityId.MORPH_WARPGATE)
-        return True
 
 
 def _require_catalog(action: str, target: str) -> TargetSpec:
@@ -234,6 +277,9 @@ class ProtossAdapter(RaceAdapter):
     townhall_targets = ("nexus",)
 
     def production_owned_count(self, snapshot: Any, action: str, target: str) -> int:
+        if action == "build" and target == "warpgate":
+            info = getattr(snapshot, "info", {}) or {}
+            return int(info.get("warpgate_completed", 0)) + int(info.get("warpgate_under_construction", 0))
         return super().production_owned_count(snapshot, action, target)
 
     def ability_task_state(self, action: str, snapshot: Any,
@@ -275,6 +321,10 @@ class ProtossAdapter(RaceAdapter):
         if platform_name == "nexus":
             return int(ai.townhalls.ready.amount if hasattr(ai, "townhalls")
                        else ai.structures(UnitTypeId.NEXUS).ready.amount)
+        if platform_name == "warpgate":
+            return int(ai.structures(UnitTypeId.WARPGATE).ready.amount)
+        if platform_name == "archon":
+            return int(ai.units(UnitTypeId.ARCHON).ready.amount)
         if platform_name == "gateway":
             return int(ai.structures(UnitTypeId.GATEWAY).ready.amount
                        + ai.structures(UnitTypeId.WARPGATE).ready.amount)
@@ -313,6 +363,8 @@ class ProtossAdapter(RaceAdapter):
                 return Expand(to_count)
             if task.target == "assimilator":
                 return BuildGas(to_count)
+            if task.target == "warpgate":
+                return ActWarpGateConversion(to_count)
             unit_type = BUILDINGS.get(task.target)
             if unit_type is None:
                 raise ValueError(f"unsupported protoss build target: {task.target}")
@@ -321,12 +373,14 @@ class ProtossAdapter(RaceAdapter):
             return ProtossGridBuilding(unit_type, to_count)
         if task.action == "train":
             _require_catalog("train", task.target)
+            if task.target == "archon":
+                return ActArchonMerge(to_count)
             pair = UNITS.get(task.target)
             if pair is None:
                 raise ValueError(f"unsupported protoss train target: {task.target}")
             unit_type, producer = pair
             if task.target in GATEWAY_UNITS:
-                return ProtossUnit(unit_type, to_count)
+                return ActGatewayTrain(unit_type, to_count)
             return ActUnit(unit_type, producer, to_count)
         if task.action == "research":
             _require_catalog("research", task.target)
@@ -382,8 +436,14 @@ class ProtossAdapter(RaceAdapter):
         spec = get_target(target, race="protoss")
         return spec is not None and spec.action == "build" and spec.kind == "building"
 
+    def home_production_types(self) -> frozenset:
+        return frozenset({
+            UnitTypeId.GATEWAY, UnitTypeId.ROBOTICSFACILITY, UnitTypeId.STARGATE,
+        })
+
     def create_tactics(self) -> BuildOrder:
         # Pylons stay agent-owned. AutoPylon is off, matching Terran supply.
+        # Warp Gate research must not morph Gateways outside a build task.
         return BuildOrder(
             [
                 MineOpenBlockedBase(),
@@ -392,7 +452,7 @@ class ProtossAdapter(RaceAdapter):
                 DistributeWorkers(min_gas=3, aggressive_gas_fill=True),
                 Step(None, SpeedMining(), lambda ai: ai.client.game_step > 5),
                 PlanHomeGather(self),
-                PlanWarpGateMorph(),
+                PlanWarpGateStatus(),
             ]
         )
 

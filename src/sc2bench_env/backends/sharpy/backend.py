@@ -19,7 +19,7 @@ from sc2bench_env.interface.opponents import (
     AI_BUILD_ENUM_NAMES, DIFFICULTY_ENUM_NAMES, normalize_opponent, require_enemy_style,
 )
 from sc2bench_env.runtime.scheduler import DecisionTrigger, trigger_satisfied
-from sc2bench_env.runtime.task import Demand, DemandState
+from sc2bench_env.runtime.task import Demand, DemandState, train_birth_allowance
 from sc2bench_env.runtime.task_manager import DemandUpdate
 
 logger = logging.getLogger("sc2bench_env.backends.sharpy")
@@ -47,11 +47,12 @@ class _Bridge:
     max_game_time: Optional[float] = None
     macro_specs: List[Dict[str, Any]] = field(default_factory=list)
     snapshot: BackendSnapshot = field(default_factory=BackendSnapshot)
+    knowledge_snapshot: Optional[Dict[str, Any]] = None
     # Peak ready counts observed for incremental completion accounting.
     peak_ready: Dict[str, int] = field(default_factory=dict)
     last_reported_completed: Dict[str, int] = field(default_factory=dict)
     baselines: Dict[str, int] = field(default_factory=dict)
-    task_meta: Dict[str, Tuple[str, str, int]] = field(default_factory=dict)
+    task_meta: Dict[str, Tuple[str, str, int, int]] = field(default_factory=dict)
     in_production_units: Dict[str, int] = field(default_factory=dict)
     in_progress_buildings: Dict[str, int] = field(default_factory=dict)
     in_progress_research: Dict[str, int] = field(default_factory=dict)
@@ -69,6 +70,12 @@ class _Bridge:
     # Versus games share one notify event and wake the other bot on game end.
     companions: List[Any] = field(default_factory=list)
     notify: Optional[threading.Event] = None
+    # Versus clients publish one outcome after every side has a raw result.
+    raw_result_ready: bool = False
+    raw_own_result: Any = None
+    raw_all_results: Dict[Any, Any] = field(default_factory=dict)
+    outcome_lock: Optional[threading.Lock] = None
+    outcome_published: bool = False
 
     def get_macro_specs(self) -> List[Dict[str, Any]]:
         with self.lock:
@@ -144,9 +151,10 @@ class _Bridge:
                 for action, key in [("train", "ready_unit_tags"), ("build", "building_entity_tags")]:
                     for name, tags in snapshot.info[key].items():
                         for tag in set(tags):
-                            if tag in self.seen_entity_tags:
+                            identity = (action, name, int(tag))
+                            if identity in self.seen_entity_tags:
                                 continue
-                            self.seen_entity_tags.add(tag)
+                            self.seen_entity_tags.add(identity)
                             if self.entity_tracking_started:
                                 births[(action, name)] = births.get((action, name), 0) + 1
                 self.entity_tracking_started = True
@@ -155,19 +163,25 @@ class _Bridge:
                 meta = self.task_meta.get(task_id)
                 if meta is None:
                     continue
-                action, target, _count = meta
+                action, target, _count = meta[0], meta[1], meta[2]
+                batch = int(meta[3]) if len(meta) > 3 else 1
                 if tracked and action in {"train", "build"}:
                     # Credit first-seen outputs once, oldest demand first. Initial
-                    # entities, cargo, death and morph cannot duplicate progress.
+                    # entities, cargo and death cannot duplicate progress. A real
+                    # type-changing morph is a new target identity and counts once.
+                    # A batch such as two Zerglings from one larva can exceed the
+                    # requested minimum; those extra births stay on this demand.
                     identity = (action, target)
                     previous = self.peak_ready.get(task_id, 0)
-                    credited = min(max(0, _count - previous), births.get(identity, 0))
+                    allowance = train_birth_allowance(_count, batch) if action == "train" else _count
+                    credit_cap = max(0, allowance - previous)
+                    credited = min(credit_cap, births.get(identity, 0))
                     births[identity] = births.get(identity, 0) - credited
                     self.peak_ready[task_id] = previous + credited
                     continue
                 if action == "scan":
                     ready = int(self.act_completed.get(task_id, 0))
-                elif action in {"call_mule", "chrono_boost", "inject_larva", "spawn_creep_tumor", "upgrade", "scout", "combat"}:
+                elif action in {"call_mule", "supply_drop", "chrono_boost", "inject_larva", "spawn_creep_tumor", "morph_townhall", "scout", "combat"}:
                     ready = int(self.act_completed.get(task_id, 0))
                 elif action == "build":
                     # Build action completes when the unfinished entity appears.
@@ -212,6 +226,43 @@ class _Bridge:
                     self.notify.set()
             return self.blocking_decisions and not self.advance_allowed.is_set()
 
+    def note_raw_result(self, own_result: Any, all_results: Any) -> None:
+        """Remember one client's protocol result and publish when the group is complete."""
+        with self.lock:
+            self.raw_result_ready = True
+            self.raw_own_result = own_result
+            self.raw_all_results = dict(all_results or {})
+        self.publish_group_outcome()
+
+    def publish_group_outcome(self) -> None:
+        """Write one reconciled result onto every versus client, once."""
+        from sc2bench_env.backends.sharpy.bot import (
+            has_townhall, reconcile_versus_group, reconcile_versus_result,
+        )
+
+        group = [self, *list(self.companions)]
+        lock = self.outcome_lock
+        if lock is None:
+            lock = threading.Lock()
+            for bridge in group:
+                if bridge.outcome_lock is None:
+                    bridge.outcome_lock = lock
+        with lock:
+            if any(not bridge.raw_result_ready for bridge in group):
+                return
+            if any(bridge.outcome_published for bridge in group):
+                return
+            rows = []
+            for bridge in group:
+                result, reason = reconcile_versus_result(
+                    bridge.raw_own_result, bridge.raw_all_results,
+                )
+                rows.append((result, reason, has_townhall(bridge.snapshot)))
+            outcomes = reconcile_versus_group(rows)
+            for bridge, (result, reason) in zip(group, outcomes):
+                bridge.outcome_published = True
+                bridge.on_game_end(result, end_reason=reason)
+
     def on_game_end(self, result: str, end_reason: Optional[str] = None) -> None:
         with self.lock:
             # client.leave() may produce Defeat/Tie after an artificial cutoff.
@@ -241,6 +292,7 @@ class SharpyBackend(Backend):
         self._adapter = None
         self._game_error: Optional[BaseException] = None
         self._replay_path: Optional[Path] = None
+        self.knowledge_snapshot: Optional[Dict[str, Any]] = None
 
     def set_replay_path(self, path: Optional[Path]) -> None:
         self._replay_path = path.resolve() if path is not None else None
@@ -279,6 +331,11 @@ class SharpyBackend(Backend):
             )
         if self._game_error is not None:
             raise RuntimeError(f"SC2/Sharpy failed to start: {self._game_error}") from self._game_error
+        self.knowledge_snapshot = getattr(self._bridge, "knowledge_snapshot", None)
+        if self.knowledge_snapshot is not None:
+            from sc2bench_env.catalog.knowledge import activate_game_data
+
+            activate_game_data(self.knowledge_snapshot)
         return self.snapshot()
 
     def submit(self, tasks: List[Demand]) -> None:
@@ -286,7 +343,7 @@ class SharpyBackend(Backend):
             raise RuntimeError("SharpyBackend is not started")
         specs: List[Dict[str, Any]] = []
         baselines: Dict[str, int] = {}
-        task_meta: Dict[str, Tuple[str, str, int]] = {}
+        task_meta: Dict[str, Tuple[str, str, int, int]] = {}
         active_ids: List[str] = []
 
         # Each Act's absolute target includes only preceding same-type work, not
@@ -303,7 +360,9 @@ class SharpyBackend(Backend):
             active_ids.append(task.demand_id)
             baseline = int(task.baseline_owned)
             baselines[task.demand_id] = baseline
-            task_meta[task.demand_id] = (task.action, task.target, task.count)
+            task_meta[task.demand_id] = (
+                task.action, task.target, task.count, max(1, int(task.production_batch_size)),
+            )
             if task.action == "train":
                 key = str(task.target or "")
                 train_prefix[key] = train_prefix.get(key, 0) + max(0, int(task.remaining))
@@ -330,6 +389,8 @@ class SharpyBackend(Backend):
                     "group": task.group,
                     "withdrawing": task.withdrawing,
                     "command_revision": task.command_revision,
+                    "retreat_method": task.retreat_method,
+                    "recall_status": task.recall_status,
                     "units": dict(task.units or {}),
                     "to_count": to_count,
                     "order_index": int(task.order_index),
@@ -435,7 +496,7 @@ class SharpyBackend(Backend):
                 meta = self._bridge.task_meta.get(task_id)
                 if meta is None:
                     continue
-                action, target, count = meta
+                action, target, count = meta[0], meta[1], meta[2]
                 peak = int(self._bridge.peak_ready.get(task_id, 0))
                 last = int(self._bridge.last_reported_completed.get(task_id, 0))
                 delta = max(0, peak - last)
@@ -461,10 +522,12 @@ class SharpyBackend(Backend):
                     else:
                         state = DemandState.WAITING_TO_START
                 elif action == "train":
-                    in_prod = min(max(0, count - peak), int(in_prod_left.get(target, 0)))
+                    batch = int(meta[3]) if len(meta) > 3 else 1
+                    birth_goal = train_birth_allowance(count, batch)
+                    in_prod = min(max(0, birth_goal - peak), int(in_prod_left.get(target, 0)))
                     in_prod_left[target] = max(0, int(in_prod_left.get(target, 0)) - in_prod)
                     assigned_in_prod = in_prod
-                    if peak >= count:
+                    if peak >= birth_goal:
                         state = DemandState.COMPLETED
                     elif in_prod > 0:
                         state = DemandState.IN_PRODUCTION
@@ -477,7 +540,7 @@ class SharpyBackend(Backend):
                         state = DemandState.IN_PROGRESS
                     else:
                         state = DemandState.WAITING_TO_START
-                elif action in {"scan", "call_mule", "chrono_boost", "inject_larva", "spawn_creep_tumor"}:
+                elif action in {"scan", "call_mule", "supply_drop", "chrono_boost", "inject_larva", "spawn_creep_tumor"}:
                     if peak >= 1:
                         state = DemandState.COMPLETED
                         waiting_for = None
@@ -486,7 +549,7 @@ class SharpyBackend(Backend):
                             raise RuntimeError("SharpyBackend is not started")
                         state, waiting_for = self._adapter.ability_task_state(
                             action, self._bridge.snapshot, waiting_for)
-                elif action == "upgrade":
+                elif action == "morph_townhall":
                     if peak >= 1:
                         state = DemandState.COMPLETED
                     else:

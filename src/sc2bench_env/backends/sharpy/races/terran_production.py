@@ -125,7 +125,10 @@ def read_ability_facts(ai, buildings, adapter):
     energies = [float(getattr(structure, "energy", 0.0) or 0.0)
                 for structure in ai.structures.ready
                 if adapter.normalize_unit_name(structure.type_id.name) == "orbital_command"]
-    ready = sum(1 for energy in energies if energy >= 50.0)
+    from sc2bench_env.catalog.registry import get_target
+
+    threshold = float(get_target("supply_drop", race="terran").energy)
+    ready = sum(1 for energy in energies if energy >= threshold)
     return {"orbital_count": int(buildings.get("orbital_command", 0)),
             "orbital_energies": [round(energy, 1) for energy in energies],
             "scan_ready": ready, "mule_ready": ready}

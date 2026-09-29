@@ -16,6 +16,7 @@ def _building(
     seconds: float,
     vespene: int = 0,
     prerequisites: Tuple[str, ...] = (),
+    mechanism: str = "construct",
 ) -> TargetSpec:
     return TargetSpec(
         name=name,
@@ -28,6 +29,7 @@ def _building(
         prerequisites=prerequisites,
         semantics="append",
         success_boundary="unfinished_entity_appears",
+        mechanism=mechanism,
     )
 
 
@@ -52,6 +54,7 @@ def _addon(
         semantics="append",
         success_boundary="unfinished_entity_appears",
         produced_at=parent,
+        mechanism="construct",
     )
 
 
@@ -79,6 +82,8 @@ def _unit(
         semantics="append",
         success_boundary="units_produced",
         produced_at=producer,
+        mechanism="queue",
+        dispatchable=name != "scv",
     )
 
 
@@ -119,7 +124,7 @@ def _morph(
 ) -> TargetSpec:
     return TargetSpec(
         name=name,
-        action="upgrade",
+        action="morph_townhall",
         kind="morph",
         description=description,
         minerals=minerals,
@@ -129,6 +134,7 @@ def _morph(
         semantics="morph",
         success_boundary="morph_issued",
         morph_from=morph_from,
+        mechanism="structure_morph",
     )
 
 
@@ -390,7 +396,7 @@ TERRAN_TARGETS: Tuple[TargetSpec, ...] = (
     ),
     _morph(
         "orbital_command",
-        description="Morphs a Command Center into a town hall that retains SCV production, generates energy and enables Scanner Sweep and MULE calls.",
+        description="Morphs a Command Center into a town hall that retains SCV production, generates energy and enables Scanner Sweep, MULE calls and Supply Drop.",
         minerals=150,
         seconds=25,
         morph_from="command_center",
@@ -417,7 +423,16 @@ TERRAN_TARGETS: Tuple[TargetSpec, ...] = (
     _ability(
         "call_mule",
         action="call_mule",
-        description="Call down one temporary MULE that automatically mines minerals at a ready own base not marked under attack; the backend chooses the base with most remaining minerals. Requires one ready Orbital Command with at least 50 energy.",
+        description="Call down one temporary MULE that automatically mines minerals at a ready own base not marked under attack; the backend chooses the base with most remaining minerals. Requires one ready Orbital Command with at least 50 energy. Scan, MULE and Supply Drop spend the same Orbital energy.",
+        seconds=1,
+        energy=50,
+        prerequisites=("orbital_command",),
+        success_boundary="ability_cast",
+    ),
+    _ability(
+        "supply_drop",
+        action="supply_drop",
+        description="Drop extra supply onto one completed living Supply Depot the platform chooses. The Agent does not pick the depot. Requires one ready Orbital Command. Energy cost and the supply granted come from the session game version. A depot can receive one drop. Scan, MULE and Supply Drop share that Orbital energy.",
         seconds=1,
         energy=50,
         prerequisites=("orbital_command",),
@@ -583,6 +598,7 @@ _PROMPT_DESCRIPTIONS = {
     "planetary_fortress": "Armored town hall with ground weapon.",
     "scan": "Temporary local vision and detection.",
     "call_mule": "Temporary mineral-gathering MULE.",
+    "supply_drop": "Extra supply on one completed Supply Depot. The platform chooses the depot.",
     "scout": "SCV route; all sweeps non-own expansions.",
 }
 

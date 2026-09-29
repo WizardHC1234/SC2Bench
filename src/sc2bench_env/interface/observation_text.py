@@ -141,10 +141,8 @@ def combat_lines(groups):
         if isinstance(transition, dict):
             if (transition.get("from") == "attack" and transition.get("to") == "defend"
                     and transition.get("reason") == "target_confirmed_clear"):
-                lines.append(
-                    "  Order transition: attack -> defend automatically after the target "
-                    "was confirmed clear; now holding the target zone"
-                )
+                lines.append("  Previous attack completed: target confirmed clear")
+                lines.append(f"  Current task: holding and defending {value(row.get('target'))}")
             else:
                 lines.append(
                     f"  Order transition: {value(transition.get('from'))} -> "
@@ -168,20 +166,28 @@ def combat_lines(groups):
         lines.extend(extras(row, {"status", "style", "target", "phase", "alive", "requested",
                                  "nearest_zone", "assigned", "visible_enemy_nearby",
                                  "weapon_cooldown_active_count", "cloaked", "forms", "skill_evidence",
-                                 "transport", "order_transition"}))
+                                 "transport", "order_transition", "attack_result"}))
     return lines
 
 
-def event_lines(events, *, omit_types=()):
+def event_lines(events, *, omit_types=(), historical=False):
     if not events:
         return ["none"]
     events = [row for row in events if row.get("type") not in omit_types]
     if not events:
         return ["none"]
     lines = []
+    if historical:
+        lines.append("Historical — earlier decisions; not new this turn.")
     for index, row in enumerate(compact_counted(events, event=True), 1):
-        lines.append(f"{index}. {value(row.get('type'))}")
-        lines.extend(extras(row, {"type"}))
+        stamp = ""
+        if "event_id" in row or "game_time_seconds" in row:
+            stamp = (
+                f" [#{value(row.get('event_id'))}"
+                f" @ {time_value(row.get('game_time_seconds'))}]"
+            )
+        lines.append(f"{index}. {value(row.get('type'))}{stamp}")
+        lines.extend(extras(row, {"type", "event_id", "game_time_seconds"}))
     return lines
 
 
@@ -194,15 +200,17 @@ def compact_counted(rows, *, event=False):
     previous_simple = False
     for raw in rows:
         row = dict(raw)
-        allowed = ({"type", "action", "target", "count"} if event else
+        identity = {"event_id", "game_time_seconds"}
+        allowed = ({"type", "action", "target", "count"} | identity if event else
                    {"action", "result", "target", "count"})
-        simple = (set(row) <= allowed and row.get("action") in {"build", "train", "research"}
+        keys = set(row) - identity
+        simple = (keys <= (allowed - identity) and row.get("action") in {"build", "train", "research"}
                   and type(row.get("count")) is int and row["count"] > 0
                   and (row.get("type") == "demand_accepted" if event else row.get("result") == "accepted"))
-        key = {k: v for k, v in row.items() if k != "count"}
+        key = {k: v for k, v in row.items() if k not in {"count", "event_id", "game_time_seconds"}}
         entry_key = "event_count" if event else "orders"
         if simple and previous_simple and result and {k: v for k, v in result[-1].items()
-                                  if k not in {"count", entry_key}} == key:
+                                  if k not in {"count", entry_key, "event_id", "game_time_seconds"}} == key:
             result[-1]["count"] += row["count"]
             result[-1][entry_key] = result[-1].get(entry_key, 1) + 1
         else:
@@ -224,9 +232,14 @@ def blocker_text(reason):
         "producer_techlab_unavailable": "no compatible producer with a ready attached Tech Lab",
         "addon_host_unavailable": "no ready grounded parent without an add-on",
         "addon_host_busy": "eligible add-on parents busy",
+        "waiting_for_queue": "source building finishing its paid queue before morph",
+        "source_unit_reserved": "source already reserved by another demand",
+        "source_unit_unavailable": "no eligible source building or unit",
     }
     if reason.startswith("prerequisite:"):
         return "requires ready " + reason.split(":", 1)[1]
+    if reason.startswith("builder_unavailable:"):
+        return "no ready " + reason.split(":", 1)[1] + " available to construct"
     return explanations.get(reason, value(reason))
 
 
@@ -252,23 +265,81 @@ def waiting_summary(action, target, priority, fallback):
     return "; ".join(f"{reason}: {value(amount)}" for reason, amount in amounts.items()) or "none"
 
 
-def priority_lines(data):
-    """Full per-order status, explicitly separated from new Agent commands."""
-    rows = []
+def _aggregate_priority_rows(data):
+    """Text-only merge of adjacent identical macro requests. Structured rows stay separate."""
+    aggregated = []
     for index, source in enumerate(data, 1):
-        row = dict(source, priority=index)
+        key = (
+            source.get("action"),
+            source.get("target"),
+            source.get("state"),
+            source.get("waiting_for"),
+            source.get("mechanism"),
+            source.get("to"),
+        )
+        if aggregated and aggregated[-1]["_key"] == key:
+            row = aggregated[-1]
+            row["request_count"] = int(row.get("request_count", 1)) + 1
+            if source.get("task_id"):
+                row.setdefault("task_ids", []).append(source["task_id"])
+            for field in ("remaining", "in_production", "waiting_to_produce", "cancellable_count"):
+                left, right = row.get(field), source.get(field)
+                if type(left) is int and type(right) is int:
+                    row[field] = left + right
+                elif right is not None and left in {None, "-"}:
+                    row[field] = right
+            continue
+        row = dict(source, priority=index, request_count=1, _key=key)
+        task_id = row.pop("task_id", None)
+        if task_id:
+            row["task_ids"] = [task_id]
         for name in ("order_progress", "in_production", "waiting_to_produce"):
             row.setdefault(name, "-")
         row.setdefault("waiting_for", "not reported")
-        rows.append(row)
+        aggregated.append(row)
+    for row in aggregated:
+        row.pop("_key", None)
+    return aggregated
+
+
+def priority_lines(data):
+    """Full per-order status, explicitly separated from new Agent commands."""
+    rows = _aggregate_priority_rows(data)
     lines = ["Active macro requests: " + str(len(data)),
              "ALREADY ACCEPTED WORK — execution status and cancellable quantities."]
-    return lines + table(rows, [("Priority", "priority"), ("Action", "action"), ("Target", "target"),
-                    ("Remaining", "remaining"), ("Order progress", "order_progress"),
-                    ("Paid train queue", "in_production"), ("Unqueued train", "waiting_to_produce"),
-                    ("State", "state", execution_state_text),
-                    ("Waiting for", "waiting_for", blocker_text),
-                    ("Cancellable", "cancellable_count")])
+    if any(int(row.get("request_count", 1)) > 1 for row in rows):
+        lines.append("Identical adjacent requests are aggregated in this text only.")
+    columns = [("Priority", "priority"), ("Action", "action"), ("Target", "target"),
+               ("Requests", "request_count"),
+               ("Remaining", "remaining"), ("Order progress", "order_progress"),
+               ("Paid train queue", "in_production"), ("Unqueued train", "waiting_to_produce"),
+               ("State", "state", execution_state_text),
+               ("Waiting for", "waiting_for", blocker_text),
+               ("Cancellable", "cancellable_count")]
+    if any(row.get("task_ids") for row in rows):
+        columns.insert(1, (
+            "Task IDs", "task_ids",
+            lambda items: ", ".join(value(item) for item in (items or [])) or "unknown",
+        ))
+    if any(row.get("to") for row in rows):
+        for row in rows:
+            row.setdefault("to", "-")
+        columns.append(("To", "to"))
+    if any(row.get("mechanism") for row in rows):
+        for row in rows:
+            row.setdefault("mechanism", "-")
+        columns.append(("Mechanism", "mechanism"))
+    if any("actual_produced" in row for row in rows):
+        for row in rows:
+            row.setdefault("requested_count", "-")
+            row.setdefault("actual_produced", "-")
+            row.setdefault("production_batch_size", "-")
+        columns.extend((
+            ("Requested", "requested_count"),
+            ("Actual", "actual_produced"),
+            ("Batch size", "production_batch_size"),
+        ))
+    return lines + table(rows, columns)
 
 
 def execution_state_text(state):
@@ -408,6 +479,9 @@ def production_lines(data, buildings, training, *, race="terran"):
         # Keep supplied capacity facts; never manufacture Terran-specific columns.
         common_columns = [("Facility", "facility"), ("Ready", "ready_grounded"),
                           ("Capacity", "capacity"), ("Free production slots", "free_slots"),
+                          ("Ready to warp", "ready_to_warp"), ("Cooling", "cooling"),
+                          ("Reserved for morph", "reserved_for_morph"),
+                          ("Waiting for queue", "waiting_for_queue"),
                           ("Free queue positions", "free_queue_positions")]
         columns = [column for column in common_columns
                    if column[1] == "facility" or any(column[1] in row for row in data)]
@@ -430,15 +504,26 @@ def section(key, data, *, production_priority=None, buildings=None, training=Non
                 {"game_time_seconds", "game_time_limit_seconds", "seconds_remaining"} else value(item))
                 for name, item in data.items()]
     if key == "economy":
+        worker_name = {
+            "terran": "SCVs",
+            "protoss": "Probes",
+            "zerg": "Drones",
+        }.get(race, "workers")
         return [f"Minerals: {value(data.get('minerals'))}; Vespene gas: {value(data.get('vespene'))}",
                 f"Supply: {value(data.get('supply_used'))}/{value(data.get('supply_cap'))}; "
                 f"Available supply: {value(data.get('supply_left'))}; Army supply: {value(data.get('army_supply'))}",
-                f"Workers: {value(data.get('worker_count'))}; Current mining worker capacity: "
-                f"{value(data.get('mining_worker_capacity'))}",
+                f"Workers ({worker_name}): {value(data.get('worker_count'))}",
+                f"Mineral workers: {value(data.get('workers_on_minerals'))} / saturation "
+                f"{value(data.get('mineral_worker_saturation'))}",
+                f"Vespene workers: {value(data.get('workers_on_vespene'))} / saturation "
+                f"{value(data.get('vespene_worker_saturation'))}",
+                f"Other workers: {value(data.get('workers_other'))}",
                 f"Income per minute: minerals {value(data.get('mineral_income_per_minute'))}; "
                 f"vespene gas {value(data.get('vespene_income_per_minute'))}",
                 *extras(data, {"minerals", "vespene", "supply_used", "supply_cap", "supply_left",
-                               "army_supply", "worker_count", "mining_worker_capacity",
+                               "army_supply", "worker_count", "workers_on_minerals",
+                               "mineral_worker_saturation", "workers_on_vespene",
+                               "vespene_worker_saturation", "workers_other",
                                "mineral_income_per_minute", "vespene_income_per_minute"}, "")]
     if key == "map_control":
         return [*fields({name: item for name, item in data.items() if name != "base_resources"}),
@@ -469,7 +554,7 @@ def section(key, data, *, production_priority=None, buildings=None, training=Non
         if not isinstance(data, dict):
             return ["none"]
         lines = []
-        for group in ("build", "train", "research", "upgrade"):
+        for group in ("build", "train", "research", "morph_townhall"):
             names = data.get(group) or []
             lines.append(f"{group.capitalize()}: {', '.join(value(name) for name in names) or 'none'}")
         return lines
@@ -553,19 +638,20 @@ def section(key, data, *, production_priority=None, buildings=None, training=Non
             lines.extend(extras(row, {"route"}))
         return lines
     if key == "recent_events":
-        # Acceptance is already shown by Previous Feedback and Production
-        # Priority. Keep execution changes and failures here.
-        return event_lines(data, omit_types={"demand_accepted"})
+        # New events for this turn live in Previous Feedback. This block is
+        # only earlier history, labeled so old failures are not re-read as new.
+        return event_lines(data, omit_types={"demand_accepted"}, historical=True)
     return fields(data) if isinstance(data, dict) else fields({"items": data})
 
 
-def render_text(observation, sections):
+def render_text(observation, sections, *, race=None):
     game = observation.get("game")
-    if isinstance(game, dict) and "race" in game:
-        race = game["race"]
-    else:
-        # Older dictionary callers may omit Game; an explicit unknown never defaults.
-        race = observation.get("race", "terran")
+    if not race:
+        if isinstance(game, dict) and game.get("race"):
+            race = game["race"]
+        else:
+            # Older dictionary callers may omit Game; an explicit unknown never defaults.
+            race = observation.get("race", "terran")
     lines = []
     for key, title in sections:
         lines.extend([f"[{title}]", *section(key, observation.get(key),
@@ -602,18 +688,24 @@ def render_feedback_text(feedback, *, shown_events=None):
     if shown_events is None:
         lines.extend(["", "Execution events:", *event_lines(events)])
     else:
-        # Match occurrences, not set membership: two equal events can represent
-        # two distinct accepted orders/births and must not collapse into one.
-        remaining_shown = list(shown_events)
+        # Prefer event_id when present so the same logical event is never shown
+        # twice under two unrecognizable copies.
+        shown_ids = {
+            event.get("event_id") for event in shown_events
+            if isinstance(event, dict) and event.get("event_id") is not None
+        }
+        remaining_shown = [event for event in shown_events if event.get("event_id") is None]
         additional = []
         for event in events:
-            if event in remaining_shown:
+            event_id = event.get("event_id") if isinstance(event, dict) else None
+            if event_id is not None and event_id in shown_ids:
+                continue
+            if event_id is None and event in remaining_shown:
                 remaining_shown.remove(event)
-            else:
-                additional.append(event)
-        lines.extend(["", "Execution events (additional to Recent Events):",
-                      *(event_lines(additional) if additional else
-                        ["none; any repeated events are shown in Recent Events"])])
+                continue
+            additional.append(event)
+        lines.extend(["", "Execution events:",
+                      *(event_lines(additional) if additional else ["none"])])
     if feedback.get("name_normalizations"):
         lines.extend(["", "Name normalizations (use canonical names next time):"])
         for row in feedback["name_normalizations"]:
@@ -639,11 +731,12 @@ def receipt_meaning(row):
             "retreat": "return order registered, not arrival",
             "scan": "cast request registered",
             "call_mule": "cast request registered",
+            "supply_drop": "cast request registered",
             "chrono_boost": "cast request registered",
             "inject_larva": "cast request registered",
             "spawn_creep_tumor": "cast request registered",
             "scout": "scouting order registered",
-            "upgrade": "morph request registered",
+            "morph_townhall": "morph request registered",
         }.get(row.get("name") or row.get("action"), "registered, not completion")
     return {
         "idempotent_noop": "unchanged; no additional work",

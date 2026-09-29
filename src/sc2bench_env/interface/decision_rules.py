@@ -11,7 +11,6 @@ import re
 from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
-from sc2bench_env.interface.observations import WORKER_UNIT_NAMES
 from sc2bench_env.interface.races import require_supported_own_race
 
 COMBAT_STYLES: Tuple[str, ...] = ("attack", "defend")
@@ -22,21 +21,22 @@ ACTION_VERBS: Tuple[str, ...] = (
     "cancel",
     "scan",
     "call_mule",
+    "supply_drop",
     "chrono_boost",
     "inject_larva",
     "spawn_creep_tumor",
     "scout",
-    "upgrade",
+    "morph_townhall",
     "combat",
     "retreat",
     "advance",
 )
 
-from sc2bench_env.catalog.registry import decision_examples, known_target_names
+from sc2bench_env.catalog.registry import decision_examples, dispatchable_unit_names, known_target_names
 
 ZONE_PATTERN = r"^zone_[A-Za-z0-9_]+$"
-# Townhall object ids currently exposed as cc_<n>.
-STRUCTURE_ID_PATTERN = r"^cc_[A-Za-z0-9_]+$"
+# Town hall object ids: townhall_<n>, stable for the session.
+STRUCTURE_ID_PATTERN = r"^townhall_[A-Za-z0-9_]+$"
 GROUP_PATTERN = r"^group_[1-9][0-9]*$"
 
 # Model JSON must never include these keys on any entry.
@@ -60,16 +60,17 @@ VERB_FIELD_RULES: Dict[str, VerbFieldRule] = {
     "build": VerbFieldRule("build", required=("target",)),
     "train": VerbFieldRule("train", required=("target", "count")),
     "research": VerbFieldRule("research", required=("target",)),
-    "cancel": VerbFieldRule("cancel", required=("target_action", "target")),
+    "cancel": VerbFieldRule("cancel", optional=("task_id", "target_action", "target")),
     "scan": VerbFieldRule("scan", required=("target",)),
     "call_mule": VerbFieldRule("call_mule"),
+    "supply_drop": VerbFieldRule("supply_drop"),
     "chrono_boost": VerbFieldRule("chrono_boost"),
     "inject_larva": VerbFieldRule("inject_larva"),
     "spawn_creep_tumor": VerbFieldRule("spawn_creep_tumor"),
     "scout": VerbFieldRule("scout", required=("route",)),
-    "upgrade": VerbFieldRule("upgrade", required=("target", "to")),
+    "morph_townhall": VerbFieldRule("morph_townhall", required=("target", "to")),
     "combat": VerbFieldRule("combat", required=("style", "target"), optional=("units", "group")),
-    "retreat": VerbFieldRule("retreat", required=("group",)),
+    "retreat": VerbFieldRule("retreat", required=("group",), optional=("method",)),
     "advance": VerbFieldRule("advance", required=("seconds",)),
 }
 
@@ -149,13 +150,13 @@ def _validate_entry_values(raw: Mapping[str, Any], *, verb: str, index: int, rac
         normalized = target.strip().lower()
         if normalized in {"orbital_command", "planetary_fortress"}:
             raise DecisionSchemaError(
-                f"use upgrade with a structures[].id to morph {normalized}; "
-                'example: {"name":"upgrade","arguments":{"target":"cc_0","to":"orbital_command"}}'
+                f"use morph_townhall with a structures[].id to morph {normalized}; "
+                'example: {"name":"morph_townhall","arguments":{"target":"townhall_0","to":"orbital_command"}}'
             )
         if normalized in {"lair", "hive"}:
             raise DecisionSchemaError(
-                f"use upgrade with a structures[].id to morph {normalized}; "
-                '{"name":"upgrade","arguments":{"target":"cc_0","to":"lair"}}'
+                f"use morph_townhall with a structures[].id to morph {normalized}; "
+                '{"name":"morph_townhall","arguments":{"target":"townhall_0","to":"lair"}}'
             )
         if normalized not in known_target_names("build", race=race):
             raise DecisionSchemaError(
@@ -186,15 +187,27 @@ def _validate_entry_values(raw: Mapping[str, Any], *, verb: str, index: int, rac
                 f"allowed={list(known_target_names('research', race=race))}"
             )
     elif verb == "cancel":
+        task_id = raw.get("task_id")
         target_action = raw.get("target_action")
         target = raw.get("target")
+        has_task_id = task_id is not None
+        has_target_form = target_action is not None or target is not None
+        if has_task_id == has_target_form:
+            raise DecisionSchemaError(
+                f"{where} cancel requires exactly one form: task_id, or target_action with target"
+            )
+        if has_task_id:
+            if not isinstance(task_id, str) or not task_id.strip():
+                raise DecisionSchemaError(f"{where}.task_id must be a non-empty string")
+            return
         if not isinstance(target_action, str) or target_action.strip().lower() not in {
             "build",
             "train",
             "research",
+            "morph_townhall",
         }:
             raise DecisionSchemaError(
-                f"{where}.target_action must be build, train, or research"
+                f"{where}.target_action must be build, train, research, or morph_townhall"
             )
         if not isinstance(target, str) or not target.strip():
             raise DecisionSchemaError(f"{where}.target must be a non-empty string")
@@ -211,20 +224,25 @@ def _validate_entry_values(raw: Mapping[str, Any], *, verb: str, index: int, rac
         for item in route:
             if not isinstance(item, str) or not re.match(ZONE_PATTERN, item.strip().lower()):
                 raise DecisionSchemaError(f"{where}.route items must be zone_ids")
-    elif verb == "upgrade":
+    elif verb == "morph_townhall":
         target = raw.get("target")
         to = raw.get("to")
         if not isinstance(target, str) or not re.match(STRUCTURE_ID_PATTERN, target.strip()):
             raise DecisionSchemaError(
-                f"{where}.target must be a structures[].id such as cc_0"
+                f"{where}.target must be a structures[].id such as townhall_0"
             )
-        if not isinstance(to, str) or to.strip().lower() not in known_target_names("upgrade", race=race):
+        if not isinstance(to, str) or to.strip().lower() not in known_target_names("morph_townhall", race=race):
             raise DecisionSchemaError(
-                f"{where}.to must be one of {list(known_target_names('upgrade', race=race))}"
+                f"{where}.to must be one of {list(known_target_names('morph_townhall', race=race))}"
             )
     elif verb == "retreat":
         if not isinstance(raw.get("group"), str) or not re.fullmatch(GROUP_PATTERN, raw["group"]):
             raise DecisionSchemaError(f"{where}.group must reference an outbound group such as group_1, not group_0; use the full quoted ID, not a numeric index; received {raw.get('group')!r}")
+        method = raw.get("method", "move")
+        if method not in {"move", "recall"}:
+            raise DecisionSchemaError(f"{where}.method must be move or recall")
+        if method == "recall" and race != "protoss":
+            raise DecisionSchemaError(f"{where}.method recall is only available for protoss")
     elif verb == "combat":
         style = raw.get("style")
         target = raw.get("target")
@@ -243,11 +261,11 @@ def _validate_entry_values(raw: Mapping[str, Any], *, verb: str, index: int, rac
             return
         if not isinstance(units, Mapping) or not units:
             raise DecisionSchemaError(f"{where}.units must be a non-empty object")
-        train_names = set(known_target_names("train", race=race)) - WORKER_UNIT_NAMES
+        allowed_units = set(dispatchable_unit_names(race=race))
         for unit_name, count in units.items():
-            if not isinstance(unit_name, str) or unit_name.strip().lower() not in train_names:
+            if not isinstance(unit_name, str) or unit_name.strip().lower() not in allowed_units:
                 raise DecisionSchemaError(
-                    f"{where}.units keys must be army train targets; "
+                    f"{where}.units keys must be dispatchable units; "
                     f"got {unit_name!r}"
                 )
             if not _is_positive_int(count):
@@ -302,11 +320,13 @@ def action_tool_argument_schema(verb: str) -> Tuple[Dict[str, Any], Tuple[str, .
         },
         "research": {"target": {"type": "string"}},
         "cancel": {
-            "target_action": {"type": "string", "enum": ["build", "train", "research"]},
+            "task_id": {"type": "string", "minLength": 1},
+            "target_action": {"type": "string", "enum": ["build", "train", "research", "morph_townhall"]},
             "target": {"type": "string"},
         },
         "scan": {"target": {"type": "string"}},
         "call_mule": {},
+        "supply_drop": {},
         "chrono_boost": {},
         "inject_larva": {},
         "spawn_creep_tumor": {},
@@ -319,8 +339,8 @@ def action_tool_argument_schema(verb: str) -> Tuple[Dict[str, Any], Tuple[str, .
                 ],
             }
         },
-        "upgrade": {
-            "target": {"type": "string", "description": "structure ID from Observation"},
+        "morph_townhall": {
+            "target": {"type": "string", "description": "town hall id from Observation, such as townhall_0"},
             "to": {"type": "string", "description": "morph name"},
         },
         "combat": {
@@ -333,7 +353,10 @@ def action_tool_argument_schema(verb: str) -> Tuple[Dict[str, Any], Tuple[str, .
             },
             "group": {"type": "string", "description": "existing outbound group ID"},
         },
-        "retreat": {"group": {"type": "string", "description": "existing outbound group ID"}},
+        "retreat": {
+            "group": {"type": "string", "description": "existing outbound group ID"},
+            "method": {"type": "string", "enum": ["move", "recall"], "description": "move, or recall on Protoss"},
+        },
         "advance": {"seconds": {"type": "number", "exclusiveMinimum": 0}},
     }[verb]
     return properties, rule.required
@@ -361,13 +384,50 @@ def _tool_call_object_schema(
     }
 
 
+def _cancel_tool_call_schema() -> Dict[str, Any]:
+    """Schema for exact task cancellation or legacy target-wide cancellation."""
+    return {
+        "type": "object",
+        "required": ["name", "arguments"],
+        "properties": {
+            "name": {"type": "string", "const": "cancel"},
+            "arguments": {
+                "type": "object",
+                "properties": {
+                    "task_id": {"type": "string", "minLength": 1},
+                    "target_action": {
+                        "type": "string",
+                        "enum": ["build", "train", "research", "morph_townhall"],
+                    },
+                    "target": {"type": "string", "minLength": 1},
+                },
+                "additionalProperties": False,
+                "oneOf": [
+                    {
+                        "required": ["task_id"],
+                        "not": {"anyOf": [
+                            {"required": ["target_action"]},
+                            {"required": ["target"]},
+                        ]},
+                    },
+                    {
+                        "required": ["target_action", "target"],
+                        "not": {"required": ["task_id"]},
+                    },
+                ]
+            },
+        },
+        "additionalProperties": False,
+    }
+
+
 def decision_json_schema(*, race: str = "terran") -> Dict[str, Any]:
     """Platform-owned JSON Schema for one NormalizedToolCall array (draft-07)."""
     require_supported_own_race(race)
     build_targets = list(known_target_names("build", race=race))
     train_targets = list(known_target_names("train", race=race))
     research_targets = list(known_target_names("research", race=race))
-    morph_targets = list(known_target_names("upgrade", race=race))
+    morph_targets = list(known_target_names("morph_townhall", race=race))
 
     item_schemas = [
         _tool_call_object_schema(
@@ -388,20 +448,14 @@ def decision_json_schema(*, race: str = "terran") -> Dict[str, Any]:
             properties={"target": _string_enum(research_targets)},
             required=("target",),
         ),
-        _tool_call_object_schema(
-            "cancel",
-            properties={
-                "target_action": {"type": "string", "enum": ["build", "train", "research"]},
-                "target": {"type": "string", "minLength": 1},
-            },
-            required=("target_action", "target"),
-        ),
+        _cancel_tool_call_schema(),
         _tool_call_object_schema(
             "scan",
             properties={"target": _zone_string()},
             required=("target",),
         ),
         _tool_call_object_schema("call_mule", properties={}, required=()),
+        _tool_call_object_schema("supply_drop", properties={}, required=()),
         _tool_call_object_schema("chrono_boost", properties={}, required=()),
         _tool_call_object_schema("inject_larva", properties={}, required=()),
         _tool_call_object_schema("spawn_creep_tumor", properties={}, required=()),
@@ -416,7 +470,7 @@ def decision_json_schema(*, race: str = "terran") -> Dict[str, Any]:
             required=("route",),
         ),
         _tool_call_object_schema(
-            "upgrade",
+            "morph_townhall",
             properties={
                 "target": _structure_id_string(),
                 "to": _string_enum(morph_targets),
@@ -425,7 +479,10 @@ def decision_json_schema(*, race: str = "terran") -> Dict[str, Any]:
         ),
         _tool_call_object_schema(
             "retreat",
-            properties={"group": {"type": "string", "pattern": GROUP_PATTERN}},
+            properties={
+                "group": {"type": "string", "pattern": GROUP_PATTERN},
+                "method": {"type": "string", "enum": ["move", "recall"]},
+            },
             required=("group",),
         ),
         _tool_call_object_schema(
@@ -456,7 +513,7 @@ def decision_json_schema(*, race: str = "terran") -> Dict[str, Any]:
     item_schemas = [
         schema for schema in item_schemas
         if schema["properties"]["name"]["const"] not in {
-            "scan", "call_mule", "chrono_boost", "inject_larva", "spawn_creep_tumor", "upgrade",
+            "scan", "call_mule", "supply_drop", "chrono_boost", "inject_larva", "spawn_creep_tumor", "morph_townhall",
         }
         or known_target_names(schema["properties"]["name"]["const"], race=race)
     ]
@@ -478,7 +535,7 @@ def decision_json_schema(*, race: str = "terran") -> Dict[str, Any]:
             "build": build_targets,
             "train": train_targets,
             "research": research_targets,
-            "upgrade.to": morph_targets,
+            "morph_townhall.to": morph_targets,
         },
     }
 

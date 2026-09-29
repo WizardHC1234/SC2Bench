@@ -1011,6 +1011,11 @@
       "proto_name": "CreepTumor",
       "reason": "Debug create produced CreepTumorBurrowed.",
       "unit_id": 87
+    },
+    {
+      "proto_name": "OverlordTransport",
+      "reason": "ResponseData lists OverlordTransport. The runtime extract did not include unit 893, so health, shields and energy stay unknown.",
+      "unit_id": 893
     }
   ]
 }

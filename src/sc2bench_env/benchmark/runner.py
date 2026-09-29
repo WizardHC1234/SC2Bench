@@ -4,10 +4,9 @@ from __future__ import annotations
 
 import json
 import hashlib
-from collections.abc import Mapping
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional, Sequence
+from typing import Any, Callable, Dict, Mapping, Optional, Sequence
 from uuid import uuid4
 
 from sc2bench_env.benchmark.evaluator import Evaluator
@@ -16,7 +15,7 @@ from sc2bench_env.env import Environment
 from sc2bench_env.interface.agent import AgentInput, AgentStopped, AgentTurn
 from sc2bench_env.interface.config import EpisodeConfig
 from sc2bench_env.runtime.tool_turn import ToolTurnError
-from sc2bench_env.recording.trajectory import collect_versions
+from sc2bench_env.recording.trajectory import TrajectoryRecorder, collect_versions
 from sc2bench_env.paths import resolve_record_dir
 
 
@@ -32,8 +31,12 @@ def _platform_fingerprint() -> str:
     return digest.hexdigest()
 
 
-def _snapshot_agent_metadata(value: Optional[Mapping[str, Any]]) -> Optional[dict[str, Any]]:
+def _snapshot_agent_metadata(
+    value: Optional[Mapping[str, Any]], *, require_identity: bool,
+) -> Optional[dict[str, Any]]:
     if value is None:
+        if require_identity:
+            raise ValueError("evaluation agent_metadata requires name, version and model")
         return None
     if not isinstance(value, Mapping):
         raise TypeError("agent_metadata must be a mapping")
@@ -42,12 +45,13 @@ def _snapshot_agent_metadata(value: Optional[Mapping[str, Any]]) -> Optional[dic
     except (TypeError, ValueError) as error:
         raise ValueError("agent_metadata must contain JSON-compatible values") from error
     forbidden = {"api_key", "access_token", "authorization", "password",
-                 "secret", "client_secret", "api_base_url"}
+                 "secret", "client_secret", "api_base_url", "api_url",
+                 "base_url", "endpoint", "service_url"}
 
     def check_keys(item: Any) -> None:
         if isinstance(item, dict):
             for key, child in item.items():
-                if key.lower() in forbidden:
+                if str(key).lower() in forbidden:
                     raise ValueError("agent_metadata must not contain credentials or endpoint URLs")
                 check_keys(child)
         elif isinstance(item, list):
@@ -55,7 +59,39 @@ def _snapshot_agent_metadata(value: Optional[Mapping[str, Any]]) -> Optional[dic
                 check_keys(child)
 
     check_keys(snapshot)
+    settings = snapshot.get("settings", None)
+    if "settings" in snapshot and not isinstance(settings, dict):
+        raise ValueError("agent_metadata.settings must be an object")
+    if require_identity:
+        for field in ("name", "version", "model"):
+            text = snapshot.get(field)
+            if not isinstance(text, str) or not text.strip():
+                raise ValueError(f"evaluation agent_metadata requires {field}")
     return snapshot
+
+
+def _decision_mode(config: EpisodeConfig) -> str:
+    if config.realtime:
+        return "realtime"
+    if config.blocking_decisions:
+        return "blocking"
+    return "asynchronous"
+
+
+def _game_versions(episodes: Sequence[Mapping[str, Any]]) -> list[Any]:
+    found: list[Any] = []
+    for row in episodes:
+        versions = row.get("runtime_versions")
+        version = versions.get("game_version") if isinstance(versions, Mapping) else None
+        if version and version not in found:
+            found.append(version)
+    return found
+
+
+def _batch_status(error: BaseException) -> str:
+    if isinstance(error, (KeyboardInterrupt, SystemExit)):
+        return "interrupted"
+    return "failed"
 
 
 class BenchmarkRunner:
@@ -67,6 +103,9 @@ class BenchmarkRunner:
     ) -> None:
         self.backend_factory = backend_factory
         self.record_dir = resolve_record_dir(record_dir)
+        self.batch_directory: Optional[Path] = None
+        self.batch_file: Optional[Path] = None
+        self._episode_record_dir: Optional[Path] = None
 
     def run(
         self, configs: Sequence[EpisodeConfig] | BenchmarkSuite,
@@ -92,22 +131,41 @@ class BenchmarkRunner:
         if type(max_parallel) is not int or max_parallel < 1:
             raise ValueError("max_parallel must be a positive integer")
         configs = list(configs)
-        frozen_agent_metadata = _snapshot_agent_metadata(agent_metadata)
+        modes = {_decision_mode(config) for config in configs}
+        if len(modes) != 1:
+            raise ValueError("One batch cannot mix blocking, realtime and asynchronous episodes")
+        decision_mode = modes.pop()
+        require_identity = suite is not None and suite.to_dict().get("purpose") == "evaluation"
+        frozen_agent_metadata = _snapshot_agent_metadata(
+            agent_metadata, require_identity=require_identity,
+        )
         payload = None
         if max_parallel > 1:
             from sc2bench_env.benchmark.parallel import serialize_factories
             payload = serialize_factories(self.backend_factory, agent_factory)
         batch_id = uuid4().hex
+        started = datetime.now(timezone.utc)
+        batch_dir = self.record_dir / f"batch_{started.strftime('%y%m%d_%H%M%S')}_{batch_id[:8]}"
+        episode_dir = batch_dir / "episodes"
+        episode_dir.mkdir(parents=True)
+        self.batch_directory = batch_dir
+        self.batch_file = batch_dir / "batch.json"
+        self._episode_record_dir = episode_dir
         batch: Dict[str, Any] = {
-            "schema_version": "0.3", "batch_id": batch_id,
-            "started_at": datetime.now(timezone.utc).isoformat(),
+            "schema_version": "0.4", "batch_id": batch_id,
+            "started_at": started.isoformat(),
             "status": "running", "max_decisions": max_decisions,
             "agent_metadata": frozen_agent_metadata,
             "suite": ({"specification": suite.to_dict(), "sha256": suite.sha256,
                        "episode_count": len(configs)} if suite is not None else None),
             "platform_versions": collect_versions(),
             "platform_source_sha256": _platform_fingerprint(),
-            "output_paths": {"record_dir": str(self.record_dir)},
+            "game_versions": [],
+            "output_paths": {
+                "record_dir": str(self.record_dir),
+                "batch_dir": str(batch_dir),
+                "batch_file": str(self.batch_file),
+            },
             "planned_configs": [config.to_dict() for config in configs],
             "execution_policy": {
                 "order": "case_major" if suite is not None else "supplied_order",
@@ -117,6 +175,7 @@ class BenchmarkRunner:
                 "result_order": "planned_order",
                 "fresh_agent_per_episode": True,
                 "automatic_episode_reruns": False,
+                "decision_mode": decision_mode,
                 "time_limit_outcome": "tie",
                 "decision_limit_status": "interrupted",
                 "agent_call_failed_status": "interrupted",
@@ -124,42 +183,56 @@ class BenchmarkRunner:
             },
             "termination_counts": {},
             "episodes": [], "aggregate": Evaluator.summarize([]),
+            "metrics": Evaluator.measure([]),
         }
+
+        def refresh() -> None:
+            batch["aggregate"] = Evaluator.summarize(batch["episodes"])
+            batch["metrics"] = Evaluator.measure(batch["episodes"])
+            batch["termination_counts"] = Evaluator.termination_counts(batch["episodes"])
+            batch["game_versions"] = _game_versions(batch["episodes"])
+            if suite is not None:
+                batch["case_results"] = {
+                    case["case_id"]: {
+                        "aggregate": Evaluator.summarize(
+                            row for row in batch["episodes"] if row.get("case_id") == case["case_id"]),
+                        "metrics": Evaluator.measure(
+                            row for row in batch["episodes"] if row.get("case_id") == case["case_id"]),
+                        "termination_counts": Evaluator.termination_counts(
+                            row for row in batch["episodes"] if row.get("case_id") == case["case_id"]),
+                    }
+                    for case in suite.to_dict()["cases"]
+                }
+            TrajectoryRecorder._write_atomic(self.batch_file, batch)
 
         def save_result(index: int, row: Dict[str, Any]) -> None:
             row["index"] = index
+            row["decision_mode"] = decision_mode
             if plan is not None:
                 row["case_id"] = plan[index - 1]["case_id"]
                 row["repetition"] = plan[index - 1]["repetition"]
             batch["episodes"].append(row)
             batch["episodes"].sort(key=lambda item: item["index"])
-            batch["aggregate"] = Evaluator.summarize(batch["episodes"])
-            batch["termination_counts"] = Evaluator.termination_counts(batch["episodes"])
-            if suite is not None:
-                batch["case_results"] = {
-                    case["case_id"]: {
-                        "aggregate": Evaluator.summarize(
-                            row for row in batch["episodes"] if row["case_id"] == case["case_id"]),
-                        "termination_counts": Evaluator.termination_counts(
-                            row for row in batch["episodes"] if row["case_id"] == case["case_id"]),
-                    }
-                    for case in suite.to_dict()["cases"]
-                }
+            refresh()
+
+        refresh()
         try:
             if payload is None:
                 for index, config in enumerate(configs, start=1):
                     save_result(index, self._run_one(config, agent_factory, max_decisions))
             else:
                 from sc2bench_env.benchmark.parallel import run_parallel
-                run_parallel(configs, payload, self.record_dir, max_decisions,
+                run_parallel(configs, payload, episode_dir, max_decisions,
                              max_parallel, save_result)
         except BaseException as error:
-            batch["status"] = "interrupted" if isinstance(error, (KeyboardInterrupt, SystemExit)) else "failed"
+            batch["status"] = _batch_status(error)
             batch["ended_at"] = datetime.now(timezone.utc).isoformat()
             batch["error_type"] = type(error).__name__
+            refresh()
             raise
         batch["status"] = "completed"
         batch["ended_at"] = datetime.now(timezone.utc).isoformat()
+        refresh()
         return batch
 
     def _run_one(
@@ -174,7 +247,8 @@ class BenchmarkRunner:
         runtime_versions = {"game_version": None}
         try:
             env = Environment(
-                self.backend_factory(), record_dir=self.record_dir,
+                self.backend_factory(),
+                record_dir=self._episode_record_dir or self.record_dir,
                 on_record_started=record_callback,
             )
             observation = env.reset(config)
@@ -212,6 +286,7 @@ class BenchmarkRunner:
                     tool_turn.abort()
                     break
                 if turn.stop_after_call_failures:
+                    env.record_agent_calls(turn.agent_context)
                     tool_turn.abort()
                     env.close(end_reason="agent_call_failed")
                     break

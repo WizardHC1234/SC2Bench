@@ -6,6 +6,7 @@ from __future__ import annotations
 
 
 import difflib
+import heapq
 from typing import Any, Dict, List, Mapping, Optional, Sequence
 
 from sc2bench_env.catalog import knowledge
@@ -22,7 +23,7 @@ def catalog_roles(name: str, forms: Sequence[Mapping[str, Any]], race: str) -> L
     resolved: List[str] = []
     if spec is not None and spec.action == "research":
         resolved.append("tech")
-    elif spec is not None and spec.action in {"build", "upgrade"}:
+    elif spec is not None and spec.action in {"build", "morph_townhall"}:
         if has_weapon:
             resolved.append("defense")
         elif "techlab" in name or name.endswith("reactor"):
@@ -49,7 +50,7 @@ def names_for(race: str, kind: str) -> List[str]:
     for spec in get_catalog(race=race).targets:
         if kind == "unit" and spec.action == "train":
             names.append(spec.name)
-        elif kind == "building" and spec.action in {"build", "upgrade"}:
+        elif kind == "building" and spec.action in {"build", "morph_townhall"}:
             names.append(spec.name)
         elif kind == "research" and spec.action == "research":
             names.append(spec.name)
@@ -128,7 +129,7 @@ from sc2bench_env.interface.tools import KNOWLEDGE_TOOLS
 
 _KNOWLEDGE_RACES = ("terran", "protoss", "zerg")
 
-def _spec_payload(spec, *, kind: str) -> Dict[str, Any]:
+def _spec_payload(spec, *, kind: str, race: str = "terran") -> Dict[str, Any]:
     payload = {
         "name": spec.name,
         "minerals": spec.minerals,
@@ -137,10 +138,21 @@ def _spec_payload(spec, *, kind: str) -> Dict[str, Any]:
         "prerequisites": list(spec.prerequisites),
         "description": spec.description,
     }
+    if spec.action == "morph_townhall":
+        payload["action"] = "morph_townhall"
+    if spec.mechanism:
+        payload["mechanism"] = spec.mechanism
+    if spec.production_batch_size != 1:
+        payload["production_batch_size"] = spec.production_batch_size
     if kind == "unit":
-        payload.update({"supply": spec.supply, "produced_at": spec.produced_at})
+        payload.update({
+            "supply": spec.supply,
+            "produced_at": spec.produced_at,
+            "dispatchable": spec.dispatchable,
+        })
     elif kind == "building":
-        payload.update({"builder": spec.produced_at or "scv", "kind": spec.kind})
+        worker = {"protoss": "probe", "zerg": "drone"}.get(race, "scv")
+        payload.update({"builder": spec.produced_at or spec.morph_from or worker, "kind": spec.kind})
     elif kind == "research":
         payload.update({"facility": spec.produced_at})
     return payload
@@ -159,7 +171,7 @@ def _lookup(name: str, *, race: str, expected_actions: Sequence[str], kind: str)
         }
     if spec.action not in expected_actions:
         return {"name": spec.name, "error": f"not_a_{kind}_target", "action": spec.action}
-    payload = _spec_payload(spec, kind=kind)
+    payload = _spec_payload(spec, kind=kind, race=race)
     if spec.morph_from:
         payload["morph_from"] = spec.morph_from
     if kind == "research":
@@ -175,7 +187,7 @@ def query_unit_data(names: Sequence[str], *, race: str = "terran") -> Dict[str, 
 def query_building_data(names: Sequence[str], *, race: str = "terran") -> Dict[str, Any]:
     return {
         "results": [
-            _lookup(name, race=race, expected_actions=("build", "upgrade"), kind="building")
+            _lookup(name, race=race, expected_actions=("build", "morph_townhall"), kind="building")
             for name in names
         ]
     }
@@ -253,23 +265,26 @@ def query_race_data(race: str) -> Dict[str, Any]:
     catalog = get_catalog(race=race)
     units, buildings, research, structure = [], [], [], []
     for spec in catalog.targets:
+        if not spec.executable:
+            continue
         if spec.action == "train":
             units.append(spec.name)
         elif spec.action == "build":
             buildings.append(spec.name)
         elif spec.action == "research":
             research.append(spec.name)
-        elif spec.action == "upgrade":
+        elif spec.action == "morph_townhall":
             structure.append(spec.name)
     return {
         "race": race,
         "units": units,
         "buildings": buildings,
-        "upgrades": {"research": research, "structure": structure},
+        "research": research,
+        "morph_townhall": structure,
         "observable_only": observable_groups(race),
         "platform_abilities": [
             spec.name for spec in catalog.targets
-            if spec.action in {"scan", "call_mule", "chrono_boost", "inject_larva", "spawn_creep_tumor", "scout"}
+            if spec.action in {"scan", "call_mule", "supply_drop", "chrono_boost", "inject_larva", "spawn_creep_tumor", "scout"}
         ],
     }
 
@@ -309,33 +324,31 @@ def query_route(observation: Mapping[str, Any], from_zone: str, to_zone: str) ->
         for item in row.get("corridor_neighbors") or []:
             if isinstance(item, Mapping):
                 distances[(name, item["zone_id"])] = item.get("path_distance")
-    queue = [(from_zone, [from_zone])]
-    seen = {from_zone}
+    best = {from_zone: 0.0}
+    queue = [(0.0, from_zone, [from_zone])]
     while queue:
-        current, path = queue.pop(0)
+        total, current, path = heapq.heappop(queue)
+        if total != best.get(current):
+            continue
+        if current == to_zone:
+            segments = [
+                {"from": path[i], "to": path[i + 1],
+                 "distance": distances.get((path[i], path[i + 1]))}
+                for i in range(len(path) - 1)
+            ]
+            return {
+                "from_zone": from_zone, "to_zone": to_zone, "path": path,
+                "segments": segments, "total_distance": total,
+                "distance_meaning": "shortest_known_path",
+            }
         for neighbor in neighbors.get(current, []):
-            if neighbor in seen:
+            step = distances.get((current, neighbor))
+            if not isinstance(step, (int, float)):
                 continue
-            next_path = path + [neighbor]
-            if neighbor == to_zone:
-                segments = [
-                    {"from": next_path[i], "to": next_path[i + 1],
-                     "distance": distances.get((next_path[i], next_path[i + 1]))}
-                    for i in range(len(next_path) - 1)
-                ]
-                total = 0.0
-                known = True
-                for segment in segments:
-                    if not isinstance(segment["distance"], (int, float)):
-                        known = False
-                        break
-                    total += float(segment["distance"])
-                return {
-                    "from_zone": from_zone, "to_zone": to_zone, "path": next_path,
-                    "segments": segments, "total_distance": total if known else None,
-                }
-            seen.add(neighbor)
-            queue.append((neighbor, next_path))
+            nxt = total + float(step)
+            if nxt < best.get(neighbor, float("inf")):
+                best[neighbor] = nxt
+                heapq.heappush(queue, (nxt, neighbor, path + [neighbor]))
     return {"from_zone": from_zone, "to_zone": to_zone, "error": "no_corridor_path"}
 
 

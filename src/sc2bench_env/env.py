@@ -120,6 +120,8 @@ class Environment:
                 self.record_path / "replay.SC2Replay" if self.record_path is not None else None
             )
             snapshot = self.backend.start_episode(self.config)
+            if getattr(self.backend, "knowledge_snapshot", None) is not None and self.recorder is not None:
+                self.recorder.bind_knowledge()
             observation = self._build_observation(snapshot)
             if self.recorder is not None:
                 self.recorder.record_reset(observation.to_dict())
@@ -212,7 +214,7 @@ class Environment:
         batch = pending["batch"]
         feedback = Feedback(
             receipts=pending["receipts"],
-            events=list(self.task_manager.recent_events[-8:]),
+            events=list(self.task_manager.events_since_boundary()),
             name_normalizations=list(batch.normalizations),
         )
         terminated = bool(snapshot.terminated)
@@ -341,6 +343,7 @@ class Environment:
             researching = {key for key, value in researching_raw.items() if value}
         else:
             researching = set(researching_raw)
+        self.task_manager.begin_decision_step(game_time=snapshot.game_time_seconds)
         receipts = self.task_manager.submit_decision(
             batch, game_time=snapshot.game_time_seconds, baseline_owned=baselines,
             known_upgrades=upgrades, researching=researching,
@@ -365,6 +368,15 @@ class Environment:
             code=code, agent_context=agent_context,
             game_time_seconds=snapshot.game_time_seconds,
         )
+
+    def record_agent_calls(self, agent_context: Optional[dict[str, Any]]) -> None:
+        """Write harness model-call records without applying actions."""
+        if self.recorder is None or self._closed or self.config is None:
+            return
+        if not isinstance(agent_context, dict):
+            return
+        snapshot = self.backend.snapshot()
+        self.recorder.record_agent_calls(agent_context, game_time=snapshot.game_time_seconds)
 
     def record_agent_call_failure(self, agent_context: dict[str, Any]) -> dict[str, Any]:
         """Record an external harness failure without applying actions or waiting."""
@@ -551,7 +563,7 @@ class Environment:
         # including completions/failures that occurred while this step waited.
         feedback = Feedback(
             receipts=receipts,
-            events=list(self.task_manager.recent_events[-8:]),
+            events=list(self.task_manager.events_since_boundary()),
             name_normalizations=list(batch.normalizations),
         )
         info = {
@@ -607,6 +619,9 @@ class Environment:
         )
 
     def close(self, *, end_reason: str = "closed_by_caller") -> None:
+        from sc2bench_env.catalog.knowledge import clear_game_data
+
+        clear_game_data()
         self._retire_tool_turn()
         if self._closed:
             return

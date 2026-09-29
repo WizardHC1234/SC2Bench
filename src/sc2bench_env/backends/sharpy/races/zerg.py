@@ -25,6 +25,7 @@ from sc2bench_env.backends.sharpy.acts import (
 )
 from sc2bench_env.backends.sharpy.defense import PlanZoneDefenseSafe
 from sc2bench_env.backends.sharpy.defense_placement import DEFENSE_KINDS, DefensiveGridBuilding
+from sc2bench_env.backends.sharpy.combat_styles import unit_available_for_background
 from sc2bench_env.backends.sharpy.gather import PlanHomeGather
 from sc2bench_env.backends.sharpy.races.base import RaceAdapter
 from sc2bench_env.catalog.registry import TargetSpec, get_target, targets_for_action
@@ -86,13 +87,45 @@ _BUILD_MORPHS: Dict[str, Tuple[UnitTypeId, AbilityId, UnitTypeId]] = {
 class BenchMorph(ActBase):
     """Morph an existing unit. Home gathering must not be what decides affordability."""
 
-    def __init__(self, unit_type, ability, result_type, cocoon_type, target_count):
+    def __init__(self, unit_type, ability, result_type, cocoon_type, target_count, *, require_group0=True):
         super().__init__()
         self.unit_type = unit_type
         self.ability_type = ability
         self.result_type = result_type
         self.cocoon_type = cocoon_type
         self.target_count = target_count
+        self.require_group0 = require_group0
+        self.waiting_reason = None
+
+    def reserve_pending_sources(self) -> None:
+        """Hold source units for this morph before a later combat order can take them."""
+        tags = getattr(self.ai, "bench_morph_tags", None)
+        if not isinstance(tags, set):
+            tags = set()
+            self.ai.bench_morph_tags = tags
+        done = self.ai.units(self.result_type).amount + self.ai.units(self.cocoon_type).amount
+        sources = list(self.ai.units(self.unit_type).ready)
+        for unit in sources:
+            orders = getattr(unit, "orders", None) or []
+            if orders and getattr(getattr(orders[0], "ability", None), "id", None) == self.ability_type:
+                done += 1
+        need = max(0, int(self.target_count) - int(done))
+        held = 0
+        for unit in sources:
+            if unit.tag in tags:
+                held += 1
+                continue
+            orders = getattr(unit, "orders", None) or []
+            if orders and getattr(getattr(orders[0], "ability", None), "id", None) == self.ability_type:
+                continue
+            if not unit_available_for_background(unit, self.ai, require_group0=self.require_group0):
+                continue
+            if int(getattr(unit, "cargo_used", 0) or 0) > 0:
+                continue
+            tags.add(int(unit.tag))
+            held += 1
+            if held >= need:
+                break
 
     async def execute(self) -> bool:
         done = self.ai.units(self.result_type).amount + self.ai.units(self.cocoon_type).amount
@@ -103,9 +136,18 @@ class BenchMorph(ActBase):
                 done += 1
         if done >= self.target_count:
             return True
+        self.waiting_reason = None
+        saw_reserved = False
         for unit in sources:
             orders = getattr(unit, "orders", None) or []
             if orders and getattr(getattr(orders[0], "ability", None), "id", None) == self.ability_type:
+                continue
+            if not unit_available_for_background(unit, self.ai, require_group0=self.require_group0):
+                if unit.tag in set(getattr(self.ai, "bench_combat_tags", set()) or ()):
+                    saw_reserved = True
+                continue
+            if int(getattr(unit, "cargo_used", 0) or 0) > 0:
+                saw_reserved = True
                 continue
             if not self.ai.can_afford(self.ability_type, check_supply_cost=False):
                 return False
@@ -116,13 +158,17 @@ class BenchMorph(ActBase):
             done += 1
             if done >= self.target_count:
                 return True
+        self.waiting_reason = "source_unit_reserved" if saw_reserved else "source_unit_unavailable"
         return False
 
 
-def _morph(unit_type, ability, result_type, cocoon_type):
+def _morph(unit_type, ability, result_type, cocoon_type, *, require_group0=True):
     class _Specific(BenchMorph):
         def __init__(self, target_count):
-            super().__init__(unit_type, ability, result_type, cocoon_type, target_count)
+            super().__init__(
+                unit_type, ability, result_type, cocoon_type, target_count,
+                require_group0=require_group0,
+            )
 
     return _Specific
 
@@ -143,6 +189,12 @@ _UNIT_MORPHS = {
     "overseer": _morph(
         UnitTypeId.OVERLORD, AbilityId.MORPH_OVERSEER,
         UnitTypeId.OVERSEER, UnitTypeId.OVERLORDCOCOON,
+        require_group0=False,
+    ),
+    "transport_overlord": _morph(
+        UnitTypeId.OVERLORD, AbilityId.MORPH_OVERLORDTRANSPORT,
+        UnitTypeId.OVERLORDTRANSPORT, UnitTypeId.TRANSPORTOVERLORDCOCOON,
+        require_group0=False,
     ),
     "brood_lord": _morph(
         UnitTypeId.CORRUPTOR, AbilityId.MORPHTOBROODLORD_BROODLORD,
@@ -194,6 +246,7 @@ _TYPE_ALIASES: Dict[str, str] = {
     "LURKERMPBURROWED": "lurker",
     "SWARMHOSTBURROWEDMP": "swarm_host",
     "RAVAGERBURROWED": "ravager",
+    "OVERLORDTRANSPORT": "transport_overlord",
 }
 
 for _name, (_type, _producer) in _UNIT_PRODUCER_IDS.items():
@@ -254,9 +307,23 @@ class ZergTech(Tech):
 class ZergGridBuilding(GridBuilding):
     """Place on creep without creating a Pylon when no spot is free."""
 
+    def __init__(self, unit_type, to_count):
+        super().__init__(unit_type, to_count)
+        self.waiting_reason = None
+
     async def start(self, knowledge):
         await super().start(knowledge)
         self.make_pylon = None
+
+    async def execute(self) -> bool:
+        self.waiting_reason = None
+        done = await super().execute()
+        if done:
+            return True
+        count = self.get_count(self.unit_type, include_pending=False, include_not_ready=True)
+        if count < self.to_count and self.position_zerg(count) is None:
+            self.waiting_reason = "no_creep"
+        return False
 
 
 def _require_catalog(action: str, target: str) -> TargetSpec:
@@ -381,10 +448,10 @@ class ZergAdapter(RaceAdapter):
             spec = get_target(task.target, race="zerg")
             building = _BUILDING_UNIT_IDS.get(spec.produced_at)
             return ZergTech(upgrade, from_building=building)
-        if task.action == "upgrade":
+        if task.action == "morph_townhall":
             if not task.to:
-                raise ValueError("upgrade requires 'to'")
-            _require_catalog("upgrade", task.to)
+                raise ValueError("morph_townhall requires 'to'")
+            _require_catalog("morph_townhall", task.to)
             return ActMorphTownhall(task.target, task.to)
         if task.action == "inject_larva":
             _require_catalog("inject_larva", "inject_larva")
@@ -434,6 +501,9 @@ class ZergAdapter(RaceAdapter):
     def is_building_target(self, target: str) -> bool:
         spec = get_target(target, race="zerg")
         return spec is not None and spec.action == "build" and spec.kind == "building"
+
+    def home_gather_excluded(self) -> frozenset:
+        return frozenset({"queen", "overlord", "overseer"})
 
     def create_tactics(self) -> BuildOrder:
         # Overlords and Inject stay agent-visible facts, not automatic spending.

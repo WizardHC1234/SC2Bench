@@ -1,4 +1,4 @@
-"""Internal demand / execution-task model (not Agent-visible IDs)."""
+"""Persistent demand / execution-task model."""
 from __future__ import annotations
 
 
@@ -39,6 +39,15 @@ ACTIVE_DEMAND_STATES = frozenset(
 CANCELLABLE_STATES = frozenset({DemandState.WAITING_TO_START})
 
 
+def train_birth_allowance(count: int, batch: int) -> int:
+    """Units a train request may finish. A game batch may exceed the requested minimum."""
+    size = max(1, int(batch or 1))
+    needed = max(0, int(count))
+    if size == 1:
+        return needed
+    return ((needed + size - 1) // size) * size
+
+
 @dataclass
 class Demand:
     """One ordered production / research / ability demand."""
@@ -50,6 +59,9 @@ class Demand:
     action_id: Optional[str] = None
     state: DemandState = DemandState.WAITING_TO_START
     produced: int = 0
+    actual_produced: int = 0
+    mechanism: str = ""
+    production_batch_size: int = 1
     in_flight: Optional[int] = None  # Exact queued production when backend reports it.
     waiting_for: Optional[str] = None
     failure_reason: Optional[str] = None
@@ -67,6 +79,9 @@ class Demand:
     group: Optional[str] = None
     withdrawing: bool = False
     command_revision: int = 0
+    retreat_method: str = "move"
+    recall_status: Optional[str] = None
+    recall_failure: Optional[str] = None
 
     @classmethod
     def from_action(
@@ -116,6 +131,11 @@ class Demand:
 
     def identity(self) -> tuple[str, str]:
         return (self.action, self.target)
+
+    @property
+    def task_id(self) -> str:
+        """Short session-local ID exposed to the Agent; demand_id stays internal."""
+        return f"task_{self.order_index + 1}"
 
     def mark_failed(self, reason: str, game_time: float) -> None:
         self.state = DemandState.FAILED

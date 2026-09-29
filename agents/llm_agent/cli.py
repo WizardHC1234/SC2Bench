@@ -5,8 +5,10 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+from typing import Any
 
-from sc2bench_env.benchmark import BenchmarkRunner
+from sc2bench_env import Environment
+from sc2bench_env.interface.agent import AgentInput, AgentStopped, AgentTurn
 from sc2bench_env.interface.config import EpisodeConfig
 from sc2bench_env.interface.opponents import (
     BUILTIN_OPPONENTS,
@@ -15,6 +17,7 @@ from sc2bench_env.interface.opponents import (
     normalize_opponent,
 )
 from sc2bench_env.interface.races import ENEMY_RACES, SUPPORTED_OWN_RACES
+from sc2bench_env.runtime.tool_turn import ToolTurnError
 
 from .agent import LLMAgent
 from .client import make_llm_call
@@ -28,6 +31,54 @@ from .config import (
     positive_int,
 )
 from .skills import AVAILABLE_SKILLS, DEFAULT_SKILL, skill_race
+
+
+def run_episode(
+    env: Environment, agent: LLMAgent, config: EpisodeConfig,
+    *, max_decisions: int = 500,
+) -> dict[str, Any]:
+    """Run one Agent session directly against one Environment episode."""
+    observation = env.reset(config)
+    feedback = None
+    print(f"record_dir={env.record_path}", flush=True)
+    for _ in range(max_decisions):
+        tool_turn = env.begin_tool_turn()
+        try:
+            turn = agent(AgentInput(
+                observation, feedback, tuple(env.tool_specs()), tool_turn.call,
+            ))
+        except AgentStopped as stop:
+            tool_turn.abort()
+            env.close(end_reason=stop.end_reason)
+            return {"result": None, "end_reason": stop.end_reason}
+        if not isinstance(turn, AgentTurn):
+            tool_turn.abort()
+            env.record_protocol_error("agent_protocol_error")
+            env.close(end_reason="agent_protocol_error")
+            return {"result": None, "end_reason": "agent_protocol_error"}
+        for failure in turn.call_failures:
+            info = env.record_agent_call_failure(failure)
+            if info["terminated"]:
+                tool_turn.abort()
+                return info
+        if turn.stop_after_call_failures:
+            env.record_agent_calls(turn.agent_context)
+            tool_turn.abort()
+            env.close(end_reason="agent_call_failed")
+            return {"result": None, "end_reason": "agent_call_failed"}
+        try:
+            decision = tool_turn.finish()
+        except ToolTurnError as error:
+            env.record_protocol_error(error.code, agent_context=turn.agent_context)
+            env.close(end_reason="agent_protocol_error")
+            return {"result": None, "end_reason": "agent_protocol_error"}
+        observation, feedback, terminated, info = env.step(
+            decision, agent_context=turn.agent_context,
+        )
+        if terminated:
+            return info
+    env.close(end_reason="decision_limit")
+    return {"result": None, "end_reason": "decision_limit"}
 
 
 def main(argv=None) -> int:
@@ -81,6 +132,7 @@ def main(argv=None) -> int:
             "skill": args.skill,
             "max_decisions": args.max_decisions,
             "record_dir": str(resolve_record_dir(args.record_dir)),
+            "execution": "direct_environment",
         }, ensure_ascii=False, indent=2))
         return 0
     call_llm = make_llm_call(
@@ -91,17 +143,28 @@ def main(argv=None) -> int:
         temperature=args.temperature,
         thinking=args.thinking,
     )
-    runner = BenchmarkRunner(record_dir=args.record_dir)
-    batch = runner.run(
-        [config],
-        lambda: LLMAgent(
+    agent = LLMAgent(
             call_llm, max_api_attempts=args.api_attempts,
             api_retry_delay_seconds=args.api_retry_delay,
             max_consecutive_rejections=args.max_rejections,
             thinking_requested=args.thinking, verbose=not args.quiet,
             skill_name=args.skill,
-        ),
-        max_decisions=args.max_decisions,
     )
-    print(json.dumps(batch["aggregate"], ensure_ascii=False), flush=True)
-    return 0 if all(row["status"] == "completed" for row in batch["episodes"]) else 1
+    env = Environment("sharpy", record_dir=args.record_dir)
+    try:
+        info = run_episode(env, agent, config, max_decisions=args.max_decisions)
+        print(
+            f"result={info.get('result')} end_reason={info.get('end_reason')}",
+            flush=True,
+        )
+        return 0 if info.get("end_reason") in {"game_ended", "time_limit"} else 1
+    except KeyboardInterrupt:
+        env.close(end_reason="caller_interrupted")
+        print("Interrupted; saved episode record remains available.", flush=True)
+        return 130
+    except Exception:
+        env.close(end_reason="agent_error")
+        print("Stopped; inspect the episode record.", flush=True)
+        return 1
+    finally:
+        env.close()

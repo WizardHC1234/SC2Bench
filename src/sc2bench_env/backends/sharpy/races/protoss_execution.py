@@ -14,6 +14,16 @@ from sc2bench_env.runtime.task import DemandState
 
 def execution_blocker(ai, task):
     action, target = task.get("action"), task.get("target")
+    if action == "build" and target != "warpgate":
+        units = getattr(ai, "units", None)
+        if callable(units):
+            workers = units(UnitTypeId.PROBE)
+            ready = getattr(workers, "ready", workers)
+            if not list(ready):
+                return "builder_unavailable:probe"
+    waiting = getattr(task.get("_act"), "waiting_reason", None)
+    if waiting:
+        return waiting
     if action == "build" and target == "assimilator":
         act = task.get("_act")
         finder = getattr(act, "find_best", None)
@@ -54,6 +64,11 @@ def resource_committed(ai, task):
         task.pop("_paid", None)
     if task.get("_resource_committed"):
         return True
+    act = task.get("_act")
+    if action == "train" and target == "archon" and getattr(act, "_locked", ()):
+        return True
+    if action == "build" and target == "warpgate":
+        return float(ai.already_pending(UnitTypeId.WARPGATE)) > 0
     if action == "build" and target == "nexus":
         return float(ai.already_pending(UnitTypeId.NEXUS)) > 0
     if action == "build" and target in BUILDINGS:
@@ -67,9 +82,9 @@ def resource_committed(ai, task):
 def ready_progress_target(task):
     action = str(task.get("action") or "")
     target = str(task.get("target") or "")
-    if action == "build" and (target == "nexus" or target in BUILDINGS):
+    if action == "build" and (target in {"nexus", "warpgate"} or target in BUILDINGS):
         return target
-    if action == "train" and target in UNITS:
+    if action == "train" and (target == "archon" or target in UNITS):
         return target
     return None
 

@@ -30,6 +30,13 @@ class TargetSpec:
     # Optional producer / research building / morph source.
     produced_at: str = ""
     morph_from: str = ""
+    # How the target is obtained. This is not a separate Agent action.
+    # construct | structure_morph | queue | warp | larva | unit_morph | merge
+    mechanism: str = ""
+    production_batch_size: int = 1
+    dispatchable: bool = False
+    # Knowledge may still describe a target the agent cannot order.
+    executable: bool = True
 
     def cost_dict(self) -> Dict[str, int]:
         return {

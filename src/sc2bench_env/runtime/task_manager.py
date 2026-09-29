@@ -17,7 +17,28 @@ from sc2bench_env.runtime.task import (
     ACTIVE_DEMAND_STATES,
     Demand,
     DemandState,
+    train_birth_allowance,
 )
+
+
+def _parse_unit_shortage(reason: Optional[str]) -> Optional[dict]:
+    """Read requested, available and missing from an insufficient_units failure."""
+    parts = str(reason or "").split(":")
+    if len(parts) < 2 or parts[0] != "insufficient_units" or "=" in parts[1]:
+        return None
+    found: dict = {"unit": parts[1]}
+    for part in parts[2:]:
+        if "=" not in part:
+            continue
+        key, value = part.split("=", 1)
+        if key in {"requested", "available", "missing"}:
+            try:
+                found[key] = int(value)
+            except ValueError:
+                return None
+    if not {"requested", "available", "missing"} <= set(found):
+        return None
+    return found
 
 
 @dataclass
@@ -47,6 +68,9 @@ class TaskManager:
     seen_action_ids: Set[str] = field(default_factory=set)
     recent_events: List[dict] = field(default_factory=list)
     event_limit: int = 16
+    event_counter: int = 0
+    _boundary_event_id: int = 0
+    _current_game_time: float = 0.0
     group_counter: int = 0
     race: str = "terran"
 
@@ -59,6 +83,24 @@ class TaskManager:
             key=lambda d: d.order_index,
         )
 
+    def begin_decision_step(self, *, game_time: float) -> None:
+        """Mark the start of one submit-and-advance boundary for Feedback events."""
+        self._current_game_time = float(game_time)
+        self._boundary_event_id = self.event_counter
+
+    def events_since_boundary(self) -> List[dict]:
+        return [
+            event for event in self.recent_events
+            if int(event.get("event_id", 0)) > self._boundary_event_id
+        ]
+
+    def historical_events(self, *, limit: int = 8) -> List[dict]:
+        older = [
+            event for event in self.recent_events
+            if int(event.get("event_id", 0)) <= self._boundary_event_id
+        ]
+        return older[-limit:]
+
     def reset(self, *, race: Optional[str] = None) -> None:
         selected_race = self.race if race is None else race
         require_supported_own_race(selected_race)
@@ -67,6 +109,9 @@ class TaskManager:
         self.order_counter = 0
         self.seen_action_ids.clear()
         self.recent_events.clear()
+        self.event_counter = 0
+        self._boundary_event_id = 0
+        self._current_game_time = 0.0
         self.group_counter = 0
 
     def find_active_research(self, target: str) -> Optional[Demand]:
@@ -93,6 +138,7 @@ class TaskManager:
         """Apply one validated decision batch in array order."""
         if not isinstance(decision, DecisionBatch):
             raise TypeError("submit_decision requires a DecisionBatch")
+        self._current_game_time = float(game_time)
         receipts: List[ActionReceipt] = []
         baselines = baseline_owned or {}
         upgrades = known_upgrades or set()
@@ -141,6 +187,7 @@ class TaskManager:
             cleared = self._cancel_waiting(
                 target_action=action.target_action or "",
                 target=action.target or "",
+                task_id=action.task_id,
                 game_time=game_time,
             )
             if action.action_id:
@@ -152,6 +199,7 @@ class TaskManager:
                 result="accepted",
                 reason=f"cleared_waiting={cleared}",
                 action_id=action.action_id,
+                task_id=action.task_id,
             )
 
         if action.action == "research":
@@ -215,6 +263,7 @@ class TaskManager:
                     self._push_event(
                         {
                             "type": "demand_cancelled",
+                            "task_id": demand.task_id,
                             "action": "scout",
                             "target": demand.target,
                             "reason": "replaced",
@@ -227,21 +276,52 @@ class TaskManager:
             if existing is None:
                 return ActionReceipt(action=action.action, result="rejected", group=action.group,
                                      reason="group_not_found")
+            method = getattr(action, "method", None) or "move"
+            if action.action == "retreat" and method == "recall":
+                unchanged = (
+                    existing.retreat_method == "recall"
+                    and existing.recall_status == "pending"
+                    and not existing.withdrawing
+                )
+                if not unchanged:
+                    existing.withdrawing = False
+                    existing.retreat_method = "recall"
+                    existing.recall_status = "pending"
+                    existing.recall_failure = None
+                    existing.command_revision += 1
+                    existing.updated_at = game_time
+                    self._push_event({"type": "group_order_updated", "task_id": existing.task_id,
+                                      "group": existing.group,
+                                      "action": action.action, "style": existing.style,
+                                      "target": existing.target, "method": "recall"})
+                if action.action_id:
+                    self.seen_action_ids.add(action.action_id)
+                return ActionReceipt(action=action.action, target=action.target, style=action.style,
+                                     group=existing.group, task_id=existing.task_id,
+                                     result="idempotent_noop" if unchanged else "accepted")
             withdrawing = action.action == "retreat"
-            unchanged = (existing.withdrawing if withdrawing else
+            unchanged = (existing.withdrawing and existing.retreat_method != "recall" if withdrawing else
                          not existing.withdrawing and existing.style == action.style and existing.target == action.target)
             if not unchanged:
                 existing.withdrawing = withdrawing
-                if not withdrawing:
+                if withdrawing:
+                    existing.retreat_method = "move"
+                    existing.recall_status = None
+                    existing.recall_failure = None
+                else:
                     existing.style, existing.target = action.style, action.target or ""
+                    existing.retreat_method = "move"
+                    existing.recall_status = None
                 existing.command_revision += 1
                 existing.updated_at = game_time
-                self._push_event({"type": "group_order_updated", "group": existing.group,
+                self._push_event({"type": "group_order_updated", "task_id": existing.task_id,
+                                  "group": existing.group,
                                   "action": action.action, "style": existing.style, "target": existing.target})
             if action.action_id:
                 self.seen_action_ids.add(action.action_id)
             return ActionReceipt(action=action.action, target=action.target, style=action.style,
-                                 group=existing.group, result="idempotent_noop" if unchanged else "accepted")
+                                 group=existing.group, task_id=existing.task_id,
+                                 result="idempotent_noop" if unchanged else "accepted")
 
         if action.action == "combat":
             requested = {
@@ -267,6 +347,7 @@ class TaskManager:
                         action_id=action.action_id,
                         details={"requested": requested},
                         group=demand.group,
+                        task_id=demand.task_id,
                     )
             available = {name: int(idle_army.get(name, 0)) for name in requested}
             missing = {
@@ -310,6 +391,7 @@ class TaskManager:
             game_time=game_time,
             baseline_owned=baseline,
         )
+        self._copy_production_facts(demand)
         if action.action == "scout":
             from sc2bench_env.catalog.registry import get_target
             spec = get_target("scout", race=self.race)
@@ -323,10 +405,13 @@ class TaskManager:
             demand.produced = 1
         self.order_counter += 1
         self.demands[demand.demand_id] = demand
+        if action.action == "train" and demand.mechanism in {"unit_morph", "merge"}:
+            self._reserve_morph_sources(demand, idle_army)
         if action.action_id:
             self.seen_action_ids.add(action.action_id)
         event = {
             "type": "demand_accepted",
+            "task_id": demand.task_id,
             "action": demand.action,
             "target": demand.target,
             "count": demand.count,
@@ -342,13 +427,21 @@ class TaskManager:
             target=action.target,
             count=action.count,
             result="accepted",
+            task_id=demand.task_id,
             action_id=action.action_id,
             style=action.style,
             details={"requested": dict(action.units)} if action.action == "combat" else None,
             group=demand.group,
         )
 
-    def _cancel_waiting(self, *, target_action: str, target: str, game_time: float) -> int:
+    def _cancel_waiting(
+        self,
+        *,
+        target_action: str,
+        target: str,
+        task_id: Optional[str] = None,
+        game_time: float,
+    ) -> int:
         """Clear not-yet-started work for matching demands.
 
         Fully waiting demands are cancelled. Partially started train demands keep
@@ -357,8 +450,19 @@ class TaskManager:
         """
         cleared = 0
         for demand in list(self.demands.values()):
-            if demand.action != target_action or demand.target != target:
-                continue
+            if task_id is not None:
+                if demand.task_id != task_id:
+                    continue
+                if demand.action not in {"build", "train", "research", "morph_townhall"}:
+                    continue
+            else:
+                if demand.action != target_action:
+                    continue
+                if demand.action == "morph_townhall":
+                    if target not in {demand.target, demand.to}:
+                        continue
+                elif demand.target != target:
+                    continue
             if not demand.is_active:
                 continue
 
@@ -373,21 +477,18 @@ class TaskManager:
                     self._push_event(
                         {
                             "type": "demand_trimmed",
+                            "task_id": demand.task_id,
                             "action": demand.action,
                             "target": demand.target,
                             "kept": keep,
                             "produced": demand.produced,
                         }
                     )
-                if demand.produced >= demand.count:
+                if demand.actual_produced >= train_birth_allowance(
+                    demand.count, demand.production_batch_size
+                ):
                     demand.mark_completed(game_time)
-                    self._push_event(
-                        {
-                            "type": "train_completed",
-                            "target": demand.target,
-                            "count": demand.count,
-                        }
-                    )
+                    self._push_event(self._train_completed_event(demand))
                 continue
 
             if demand.state == DemandState.WAITING_TO_START and demand.is_cancellable:
@@ -397,6 +498,7 @@ class TaskManager:
                 self._push_event(
                     {
                         "type": "demand_cancelled",
+                        "task_id": demand.task_id,
                         "action": demand.action,
                         "target": demand.target,
                     }
@@ -404,6 +506,7 @@ class TaskManager:
         return cleared
 
     def apply_updates(self, updates: Iterable[DemandUpdate], *, game_time: float) -> None:
+        self._current_game_time = float(game_time)
         merged_by_id: Dict[str, DemandUpdate] = {}
         buckets: Dict[tuple[str, str], List[DemandUpdate]] = {}
         for update in updates:
@@ -456,15 +559,22 @@ class TaskManager:
         state = update.state or update.status
         if failure or state == DemandState.FAILED:
             demand.mark_failed(failure or "backend_failed", game_time)
-            self._push_event(
-                {
-                    "type": "demand_failed",
-                    "action": demand.action,
-                    "target": demand.target,
-                    "reason": demand.failure_reason,
-                    **({"style": demand.style} if demand.style else {}),
-                }
-            )
+            event = {
+                "type": "demand_failed",
+                "task_id": demand.task_id,
+                "action": demand.action,
+                "target": demand.target,
+                "reason": demand.failure_reason,
+                **({"style": demand.style} if demand.style else {}),
+            }
+            if demand.action == "combat":
+                event["group"] = demand.group
+                event["requested"] = dict(demand.units or {})
+                shortage = _parse_unit_shortage(demand.failure_reason)
+                if shortage:
+                    event["available"] = {shortage["unit"]: shortage["available"]}
+                    event["missing"] = {shortage["unit"]: shortage["missing"]}
+            self._push_event(event)
             return
 
         if update.end_reason and demand.action == "combat":
@@ -475,6 +585,7 @@ class TaskManager:
             self._push_event(
                 {
                     "type": "combat_ended",
+                    "task_id": demand.task_id,
                     "group": demand.group,
                     "style": demand.style,
                     "target": demand.target,
@@ -486,7 +597,9 @@ class TaskManager:
 
         produced_delta = update.produced_delta or update.completed_delta
         if produced_delta:
-            demand.produced = min(demand.count, demand.produced + max(0, produced_delta))
+            raw = max(0, int(produced_delta))
+            demand.actual_produced += raw
+            demand.produced = min(demand.count, demand.produced + raw)
         if demand.action == "train" and update.in_progress is not None:
             demand.in_flight = max(0, int(update.in_progress))
 
@@ -504,19 +617,16 @@ class TaskManager:
             self._push_event(
                 {
                     "type": "build_started",
+                    "task_id": demand.task_id,
                     "target": demand.target,
                 }
             )
             return
-        elif demand.action == "train" and demand.produced >= demand.count:
+        elif demand.action == "train" and demand.actual_produced >= train_birth_allowance(
+            demand.count, demand.production_batch_size
+        ):
             demand.mark_completed(game_time)
-            self._push_event(
-                {
-                    "type": "train_completed",
-                    "target": demand.target,
-                    "count": demand.count,
-                }
-            )
+            self._push_event(self._train_completed_event(demand))
             return
         elif state in ACTIVE_DEMAND_STATES:
             # A merged update can contain the final birth plus an idle producer
@@ -541,15 +651,17 @@ class TaskManager:
             state == DemandState.COMPLETED or demand.produced >= 1
         ):
             demand.mark_completed(game_time)
-            self._push_event({"type": "research_queued", "target": demand.target})
+            self._push_event({"type": "research_queued", "task_id": demand.task_id,
+                              "target": demand.target})
             return
         elif demand.action in {
-            "scan", "call_mule", "chrono_boost", "inject_larva", "spawn_creep_tumor", "upgrade", "scout",
+            "scan", "call_mule", "supply_drop", "chrono_boost", "inject_larva", "spawn_creep_tumor", "morph_townhall", "scout",
         } and (
             state == DemandState.COMPLETED or demand.produced >= 1
         ):
             demand.mark_completed(game_time)
-            event: dict = {"type": demand.action, "target": demand.target}
+            event: dict = {"type": demand.action, "task_id": demand.task_id,
+                           "target": demand.target}
             if demand.to:
                 event["to"] = demand.to
             if demand.route:
@@ -562,6 +674,7 @@ class TaskManager:
             self._push_event(
                 {
                     "type": "combat_ended",
+                    "task_id": demand.task_id,
                     "style": demand.style,
                     "target": demand.target,
                     "units": dict(demand.units or {}),
@@ -614,6 +727,45 @@ class TaskManager:
                 summary[building_type] = row
         return summary
 
+    def _reserve_morph_sources(self, demand: Demand, idle_army: Dict[str, int]) -> None:
+        """A morph accepted earlier in this batch keeps its source units."""
+        from sc2bench_env.catalog.registry import get_target
+
+        spec = get_target(demand.target, race=self.race) if demand.target else None
+        source = getattr(spec, "produced_at", "") if spec is not None else ""
+        if not source:
+            return
+        each = 2 if demand.mechanism == "merge" else 1
+        need = max(0, int(demand.remaining)) * each
+        idle_army[source] = max(0, int(idle_army.get(source, 0)) - need)
+
+    def _copy_production_facts(self, demand: Demand) -> None:
+        from sc2bench_env.catalog.registry import get_target
+
+        name = demand.to if demand.action == "morph_townhall" else demand.target
+        spec = get_target(name, race=self.race) if name else None
+        if spec is None:
+            return
+        demand.mechanism = spec.mechanism
+        demand.production_batch_size = max(1, int(spec.production_batch_size))
+
+    @staticmethod
+    def _train_completed_event(demand: Demand) -> dict:
+        event = {
+            "type": "train_completed",
+            "task_id": demand.task_id,
+            "target": demand.target,
+            "count": demand.count,
+        }
+        if demand.production_batch_size > 1 or demand.actual_produced > demand.count:
+            event.update({
+                "requested_count": demand.count,
+                "actual_produced": demand.actual_produced,
+                "mechanism": demand.mechanism,
+                "production_batch_size": demand.production_batch_size,
+            })
+        return event
+
     @staticmethod
     def _cancellable_count(demand: Demand) -> Optional[int]:
         """Project the cancel boundary; unknown paid queues are not guessed."""
@@ -630,14 +782,17 @@ class TaskManager:
         return 0
 
     def production_priority_summary(self) -> List[dict]:
-        """Relative active macro order; no internal IDs or reordered buckets."""
+        """Relative active macro order with stable Agent-visible task IDs."""
         rows = []
         for demand in self.active_demands():
-            if demand.action not in {"build", "train", "research"}:
+            if demand.action not in {"build", "train", "research", "morph_townhall"}:
                 continue
-            row = {"action": demand.action, "target": demand.target,
+            row = {"task_id": demand.task_id,
+                   "action": demand.action, "target": demand.target,
                    "state": demand.state.value, "remaining": demand.remaining,
                    "cancellable_count": self._cancellable_count(demand)}
+            if demand.to:
+                row["to"] = demand.to
             if demand.action == "train":
                 queued = (demand.in_flight if demand.in_flight is not None else
                           (0 if demand.state == DemandState.WAITING_TO_START else None))
@@ -648,6 +803,17 @@ class TaskManager:
                             "waiting_to_produce": max(0, demand.remaining - queued) if queued is not None else None})
             if demand.waiting_for:
                 row["waiting_for"] = demand.waiting_for
+            if demand.mechanism and demand.mechanism not in {"construct", "queue"}:
+                row["mechanism"] = demand.mechanism
+            if (
+                demand.action == "train"
+                and (demand.production_batch_size > 1 or demand.actual_produced > demand.count)
+            ):
+                row.update({
+                    "requested_count": demand.count,
+                    "actual_produced": demand.actual_produced,
+                    "production_batch_size": demand.production_batch_size,
+                })
             rows.append(row)
         return rows
 
@@ -702,6 +868,10 @@ class TaskManager:
         return summary
 
     def _push_event(self, event: dict) -> None:
-        self.recent_events.append(event)
+        self.event_counter += 1
+        payload = dict(event)
+        payload.setdefault("event_id", self.event_counter)
+        payload.setdefault("game_time_seconds", float(self._current_game_time))
+        self.recent_events.append(payload)
         if len(self.recent_events) > self.event_limit:
             self.recent_events = self.recent_events[-self.event_limit :]

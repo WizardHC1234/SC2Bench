@@ -76,6 +76,14 @@ def _render_catalog_results(result: Mapping[str, Any], *, kind: str) -> str:
                 lines.append(f"  Morphs from: {_display_value(row.get('morph_from'))}")
         else:
             lines.append(f"  Facility: {_display_value(row.get('facility'))}")
+        if row.get("mechanism"):
+            lines.append(f"  Mechanism: {_display_value(row.get('mechanism'))}")
+        if row.get("production_batch_size"):
+            lines.append(f"  Units per order: {_display_value(row.get('production_batch_size'))}")
+        if kind == "unit" and "dispatchable" in row:
+            lines.append(f"  Dispatchable: {_display_value(row.get('dispatchable'))}")
+        if row.get("action") == "morph_townhall":
+            lines.append("  Order this with morph_townhall and a townhall_<n> id.")
         lines.append(f"  Prerequisites: {_display_list(row.get('prerequisites'))}")
         lines.append(f"  Availability: {_display_value(row.get('availability'))}")
         if kind == "research":
@@ -279,14 +287,13 @@ def render_tool_result(name: str, result: Any) -> str:
             )
         return "\n".join(lines)
     if name == "query_race_data":
-        upgrades = result.get("upgrades") if isinstance(result.get("upgrades"), Mapping) else {}
         observable = result.get("observable_only") if isinstance(result.get("observable_only"), Mapping) else {}
         return "\n".join((
             f"{_display_value(result.get('race')).title()} catalog",
             f"Controllable units: {_display_list(result.get('units'))}",
             f"Controllable buildings: {_display_list(result.get('buildings'))}",
-            f"Research: {_display_list(upgrades.get('research'))}",
-            f"Structure morphs: {_display_list(upgrades.get('structure'))}",
+            f"Research: {_display_list(result.get('research'))}",
+            f"Town hall morphs: {_display_list(result.get('morph_townhall'))}",
             f"Observable-only units: {_display_list(observable.get('units'))}",
             f"Observable-only buildings: {_display_list(observable.get('buildings'))}",
             f"Platform abilities: {_display_list(result.get('platform_abilities'))}",

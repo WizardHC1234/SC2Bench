@@ -105,6 +105,14 @@ class RaceAdapter(ABC):
     def normalize_unit_name(self, type_name: str) -> Optional[str]:
         """Map SC2/Sharpy type names to platform target keys."""
 
+    def home_production_types(self) -> frozenset:
+        """Buildings whose rally point is the army home. Empty means no rally."""
+        return frozenset()
+
+    def home_gather_excluded(self) -> frozenset:
+        """Train-unit names that must not be walked to the army point."""
+        return frozenset()
+
     def normalize_upgrade_name(self, upgrade_name: str) -> Optional[str]:
         """Map SC2 upgrade names to platform research targets."""
         return None

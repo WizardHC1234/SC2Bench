@@ -12,6 +12,8 @@ _TRAIN_ORDER_HINTS = (
     ("CORRUPTOR", "corruptor"),
     ("MUTALISK", "mutalisk"),
     ("INFESTOR", "infestor"),
+    ("OVERLORDTRANSPORT", "transport_overlord"),
+    ("TRANSPORTOVERLORD", "transport_overlord"),
     ("OVERSEER", "overseer"),
     ("OVERLORD", "overlord"),
     ("ZERGLING", "zergling"),
@@ -104,6 +106,45 @@ def _queue_row(facility, parents):
     return row
 
 
+def _morph_source_rows(ai):
+    """Available versus reserved morph sources. Counts are observed, not inferred."""
+    from sc2.ids.unit_typeid import UnitTypeId
+
+    from sc2bench_env.backends.sharpy.combat_styles import unit_available_for_background
+
+    specs = (
+        ("baneling_source", UnitTypeId.ZERGLING, True),
+        ("ravager_source", UnitTypeId.ROACH, True),
+        ("lurker_source", UnitTypeId.HYDRALISK, True),
+        ("brood_lord_source", UnitTypeId.CORRUPTOR, True),
+        ("overseer_source", UnitTypeId.OVERLORD, False),
+        ("transport_overlord_source", UnitTypeId.OVERLORD, False),
+    )
+    rows = []
+    for facility, unit_type, require_group0 in specs:
+        sources = list(ai.units(unit_type).ready)
+        available = reserved = 0
+        for unit in sources:
+            loaded = int(getattr(unit, "cargo_used", 0) or 0) > 0
+            if loaded or not unit_available_for_background(unit, ai, require_group0=require_group0):
+                reserved += 1
+            else:
+                available += 1
+        rows.append({
+            "facility": facility,
+            "ready_grounded": len(sources),
+            "capacity": len(sources),
+            "occupied_slots": reserved,
+            "free_slots": available,
+            "queue_capacity": None,
+            "queued_orders": None,
+            "free_queue_positions": None,
+            "source_available": available,
+            "source_reserved": reserved,
+        })
+    return rows
+
+
 def read_production_capacity(ai, adapter):
     """Larva headroom plus town-hall queues. Lairs and Hives count as hatcheries."""
     from sc2.ids.unit_typeid import UnitTypeId
@@ -125,6 +166,7 @@ def read_production_capacity(ai, adapter):
                  if adapter.normalize_unit_name(s.type_id.name) in adapter.townhall_targets
                  and getattr(s, "build_progress", 0) >= 1]
     rows.append(_queue_row("hatchery", townhalls))
+    rows.extend(_morph_source_rows(ai))
     return rows
 
 

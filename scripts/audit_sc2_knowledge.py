@@ -39,7 +39,7 @@ def collect_issues() -> list[str]:
             issues.append(f"cross_race:{race}:{','.join(sorted(leaked))}")
         catalog_names = {spec.name for spec in get_catalog(race=race).targets}
         for spec in get_catalog(race=race).targets:
-            if spec.action not in {"train", "build", "research", "upgrade"}:
+            if spec.action not in {"train", "build", "research", "morph_townhall"}:
                 continue
             if get_target(spec.name, race=race) is None:
                 issues.append(f"unresolved_target:{race}:{spec.name}")
@@ -49,7 +49,7 @@ def collect_issues() -> list[str]:
             if spec.action == "research":
                 continue
             forms = _forms(race, spec.name)
-            if not forms and spec.action in {"train", "build", "upgrade"}:
+            if not forms and spec.action in {"train", "build", "morph_townhall"}:
                 issues.append(f"no_snapshot_form:{race}:{spec.name}")
             primary = (((json.loads((ROOT / "data" / "sc2" / "common" / "aliases.json").read_text(encoding="utf-8")).get("primary_forms") or {}).get(race) or {}).get(spec.name))
             if forms and not primary:
@@ -112,7 +112,112 @@ def collect_issues() -> list[str]:
     return issues
 
 
+_LIVE_VERIFIED = {
+    ("5.0.16.97563", "protoss", "warpgate", "build"),
+    ("5.0.16.97563", "protoss", "warp_gate", "research"),
+}
+
+
+def coverage_rows() -> list[dict]:
+    """One row per catalog target and snapshot.
+
+    ``complete`` means the snapshot, catalog and query agree.
+    ``live_verified`` is separate: Linux 4.10 was not started on this machine.
+    """
+    from sc2bench_env.catalog.knowledge import (
+        game_data, require_snapshot_match, snapshot_has_ability, upgrade_row,
+    )
+    from sc2bench_env.catalog.registry import get_catalog
+
+    rows = []
+    for game_version, data_version, base_build in (
+        ("5.0.16.97563", "F364D7C8BB1A0444ABC9BEE547B3FBB3", 97563),
+        ("4.10.0.75689", "B89B5D6FA7CBF6452E721311BFBC6CB2", 75689),
+    ):
+        snapshot = require_snapshot_match(
+            game_version=game_version,
+            data_version=data_version,
+            base_build=base_build,
+        )
+        with game_data(snapshot):
+            runtime_path = ROOT / "data" / "sc2" / "snapshots" / snapshot["folder"] / "runtime_stats.json"
+            runtime = json.loads(runtime_path.read_text(encoding="utf-8"))
+            observed = {str(item.get("proto_name") or "").upper() for item in (runtime.get("units") or {}).values()}
+            explained = {
+                str(item.get("proto_name") or "").upper()
+                for item in runtime.get("unobserved") or []
+                if item.get("reason")
+            }
+            aliases = json.loads((ROOT / "data" / "sc2" / "common" / "aliases.json").read_text(encoding="utf-8"))
+            primaries = aliases.get("primary_forms") or {}
+            for race in ("terran", "protoss", "zerg"):
+                for spec in get_catalog(race=race).targets:
+                    if spec.action not in {"train", "build", "research", "morph_townhall"}:
+                        continue
+                    forms = _forms(race, spec.name)
+                    proto = str(((primaries.get(race) or {}).get(spec.name) or "")).upper()
+                    research_row = upgrade_row(race, spec.name) if spec.action == "research" else None
+                    snapshot_present = bool(forms) or research_row is not None
+                    runtime_present = (not proto) or proto in observed or proto in explained or spec.action == "research"
+                    queried = get_target(spec.name, race=race)
+                    exposed = queried is not None and (
+                        spec.action != "research" or research_row is not None
+                    ) and spec.executable
+                    live = (game_version, race, spec.name, spec.action) in _LIVE_VERIFIED
+                    differences = []
+                    if not spec.executable:
+                        status = "knowledge_only"
+                    elif spec.action == "research" and research_row is None:
+                        status = "version_not_applicable"
+                    elif spec.action in {"train", "build", "morph_townhall"} and not forms:
+                        status = "missing_field"
+                        differences.append("no_snapshot_form")
+                    elif not exposed:
+                        status = "implementation_missing"
+                    else:
+                        status = "complete"
+                        if not live:
+                            differences.append("live_not_run")
+                    if spec.name == "warpgate" and spec.action == "build":
+                        paid = snapshot_has_ability("MorphBuildingGatewayWarpGateFree")
+                        if paid and (queried.minerals, queried.vespene) != (25, 25):
+                            status = "mismatch"
+                            differences.append("first_conversion_cost")
+                        if not paid and (queried.minerals, queried.vespene) != (0, 0):
+                            status = "mismatch"
+                            differences.append("linux_cost_must_stay_zero")
+                    rows.append({
+                        "version": game_version,
+                        "race": race,
+                        "target": spec.name,
+                        "action": spec.action,
+                        "catalog_present": True,
+                        "snapshot_present": snapshot_present,
+                        "runtime_stats_present": runtime_present,
+                        "ability_present": snapshot_present,
+                        "tool_query_ok": queried is not None,
+                        "live_verified": live,
+                        "differences": ",".join(differences),
+                        "status": status,
+                    })
+    return rows
+
+
 def main() -> int:
+    if "--table" in sys.argv:
+        rows = coverage_rows()
+        print("\t".join([
+            "version", "race", "target", "action", "catalog_present", "snapshot_present",
+            "runtime_stats_present", "ability_present", "tool_query_ok", "live_verified",
+            "differences", "status",
+        ]))
+        for row in rows:
+            print("\t".join(str(row[key]) for key in (
+                "version", "race", "target", "action", "catalog_present", "snapshot_present",
+                "runtime_stats_present", "ability_present", "tool_query_ok", "live_verified",
+                "differences", "status",
+            )))
+        return 0
     issues = collect_issues()
     allowed = _allowlist()
     unexpected = [item for item in issues if item not in allowed and not any(item.startswith(prefix) for prefix in ())]

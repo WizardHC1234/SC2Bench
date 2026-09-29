@@ -56,8 +56,31 @@ def get_target(name: str, *, race: str = "terran") -> Optional[TargetSpec]:
     return None if spec is None else _numbered(spec, race)
 
 
+def _exposed(spec: TargetSpec, race: str) -> bool:
+    if not spec.executable:
+        return False
+    if spec.action == "research":
+        from sc2bench_env.catalog.knowledge import upgrade_row
+
+        if upgrade_row(race, spec.name) is None:
+            return False
+    return True
+
+
 def targets_for_action(action: str, *, race: str = "terran") -> Tuple[TargetSpec, ...]:
-    return tuple(_numbered(spec, race) for spec in _catalog_indexes(race)[1].get(action, ()))
+    return tuple(
+        _numbered(spec, race)
+        for spec in _catalog_indexes(race)[1].get(action, ())
+        if _exposed(spec, race)
+    )
+
+
+def dispatchable_unit_names(*, race: str = "terran") -> Tuple[str, ...]:
+    """Train targets the catalog allows in combat.units."""
+    return tuple(sorted(
+        spec.name for spec in get_catalog(race=race).targets
+        if spec.action == "train" and spec.dispatchable and spec.executable
+    ))
 
 
 def known_target_names(action: Optional[str] = None, *, race: str = "terran") -> Tuple[str, ...]:
@@ -106,9 +129,10 @@ def _target_table_lines(action: str, *, race: str = "terran") -> List[str]:
         "build": ("name", "M/G", "time", "builder", "extra", "use"),
         "train": ("name", "M/G", "supply", "time", "producer", "extra", "use"),
         "research": ("name", "M/G", "time", "facility", "extra", "use"),
-        "upgrade": ("name", "M/G", "time", "source", "extra", "use"),
+        "morph_townhall": ("name", "M/G", "time", "source", "extra", "use"),
         "scan": ("name", "energy", "source", "extra", "use"),
         "call_mule": ("name", "energy", "source", "extra", "use"),
+        "supply_drop": ("name", "energy", "source", "extra", "use"),
         "chrono_boost": ("name", "energy", "source", "extra", "use"),
         "inject_larva": ("name", "energy", "source", "extra", "use"),
         "spawn_creep_tumor": ("name", "energy", "source", "extra", "use"),
@@ -120,7 +144,7 @@ def _target_table_lines(action: str, *, race: str = "terran") -> List[str]:
     for spec in specs:
         builder = spec.produced_at or (worker if action == "build" else "")
         source = spec.morph_from or {
-            "scan": "orbital_command", "call_mule": "orbital_command",
+            "scan": "orbital_command", "call_mule": "orbital_command", "supply_drop": "orbital_command",
             "chrono_boost": "nexus", "inject_larva": "queen", "spawn_creep_tumor": "queen",
         }.get(action, "")
         inherited = {value for value in (builder, spec.produced_at, source,
@@ -149,7 +173,7 @@ def render_action_catalog(*, race: str = "terran") -> str:
     require_supported_own_race(race)
     lines = [f"Action Catalog ({race}):", *get_catalog(race=race).table_legend, ""]
     for action in (
-        "build", "train", "research", "upgrade", "scan", "call_mule",
+        "build", "train", "research", "morph_townhall", "scan", "call_mule", "supply_drop",
         "chrono_boost", "inject_larva", "spawn_creep_tumor", "scout",
     ):
         block = _target_table_lines(action, race=race)
@@ -178,7 +202,7 @@ def decision_examples(*, race: str = "terran") -> Tuple[List[Dict[str, Any]], ..
                 {"name": "advance", "arguments": {"seconds": 20}},
             ],
             [
-                {"name": "upgrade", "arguments": {"target": "cc_0", "to": "lair"}},
+                {"name": "morph_townhall", "arguments": {"target": "townhall_0", "to": "lair"}},
                 {"name": "inject_larva", "arguments": {}},
                 {"name": "spawn_creep_tumor", "arguments": {}},
                 {"name": "scout", "arguments": {"route": ["zone_1", "zone_2"]}},
@@ -221,7 +245,7 @@ def decision_examples(*, race: str = "terran") -> Tuple[List[Dict[str, Any]], ..
             [
                 {"name": "train", "arguments": {"target": "immortal", "count": 2}},
                 {"name": "combat", "arguments": {"group": "group_1", "style": "attack", "target": "zone_10"}},
-                {"name": "retreat", "arguments": {"group": "group_2"}},
+                {"name": "retreat", "arguments": {"group": "group_2", "method": "recall"}},
                 {"name": "advance", "arguments": {"seconds": 5}},
             ],
         )
@@ -233,10 +257,11 @@ def decision_examples(*, race: str = "terran") -> Tuple[List[Dict[str, Any]], ..
             {"name": "advance", "arguments": {"seconds": 20}},
         ],
         [
-            {"name": "upgrade", "arguments": {"target": "cc_0", "to": "orbital_command"}},
+            {"name": "morph_townhall", "arguments": {"target": "townhall_0", "to": "orbital_command"}},
             {"name": "scout", "arguments": {"route": ["zone_1", "zone_2"]}},
             {"name": "scan", "arguments": {"target": "zone_3"}},
             {"name": "call_mule", "arguments": {}},
+            {"name": "supply_drop", "arguments": {}},
             {"name": "train", "arguments": {"target": "medivac", "count": 2}},
             {"name": "advance", "arguments": {"seconds": 10}},
         ],
@@ -266,7 +291,10 @@ def action_syntax_examples() -> Tuple[Dict[str, Any], ...]:
                 if encoded not in seen:
                     entries.append(entry)
                     seen.add(encoded)
-    entries += [{"name": "advance", "arguments": {"seconds": 20}}]
+    entries += [
+        {"name": "cancel", "arguments": {"task_id": "<task_id>"}},
+        {"name": "advance", "arguments": {"seconds": 20}},
+    ]
     return tuple(entries)
 
 
@@ -284,7 +312,10 @@ def render_decision_guide(*, race: str = "terran") -> str:
         if set(ACTION_FIELDS[verb]) != rule.allowed - {"action"}:
             raise RuntimeError("Prompt descriptions must cover the allowed action fields")
 
-    expected_forms = (set(VERB_FIELD_RULES) - {"combat"}) | {"combat_units", "combat_group"}
+    expected_forms = (
+        (set(VERB_FIELD_RULES) - {"combat", "cancel"})
+        | {"combat_units", "combat_group", "cancel_task", "cancel_target"}
+    )
     if set(COMMAND_TEMPLATES) != expected_forms:
         raise RuntimeError("Prompt templates must cover the actual action forms")
     rendered_fields = {}
@@ -299,7 +330,10 @@ def render_decision_guide(*, race: str = "terran") -> str:
             raise RuntimeError("Prompt templates must use the allowed action fields")
         if verb == "combat" and ("units" in arguments) == ("group" in arguments):
             raise RuntimeError("Prompt combat templates must select units or group")
-        expected_verb = "combat" if form.startswith("combat_") else form
+        expected_verb = (
+            "combat" if form.startswith("combat_") else
+            "cancel" if form.startswith("cancel_") else form
+        )
         if verb != expected_verb:
             raise RuntimeError("Prompt templates must match their action form")
         if form in {"combat_units", "combat_group"} and form.split("_", 1)[1] not in arguments:
@@ -332,7 +366,7 @@ def render_observation_guide() -> str:
         "- Visible enemies are current sightings; last-seen enemies are history under fog.",
         "- Waiting work, paid queues and living units are different quantities.",
         "- In Combat, Originally requested is the group's initial membership and Living members is its current surviving membership. Own Forces free, not phase alone, determines what can be newly dispatched.",
-        "- Group phase reports progress only. Phase, nearest zone and nearby-enemy counts do not prove arrival or mission completion; use the current group list and recent events to determine whether a mission ended. combat_ended refers to the group mission, not the match result.",
+        "- Group phase reports progress only. holding_after_attack means the prior attack target was confirmed clear and the same active group is now defending that zone. Other phase, nearest-zone and nearby-enemy values do not prove arrival or mission completion; use the current group list and recent events to determine whether a mission ended. combat_ended refers to the group mission, not the match result.",
         "- Names and IDs keep their exact platform spelling. Copy zone_id and group_id from Observation.",
     ]) + "\n"
 

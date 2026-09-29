@@ -86,12 +86,12 @@
     "roach": {
       "text": "The backend may burrow an injured Roach and resurface it after it recovers.",
       "code": "src/sc2bench_env/backends/sharpy/zerg_micro.py",
-      "reason": "MicroRoachSafe burrows below 40% health and unburrows above 70%."
+      "reason": "MicroRoachSafe burrows below 40% health, unburrows above 70%, and surfaces before retreating."
     },
     "baneling": {
-      "text": "The backend burrows Banelings while retreating and unburrows them to fight.",
+      "text": "The backend keeps Banelings mobile and surfaces a burrowed Baneling before movement or combat.",
       "code": "src/sc2bench_env/backends/sharpy/zerg_micro.py",
-      "reason": "MicroBanelingSafe issues burrow down on retreat and burrow up otherwise."
+      "reason": "MicroBanelingSafe never starts an automatic burrow and issues burrow up before movement or combat."
     },
     "siege_tank": {
       "text": "The backend sieges and unsieges the tank.",
@@ -134,16 +134,16 @@
       "reason": "MicroWarpPrismSafe phases and unphases the prism."
     },
     "overseer": {
-      "text": "The backend can enter Overseer oversight mode near enemies.",
+      "text": "The backend enters Overseer oversight mode near enemies and returns to mobile mode when contact ends or the group retreats.",
       "code": "src/sc2bench_env/backends/sharpy/zerg_micro.py",
-      "reason": "MicroOverseerSafe morphs to oversight mode when enemies are near."
+      "reason": "MicroOverseerSafe uses the separate enter-oversight and return-to-overseer abilities in their correct directions."
     }
   },
   "roles": {
     "worker": ["scv", "probe", "drone", "mule"],
     "combat": ["widow_mine", "battlecruiser", "disruptor", "void_ray", "carrier", "baneling", "swarm_host"],
-    "transport": ["medivac", "warp_prism", "overlord", "overlord_transport", "nydus_network", "nydus_worm"],
-    "detector": ["raven", "observer", "overseer", "spore_crawler", "photon_cannon", "missile_turret", "sensor_tower"],
+    "transport": ["medivac", "warp_prism", "transport_overlord"],
+    "detector": ["raven", "observer", "overseer", "spore_crawler", "photon_cannon", "missile_turret"],
     "support": ["medivac", "raven", "sentry", "high_templar", "infestor", "viper", "queen", "oracle", "ghost"],
     "economy": ["command_center", "orbital_command", "planetary_fortress", "nexus", "hatchery", "lair", "hive", "refinery", "assimilator", "extractor", "supply_depot", "pylon", "overlord"],
     "production": ["barracks", "factory", "starport", "gateway", "warpgate", "robotics_facility", "stargate", "spawning_pool", "roach_warren", "hydralisk_den", "baneling_nest", "spire", "lurker_den", "ultralisk_cavern"],
@@ -165,8 +165,8 @@
     "archon": {
       "race": "protoss",
       "kind": "unit",
-      "platform_behavior": "Observed after templar merge. Merge is not a high-level action.",
-      "reason": "The observation can report an archon without a train verb."
+      "platform_behavior": "Created by train archon from two templar. The merge spends those units and no extra resources.",
+      "reason": "Archon remains visible if a merge finishes after the train task."
     },
     "broodling": {
       "race": "zerg",
@@ -205,29 +205,16 @@
       "reason": "Temporary scout visible in the observation."
     }
   },
-  "food_provided_corrections": {
-    "command_center": {
-      "value": 15,
-      "version": "5.0.16.97563",
-      "reason": "ResponseData food_provided is 13. A completed Command Center provides 15 supply."
-    },
-    "orbital_command": {
-      "value": 15,
-      "version": "5.0.16.97563",
-      "reason": "ResponseData food_provided is 13. Orbital Command keeps the Command Center's 15 supply."
-    },
-    "planetary_fortress": {
-      "value": 15,
-      "version": "5.0.16.97563",
-      "reason": "ResponseData food_provided is 13. Planetary Fortress keeps the Command Center's 15 supply."
-    },
-    "nexus": {
-      "value": 15,
-      "version": "5.0.16.97563",
-      "reason": "ResponseData food_provided is 13. A completed Nexus provides 15 supply."
-    }
-  },
+  "food_provided_corrections": {},
   "action_cost_corrections": {
+    "protoss": {
+      "warpgate": {
+        "minerals": 25,
+        "vespene": 25,
+        "version": "5.0.16.97563",
+        "reason": "ResponseData incremental is 0/0 and calculate_ability_cost(MORPH_WARPGATE) echoes the Gateway price 150/0. On 5.0.16.97563 the bank dropped 25 minerals and 25 gas on the frame the morph was issued."
+      }
+    },
     "zerg": {
       "greater_spire": {
         "minerals": 100,

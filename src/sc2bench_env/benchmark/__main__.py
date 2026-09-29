@@ -73,10 +73,15 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         batch = BenchmarkRunner(
             backend_factory=lambda: args.backend, record_dir=args.record_dir,
         ).run(suite, factory, agent_metadata=metadata, max_parallel=args.max_parallel)
-        print(json.dumps({"status": batch["status"],
-                          "aggregate": batch["aggregate"],
-                          "termination_counts": batch["termination_counts"]},
-                         ensure_ascii=False, indent=2))
+        print(json.dumps({
+            "status": batch["status"],
+            "batch_dir": batch["output_paths"]["batch_dir"],
+            "batch_file": batch["output_paths"]["batch_file"],
+            "decision_mode": batch["execution_policy"]["decision_mode"],
+            "aggregate": batch["aggregate"],
+            "win_rate": batch["metrics"]["win_rate"],
+            "termination_counts": batch["termination_counts"],
+        }, ensure_ascii=False, indent=2))
         return 0
     except Exception as error:
         # External modules and JSON errors can contain secrets in exception text.

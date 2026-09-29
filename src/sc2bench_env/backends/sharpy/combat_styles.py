@@ -26,6 +26,53 @@ MARCH_SLOW_SHARE_KEEP = 0.25
 MARCH_CONTACT_RADIUS = 12.0
 
 
+def unit_available_for_background(unit, ai, *, require_group0: bool) -> bool:
+    """A free home unit for a morph or similar conversion.
+
+    Queens pass require_group0 False: they are not army group_0 members, but a
+    queen already sent out, scouting, or acting this frame is not taken.
+    Army morphs pass require_group0 True so an outbound unit stays outbound.
+    """
+    if unit is None or not getattr(unit, "is_ready", False) or getattr(unit, "is_hallucination", False):
+        return False
+    tag = unit.tag
+    if tag in set(getattr(ai, "unit_tags_received_action", set()) or ()):
+        return False
+    if tag in set(getattr(ai, "bench_combat_tags", set()) or ()):
+        return False
+    if tag in set(getattr(ai, "bench_bunker_tags", set()) or ()):
+        return False
+    group0 = getattr(ai, "bench_group0_tags", None)
+    roles = getattr(ai, "roles", None)
+    type_name = str(getattr(getattr(unit, "type_id", None), "name", ""))
+    overlord = type_name in {"OVERLORD", "OVERLORDTRANSPORT"}
+    if roles is not None:
+        from sharpy.managers.core.roles import UnitTask
+
+        # Home group_0 members are marked Reserved by gathering. That mark
+        # means they are still at home, so an army morph may use them.
+        # An overlord's Reserved role is position management, not a morph lock.
+        blocked = [UnitTask.Scouting, UnitTask.Attacking, UnitTask.Defending, UnitTask.Fighting]
+        if not overlord and not (require_group0 and group0 is not None and tag in group0):
+            blocked.append(UnitTask.Reserved)
+        if any(roles.is_in_role(role, unit) for role in blocked):
+            return False
+    if require_group0 and (group0 is None or tag not in group0):
+        return False
+    orders = getattr(unit, "orders", None) or []
+    if overlord:
+        return not any(not _positioning_order(order) for order in orders)
+    return not orders
+
+
+def _positioning_order(order) -> bool:
+    """A move or attack-move used to stand an overlord in place."""
+    ability = getattr(order, "ability", None)
+    token = getattr(ability, "id", ability)
+    label = str(getattr(token, "name", token) or "").upper()
+    return label.startswith("MOVE") or label.startswith("ATTACK")
+
+
 def available_for_mission(unit, roles, reserved_tags) -> bool:
     """One availability rule shared by real binding and Observation counts."""
     from sharpy.managers.core.roles import UnitTask

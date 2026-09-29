@@ -34,7 +34,13 @@ def render_observation_text(observation: Dict[str, Any], *, previous: Optional[D
     from sc2bench_env.runtime.observation_builder import compact_observation
     from sc2bench_env.interface.observation_text import render_text
 
-    return render_text(compact_observation(observation, previous), BRIEFING_SECTIONS)
+    game = observation.get("game") if isinstance(observation, dict) else None
+    race = game.get("race") if isinstance(game, dict) else None
+    return render_text(
+        compact_observation(observation, previous),
+        BRIEFING_SECTIONS,
+        race=race,
+    )
 
 @dataclass
 class ResourcesView:
@@ -76,18 +82,17 @@ class EconomyView:
     supply_cap: int = 0
     supply_left: int = 0
     worker_count: int = 0
-    mining_worker_capacity: Optional[int] = None
+    workers_on_minerals: Optional[int] = None
+    mineral_worker_saturation: Optional[int] = None
+    workers_on_vespene: Optional[int] = None
+    vespene_worker_saturation: Optional[int] = None
+    workers_other: Optional[int] = None
     army_supply: int = 0
     mineral_income_per_minute: Optional[float] = None
     vespene_income_per_minute: Optional[float] = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
-
-    @property
-    def ideal_worker_count(self) -> Optional[int]:
-        """Compatibility alias; Agent-facing data uses mining_worker_capacity."""
-        return self.mining_worker_capacity
 
 
 @dataclass
@@ -150,7 +155,7 @@ class Observation:
     combat: Dict[str, dict[str, Any]] = field(default_factory=dict)
     scouting: Dict[str, dict[str, Any]] = field(default_factory=dict)
     upgrades: List[str] = field(default_factory=list)
-    # Object-level structure ids for upgrade / future targeted actions.
+    # Object-level structure ids for morph_townhall and other targeted actions.
     structures: List[dict[str, Any]] = field(default_factory=list)
     base_count: int = 0
     zones: List[str] = field(default_factory=list)

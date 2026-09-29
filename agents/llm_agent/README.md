@@ -40,6 +40,7 @@ python -m agents.llm_agent --race zerg --skill zerg/roach-hydra --opponent mediu
 ```
 
 `--race` 选择己方种族，对手仍是内置电脑；`--enemy-race` 只改电脑种族。Skill 的目录前缀必须与己方种族相同。省略 `--skill` 或使用 `--skill none` 都运行无 Skill 基线。
+该命令直接运行一局 `Environment`，记录文件夹直接写入 `records/`，不会创建 `batch_*`、`episodes/` 或 `batch.json`。批量评测才使用 `BenchmarkRunner` 的批次目录。
 
 
 用 BenchmarkRunner 加载工厂：

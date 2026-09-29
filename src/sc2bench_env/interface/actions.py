@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple, Union
 
 from sc2bench_env.catalog.aliases import normalize_target_aliases
-from sc2bench_env.catalog.registry import known_target_names
+from sc2bench_env.catalog.registry import dispatchable_unit_names, known_target_names
 from sc2bench_env.interface.decision_rules import (
     COMBAT_STYLES,
     STRUCTURE_ID_PATTERN,
@@ -16,7 +16,6 @@ from sc2bench_env.interface.decision_rules import (
     validate_batch_shape,
     validate_entry_fields,
 )
-from sc2bench_env.interface.observations import WORKER_UNIT_NAMES
 from sc2bench_env.interface.races import require_supported_own_race
 from sc2bench_env.interface.tools import parse_tool_call
 
@@ -38,11 +37,12 @@ GAME_ACTIONS = frozenset(
         "cancel",
         "scan",
         "call_mule",
+        "supply_drop",
         "chrono_boost",
         "inject_larva",
         "spawn_creep_tumor",
         "scout",
-        "upgrade",
+        "morph_townhall",
         "combat",
         "retreat",
     }
@@ -78,12 +78,14 @@ class GameAction:
     target: Optional[str] = None
     count: Optional[int] = None
     target_action: Optional[str] = None
+    task_id: Optional[str] = None
     to: Optional[str] = None
     route: Optional[ScoutRoute] = None
     units: Optional[Dict[str, int]] = None
     style: Optional[str] = None
     action_id: Optional[str] = None
     group: Optional[str] = None
+    method: Optional[str] = None
 
     def identity(self) -> tuple[str, str]:
         return (self.action, self.target or "")
@@ -97,6 +99,8 @@ class GameAction:
             payload["count"] = self.count
         if self.target_action is not None:
             payload["target_action"] = self.target_action
+        if self.task_id is not None:
+            payload["task_id"] = self.task_id
         if self.to is not None:
             payload["to"] = self.to
         if self.route is not None:
@@ -109,14 +113,18 @@ class GameAction:
             payload["action_id"] = self.action_id
         if self.group is not None:
             payload["group"] = self.group
+        if self.method is not None:
+            payload["method"] = self.method
         return payload
 
     def label(self) -> str:
         if self.action == "train":
             return f"train {self.target} {self.count}"
         if self.action == "cancel":
+            if self.task_id:
+                return f"cancel {self.task_id}"
             return f"cancel {self.target_action} {self.target}"
-        if self.action in {"call_mule", "chrono_boost", "inject_larva", "spawn_creep_tumor"}:
+        if self.action in {"call_mule", "supply_drop", "chrono_boost", "inject_larva", "spawn_creep_tumor"}:
             return self.action
         if self.action == "combat":
             units = self.units or {}
@@ -212,8 +220,8 @@ def parse_game_action(raw: Mapping[str, Any], *, race: str = "terran") -> GameAc
         target = _require_str(raw.get("target"), "target").lower()
         if target in {"orbital_command", "planetary_fortress"}:
             raise ActionValidationError(
-                f"use upgrade with a structures[].id to morph {target}; "
-                'example: {"name":"upgrade","arguments":{"target":"cc_0","to":"orbital_command"}}'
+                f"use morph_townhall with a structures[].id to morph {target}; "
+                'example: {"name":"morph_townhall","arguments":{"target":"townhall_0","to":"orbital_command"}}'
             )
         if target not in known_target_names("build", race=race):
             raise ActionValidationError(
@@ -242,9 +250,17 @@ def parse_game_action(raw: Mapping[str, Any], *, race: str = "terran") -> GameAc
         return GameAction(action="research", target=target, count=1)
 
     if action == "cancel":
+        task_id = raw.get("task_id")
+        if task_id is not None:
+            return GameAction(
+                action="cancel",
+                task_id=_require_str(task_id, "task_id"),
+            )
         target_action = _require_str(raw.get("target_action"), "target_action").lower()
-        if target_action not in {"build", "train", "research"}:
-            raise ActionValidationError("cancel.target_action must be build, train, or research")
+        if target_action not in {"build", "train", "research", "morph_townhall"}:
+            raise ActionValidationError(
+                "cancel.target_action must be build, train, research, or morph_townhall"
+            )
         target = _require_str(raw.get("target"), "target").lower()
         return GameAction(
             action="cancel",
@@ -260,7 +276,7 @@ def parse_game_action(raw: Mapping[str, Any], *, race: str = "terran") -> GameAc
             raise ActionValidationError("scan target must be a stable zone_id")
         return GameAction(action="scan", target=target, count=1)
 
-    if action in {"call_mule", "chrono_boost", "inject_larva", "spawn_creep_tumor"}:
+    if action in {"call_mule", "supply_drop", "chrono_boost", "inject_larva", "spawn_creep_tumor"}:
         if not known_target_names(action, race=race):
             raise ActionValidationError(f"{action} is not available for this race")
         return GameAction(action=action)
@@ -279,18 +295,18 @@ def parse_game_action(raw: Mapping[str, Any], *, race: str = "terran") -> GameAc
             normalized.append(zone)
         return GameAction(action="scout", route=tuple(normalized))
 
-    if action == "upgrade":
+    if action == "morph_townhall":
         target = _require_str(raw.get("target"), "target")
         if not _STRUCTURE_ID_RE.match(target):
             raise ActionValidationError(
-                "upgrade.target must be a structures[].id such as cc_0"
+                "morph_townhall.target must be a town hall id such as townhall_0"
             )
         to = _require_str(raw.get("to"), "to").lower()
-        if to not in known_target_names("upgrade", race=race):
+        if to not in known_target_names("morph_townhall", race=race):
             raise ActionValidationError(
-                f"upgrade.to must be one of {list(known_target_names('upgrade', race=race))}"
+                f"morph_townhall.to must be one of {list(known_target_names('morph_townhall', race=race))}"
             )
-        return GameAction(action="upgrade", target=target, to=to)
+        return GameAction(action="morph_townhall", target=target, to=to)
 
     if action == "combat":
         style = _require_str(raw.get("style"), "style").lower()
@@ -302,17 +318,21 @@ def parse_game_action(raw: Mapping[str, Any], *, race: str = "terran") -> GameAc
         if not _ZONE_TARGET_RE.match(target):
             raise ActionValidationError("combat.target must be a stable zone_id")
         units_raw = raw.get("units")
-        if raw.get("group") is not None:
+        has_group = raw.get("group") is not None
+        has_units = units_raw is not None
+        if has_group == has_units:
+            raise ActionValidationError("combat requires units or group, not both")
+        if has_group:
             return GameAction(action="combat", target=target, style=style, group=raw["group"])
         if not isinstance(units_raw, Mapping) or not units_raw:
             raise ActionValidationError("combat.units must be a non-empty mapping")
-        train_names = set(known_target_names("train", race=race)) - WORKER_UNIT_NAMES
+        allowed_units = set(dispatchable_unit_names(race=race))
         normalized_units: Dict[str, int] = {}
         for unit_name, count in units_raw.items():
             name = _require_str(unit_name, "units key").lower()
-            if name not in train_names:
+            if name not in allowed_units:
                 raise ActionValidationError(
-                    f"combat.units key {name!r} must be an army train target"
+                    f"combat.units key {name!r} is not a dispatchable unit"
                 )
             if not isinstance(count, int) or isinstance(count, bool) or count < 1:
                 raise ActionValidationError(
@@ -327,7 +347,14 @@ def parse_game_action(raw: Mapping[str, Any], *, race: str = "terran") -> GameAc
         )
 
     if action == "retreat":
-        return GameAction(action="retreat", group=raw["group"])
+        if "method" not in raw or raw.get("method") in (None, ""):
+            return GameAction(action="retreat", group=raw["group"])
+        method = raw.get("method")
+        if method not in {"move", "recall"}:
+            raise ActionValidationError("retreat.method must be move or recall")
+        if method == "recall" and race != "protoss":
+            raise ActionValidationError("retreat.method recall is only available for protoss")
+        return GameAction(action="retreat", group=raw["group"], method=method)
 
     raise ActionValidationError(f"unsupported action {action!r}")
 
@@ -393,6 +420,7 @@ def attach_retry_ids(
                 target=action.target,
                 count=action.count,
                 target_action=action.target_action,
+                task_id=action.task_id,
                 to=action.to,
                 route=action.route,
                 units=action.units,

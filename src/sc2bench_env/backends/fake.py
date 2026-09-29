@@ -80,8 +80,9 @@ class FakeBackend(Backend):
     upgrades: Set[str] = field(default_factory=set)
     in_progress_research: Set[str] = field(default_factory=set)
     # Stable object ids for townhalls: id -> type name
-    structure_types: Dict[str, str] = field(default_factory=lambda: {"cc_0": "command_center"})
+    structure_types: Dict[str, str] = field(default_factory=lambda: {"townhall_0": "command_center"})
     orbital_energy: float = 0.0
+    supply_drops_used: int = 0
     game_time_seconds: float = 0.0
     mineral_income_per_second: float = 8.0
     vespene_income_per_second: float = 0.0
@@ -123,7 +124,7 @@ class FakeBackend(Backend):
             self._gas_name = "assimilator"
             opening_units = {"probe": 12}
             opening_buildings = {"nexus": 1}
-            opening_structures = {"cc_0": "nexus"}
+            opening_structures = {"townhall_0": "nexus"}
         elif config.race == "zerg":
             self._worker_name = "drone"
             self._townhall_name = "hatchery"
@@ -132,7 +133,7 @@ class FakeBackend(Backend):
             self._gas_name = "extractor"
             opening_units = {"drone": 12, "overlord": 1}
             opening_buildings = {"hatchery": 1}
-            opening_structures = {"cc_0": "hatchery"}
+            opening_structures = {"townhall_0": "hatchery"}
         else:
             self._worker_name = "scv"
             self._townhall_name = "command_center"
@@ -141,7 +142,7 @@ class FakeBackend(Backend):
             self._gas_name = "refinery"
             opening_units = {"scv": 12}
             opening_buildings = {"command_center": 1}
-            opening_structures = {"cc_0": "command_center"}
+            opening_structures = {"townhall_0": "command_center"}
         self._config = config
         self.game_time_seconds = 0.0
         self.terminated = False
@@ -161,6 +162,7 @@ class FakeBackend(Backend):
         self.in_progress_research = set()
         self.structure_types = opening_structures
         self.orbital_energy = 0.0
+        self.supply_drops_used = 0
         self._active_ids.clear()
         self._queue.clear()
         self._updates.clear()
@@ -319,7 +321,10 @@ class FakeBackend(Backend):
         }
         worker_count = int(self.units.get(self._worker_name, 0))
         refineries = int(self.buildings.get(self._gas_name, 0))
-        ideal_worker_count = 16 * max(1, base_count) + 3 * refineries
+        workers_on_vespene = min(worker_count, 3 * refineries)
+        workers_on_minerals = max(0, worker_count - workers_on_vespene)
+        mineral_worker_saturation = 16 * max(0, base_count)
+        vespene_worker_saturation = 3 * refineries
         known_enemy = 1
         own_indices = list(range(min(FAKE_ZONE_COUNT - known_enemy, max(0, base_count))))
         enemy_index = FAKE_ZONE_COUNT - 1 if FAKE_ZONE_COUNT > 1 else None
@@ -414,7 +419,11 @@ class FakeBackend(Backend):
             "in_progress_research": sorted(self.in_progress_research),
             "supply_workers": worker_count,
             "supply_army": max(0, int(self.supply_used) - worker_count),
-            "ideal_worker_count": ideal_worker_count,
+            "workers_on_minerals": workers_on_minerals,
+            "mineral_worker_saturation": mineral_worker_saturation,
+            "workers_on_vespene": workers_on_vespene,
+            "vespene_worker_saturation": vespene_worker_saturation,
+            "workers_other": 0,
             "mineral_income_per_minute": round(self.mineral_income_per_second * 60.0, 1),
             "vespene_income_per_minute": round(self.vespene_income_per_second * 60.0, 1),
             "known_enemy_base_count": known_enemy,
@@ -504,14 +513,14 @@ class FakeBackend(Backend):
     def _cost_key(self, action: str, target: str, to: Optional[str] = None) -> str:
         if action == "scan":
             return "scan"
-        if action in {"call_mule", "chrono_boost", "inject_larva", "spawn_creep_tumor"}:
+        if action in {"call_mule", "supply_drop", "chrono_boost", "inject_larva", "spawn_creep_tumor"}:
             return action
         if action == "scout":
             return "scout"
         if action == "combat":
             # Style name is the catalog key; target is the zone id.
             return target if target in self._costs else "attack"
-        if action == "upgrade":
+        if action == "morph_townhall":
             return to or "orbital_command"
         return target
 
@@ -520,9 +529,11 @@ class FakeBackend(Backend):
         cost = self._costs.get(cost_key)
         if cost is None:
             return "unknown_target"
-        if item.action in {"scan", "call_mule"}:
+        if item.action in {"scan", "call_mule", "supply_drop"}:
             if int(self.buildings.get("orbital_command", 0)) <= 0:
                 return "prerequisite:orbital_command"
+            if item.action == "supply_drop" and self._supply_drop_slots() <= 0:
+                return "no_legal_depot"
             if self.orbital_energy < float(cost["energy"]):
                 return "resources"
             return None
@@ -542,7 +553,7 @@ class FakeBackend(Backend):
             if int(self.units.get(self._worker_name, 0)) <= 0:
                 return f"prerequisite:{self._worker_name}"
             return None
-        if item.action == "upgrade":
+        if item.action == "morph_townhall":
             if item.target not in self.structure_types:
                 return f"unknown_structure:{item.target}"
             morph_source = {
@@ -588,7 +599,7 @@ class FakeBackend(Backend):
     def _production_slots(self, action: str, target: str) -> int:
         if target == "orbital_command":
             return max(0, int(self.buildings.get("command_center", 0)))
-        if action in {"scan", "call_mule", "chrono_boost", "inject_larva", "spawn_creep_tumor", "upgrade", "scout", "combat"}:
+        if action in {"scan", "call_mule", "supply_drop", "chrono_boost", "inject_larva", "spawn_creep_tumor", "morph_townhall", "scout", "combat"}:
             return 1
         return max(1, int(self.units.get(self._worker_name, 0)))
 
@@ -721,6 +732,9 @@ class FakeBackend(Backend):
                 continue
 
             reason = self._waiting_reason(item)
+            if reason == "no_legal_depot":
+                self._fail(item, "no_legal_depot")
+                continue
             if reason is not None and not str(reason).startswith("resources") and reason != "supply":
                 # Prerequisite / producer missing: do not reserve.
                 continue
@@ -756,9 +770,14 @@ class FakeBackend(Backend):
                 continue
             item.production_slot = production_slot
 
-            if item.action in {"scan", "call_mule", "chrono_boost", "inject_larva", "spawn_creep_tumor"}:
+            if item.action in {"scan", "call_mule", "supply_drop", "chrono_boost", "inject_larva", "spawn_creep_tumor"}:
                 self.orbital_energy -= need_e
                 budget_energy -= need_e
+                if item.action == "supply_drop":
+                    from sc2bench_env.catalog.knowledge import food_provided
+
+                    self.supply_drops_used += 1
+                    self.supply_cap += int(food_provided(self._race, "supply_depot"))
             elif item.action not in {"scout"}:
                 self.minerals -= cost["minerals"]
                 self.vespene -= cost["vespene"]
@@ -807,7 +826,7 @@ class FakeBackend(Backend):
                     )
                 )
                 item.action_reported = True
-            elif item.action == "upgrade":
+            elif item.action == "morph_townhall":
                 item.phase = "constructing"
                 item.remaining_seconds = float(cost["build_time"])
                 self.under_construction[item.to or "orbital_command"] = (
@@ -823,7 +842,7 @@ class FakeBackend(Backend):
                     )
                 )
                 item.action_reported = True
-            elif item.action in {"scan", "call_mule", "chrono_boost", "inject_larva", "spawn_creep_tumor", "scout"}:
+            elif item.action in {"scan", "call_mule", "supply_drop", "chrono_boost", "inject_larva", "spawn_creep_tumor", "scout"}:
                 item.phase = "ability"
                 if item.action == "scout":
                     hops = max(1, len(item.route or ()))
@@ -939,7 +958,7 @@ class FakeBackend(Backend):
                 self.upgrades.add(item.target)
                 continue
 
-            if item.action == "upgrade" and item.phase == "constructing":
+            if item.action == "morph_townhall" and item.phase == "constructing":
                 to_type = item.to or "orbital_command"
                 self.under_construction[to_type] = max(
                     0, self.under_construction.get(to_type, 0) - 1
@@ -950,7 +969,7 @@ class FakeBackend(Backend):
                 continue
 
             if item.action in {
-                "scan", "call_mule", "chrono_boost", "inject_larva", "spawn_creep_tumor", "scout",
+                "scan", "call_mule", "supply_drop", "chrono_boost", "inject_larva", "spawn_creep_tumor", "scout",
             } and item.phase == "ability":
                 self._updates.append(
                     DemandUpdate(
@@ -965,6 +984,9 @@ class FakeBackend(Backend):
 
             remaining.append(item)
         self._queue = remaining
+
+    def _supply_drop_slots(self) -> int:
+        return max(0, int(self.buildings.get("supply_depot", 0)) - int(self.supply_drops_used))
 
     def _apply_structure_upgrade(self, structure_id: str, to_type: str) -> None:
         if structure_id not in self.structure_types:
@@ -1004,9 +1026,9 @@ class FakeBackend(Backend):
         if target == self._townhall_name:
             self.supply_cap += food_provided(self._race, target)
             index = 0
-            while f"cc_{index}" in self.structure_types:
+            while f"townhall_{index}" in self.structure_types:
                 index += 1
-            self.structure_types[f"cc_{index}"] = self._townhall_name
+            self.structure_types[f"townhall_{index}"] = self._townhall_name
         if target == self._gas_name:
             self.vespene_income_per_second = max(self.vespene_income_per_second, 12.0)
 

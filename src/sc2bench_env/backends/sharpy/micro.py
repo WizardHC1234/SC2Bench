@@ -227,7 +227,8 @@ def build_combat_micro_rules() -> MicroRules:
     rules.unit_micros[UnitTypeId.CARRIER] = MicroCarrierSafe()
     rules.unit_micros[UnitTypeId.MOTHERSHIP] = MicroMothership()
     from sc2bench_env.backends.sharpy.zerg_micro import (
-        MicroBanelingSafe, MicroOverseerSafe, MicroRoachSafe, MicroViperSafe,
+        MicroBanelingSafe, MicroEscapeBurrow, MicroOverseerSafe, MicroRoachSafe, MicroViperSafe,
+        guard_retreat_unburrow,
     )
     roach = MicroRoachSafe()
     baneling = MicroBanelingSafe()
@@ -239,6 +240,17 @@ def build_combat_micro_rules() -> MicroRules:
     overseer = MicroOverseerSafe()
     rules.unit_micros[UnitTypeId.OVERSEER] = overseer
     rules.unit_micros[UnitTypeId.OVERSEERSIEGEMODE] = overseer
+    for normal, burrowed, down, up in (
+        (UnitTypeId.ZERGLING, UnitTypeId.ZERGLINGBURROWED, AbilityId.BURROWDOWN_ZERGLING, AbilityId.BURROWUP_ZERGLING),
+        (UnitTypeId.HYDRALISK, UnitTypeId.HYDRALISKBURROWED, AbilityId.BURROWDOWN_HYDRALISK, AbilityId.BURROWUP_HYDRALISK),
+        (UnitTypeId.ULTRALISK, UnitTypeId.ULTRALISKBURROWED, AbilityId.BURROWDOWN_ULTRALISK, AbilityId.BURROWUP_ULTRALISK),
+    ):
+        handler = MicroEscapeBurrow()
+        handler.burrowed_type = burrowed
+        handler.down_ability = down
+        handler.up_ability = up
+        rules.unit_micros[normal] = handler
+        rules.unit_micros[burrowed] = handler
     for source, forms in (
         (UnitTypeId.LURKERMP, (UnitTypeId.LURKERMPBURROWED,)),
         (UnitTypeId.INFESTOR, (UnitTypeId.INFESTORBURROWED,)),
@@ -251,4 +263,14 @@ def build_combat_micro_rules() -> MicroRules:
             continue
         for form in forms:
             rules.unit_micros[form] = handler
+    for form, up in (
+        (UnitTypeId.LURKERMPBURROWED, AbilityId.BURROWUP_LURKER),
+        (UnitTypeId.INFESTORBURROWED, AbilityId.BURROWUP_INFESTOR),
+        (UnitTypeId.RAVAGERBURROWED, AbilityId.BURROWUP_RAVAGER),
+        (UnitTypeId.QUEENBURROWED, AbilityId.BURROWUP_QUEEN),
+        (UnitTypeId.SWARMHOSTBURROWEDMP, AbilityId.BURROWUP_SWARMHOST),
+    ):
+        handler = rules.unit_micros.get(form)
+        if handler is not None:
+            guard_retreat_unburrow(handler, up, form)
     return rules

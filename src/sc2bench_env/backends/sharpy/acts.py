@@ -11,12 +11,14 @@ from sc2.ids.unit_typeid import UnitTypeId
 from sc2.position import Point2
 from sharpy.plans.acts import ActBase
 
+from sc2bench_env.backends.sharpy.combat_styles import unit_available_for_background
 from sc2bench_env.catalog.registry import get_target
 from sc2bench_env.interface.actions import ScoutRoute
 from sc2bench_env.runtime.scouting import order_expansions
 
 _MULE_ENERGY = float(get_target("call_mule", race="terran").energy)
 _SCAN_ENERGY = float(get_target("scan", race="terran").energy)
+_SUPPLY_DROP_ENERGY = float(get_target("supply_drop", race="terran").energy)
 _CHRONO_ENERGY = float(get_target("chrono_boost", race="protoss").energy)
 _INJECT_ENERGY = float(get_target("inject_larva", race="zerg").energy)
 _TUMOR_ENERGY = float(get_target("spawn_creep_tumor", race="zerg").energy)
@@ -239,6 +241,53 @@ class ActCallMule(ActBase):
         return best
 
 
+class ActSupplyDrop(ActBase):
+    """Spend one Orbital's energy on one completed Supply Depot the platform chooses."""
+
+    def __init__(self):
+        super().__init__()
+        self._done = False
+        self.failure_reason: Optional[str] = None
+        self.supply_granted = 0
+
+    async def execute(self) -> bool:
+        if self._done or self.failure_reason:
+            return True
+        orbitals = available_orbitals(self.ai, _SUPPLY_DROP_ENERGY)
+        if not orbitals:
+            return False
+        depots = _eligible_supply_depots(self.ai)
+        if not depots:
+            self.failure_reason = "no_legal_depot"
+            return True
+        orbital = max(orbitals, key=lambda unit: float(getattr(unit, "energy", 0) or 0))
+        depot = min(depots, key=lambda unit: unit.distance_to(orbital))
+        if orbital(AbilityId.SUPPLYDROP_SUPPLYDROP, depot):
+            from sc2bench_env.catalog.knowledge import food_provided
+
+            self.supply_granted = int(food_provided("terran", "supply_depot"))
+            self._done = True
+            return True
+        return False
+
+
+def _eligible_supply_depots(ai):
+    """Completed living depots that have not already received a drop. Lowered depots count."""
+    found = []
+    for type_id in (UnitTypeId.SUPPLYDEPOT, UnitTypeId.SUPPLYDEPOTLOWERED):
+        structures = ai.structures(type_id)
+        ready = getattr(structures, "ready", structures)
+        for depot in ready:
+            if float(getattr(depot, "health", 1) or 0) <= 0:
+                continue
+            if not getattr(depot, "is_ready", True):
+                continue
+            if BuffId.SUPPLYDROP in (getattr(depot, "buffs", ()) or ()):
+                continue
+            found.append(depot)
+    return found
+
+
 def _has_buff(unit, buff) -> bool:
     return buff in (getattr(unit, "buffs", ()) or ())
 
@@ -293,16 +342,21 @@ class ActInject(ActBase):
         super().__init__()
         self._done = False
         self.failure_reason: Optional[str] = None
+        self.waiting_reason = None
 
     async def execute(self) -> bool:
         if self._done or self.failure_reason:
             return True
-        used = getattr(self.ai, "unit_tags_received_action", set())
+        self.waiting_reason = None
         queens = [
             queen for queen in self.ai.units(UnitTypeId.QUEEN).ready
-            if queen.tag not in used and float(getattr(queen, "energy", 0) or 0) >= _INJECT_ENERGY
+            if float(getattr(queen, "energy", 0) or 0) >= _INJECT_ENERGY
+            and unit_available_for_background(queen, self.ai, require_group0=False)
         ]
         if not queens:
+            self.waiting_reason = (
+                "queen_unavailable" if list(self.ai.units(UnitTypeId.QUEEN).ready) else "prerequisite:queen"
+            )
             return False
         halls = [
             hall for hall in self.ai.townhalls.ready
@@ -328,10 +382,12 @@ class ActSpawnCreepTumor(ActBase):
         super().__init__()
         self._done = False
         self.failure_reason: Optional[str] = None
+        self.waiting_reason = None
 
     async def execute(self) -> bool:
         if self._done or self.failure_reason:
             return True
+        self.waiting_reason = None
         used = getattr(self.ai, "unit_tags_received_action", set())
         tumors = [
             tumor for tumor in self.ai.structures(UnitTypeId.CREEPTUMORBURROWED).ready
@@ -344,9 +400,13 @@ class ActSpawnCreepTumor(ActBase):
                 return True
         queens = [
             queen for queen in self.ai.units(UnitTypeId.QUEEN).ready
-            if queen.tag not in used and float(getattr(queen, "energy", 0) or 0) >= _TUMOR_ENERGY
+            if float(getattr(queen, "energy", 0) or 0) >= _TUMOR_ENERGY
+            and unit_available_for_background(queen, self.ai, require_group0=False)
         ]
         if not queens:
+            self.waiting_reason = (
+                "queen_unavailable" if list(self.ai.units(UnitTypeId.QUEEN).ready) else "prerequisite:queen"
+            )
             return False
         queen = queens[0]
         point = self._ahead(queen.position, 5)
@@ -455,6 +515,9 @@ class ActScoutRoute(ActBase):
             if scout.distance_to(target) <= 6:
                 self._index += 1
                 continue
+            from sc2bench_env.backends.sharpy.zerg_creep import is_creep_overlord, maintain_station_creep
+            if is_creep_overlord(scout) and maintain_station_creep(self.ai, scout, False) == "toggled":
+                return False
             scout.move(target)
             return False
 
@@ -486,6 +549,19 @@ _FORM_TYPE_KEYS = {
     UnitTypeId.VIKINGASSAULT: "viking_assault",
     UnitTypeId.THORAP: "thor_ap",
     UnitTypeId.SIEGETANKSIEGED: "siege_tank_sieged",
+    UnitTypeId.OBSERVERSIEGEMODE: "observer_sieged",
+    UnitTypeId.WARPPRISMPHASING: "warp_prism_phasing",
+    UnitTypeId.OVERSEERSIEGEMODE: "overseer_sieged",
+    UnitTypeId.BANELINGBURROWED: "baneling_burrowed",
+    UnitTypeId.ROACHBURROWED: "roach_burrowed",
+    UnitTypeId.QUEENBURROWED: "queen_burrowed",
+    UnitTypeId.INFESTORBURROWED: "infestor_burrowed",
+    UnitTypeId.LURKERMPBURROWED: "lurker_burrowed",
+    UnitTypeId.RAVAGERBURROWED: "ravager_burrowed",
+    UnitTypeId.SWARMHOSTBURROWEDMP: "swarm_host_burrowed",
+    UnitTypeId.ZERGLINGBURROWED: "zergling_burrowed",
+    UnitTypeId.HYDRALISKBURROWED: "hydralisk_burrowed",
+    UnitTypeId.ULTRALISKBURROWED: "ultralisk_burrowed",
 }
 
 _SKILL_ORDER_HINTS = (
@@ -502,6 +578,49 @@ _SKILL_ORDER_HINTS = (
     ("BUILDAUTOTURRET", "raven_turret_order"),
     ("YAMATO", "bc_yamato"),
     ("TACTICALJUMP", "bc_jump"),
+    ("EFFECT_BLINK", "stalker_blink"),
+    ("GRAVITONBEAM_GRAVITONBEAM", "phoenix_beam"),
+    ("FORCEFIELD_FORCEFIELD", "sentry_force_field"),
+    ("GUARDIANSHIELD_GUARDIANSHIELD", "sentry_guardian_shield"),
+    ("HALLUCINATION_", "sentry_hallucination"),
+    ("PSISTORM_PSISTORM", "high_templar_storm"),
+    ("FEEDBACK_FEEDBACK", "high_templar_feedback"),
+    ("PURIFICATIONNOVA_PURIFICATIONNOVA", "disruptor_nova"),
+    ("ORACLEREVELATION_", "oracle_revelation"),
+    ("ORACLESTASISTRAP_", "oracle_stasis"),
+    ("EFFECT_TIMEWARP", "mothership_time_warp"),
+    ("EFFECT_MASSRECALL_MOTHERSHIP", "mothership_recall"),
+    ("EFFECT_CORROSIVEBILE", "ravager_bile"),
+    ("TRANSFUSION_TRANSFUSION", "queen_transfuse"),
+    ("FUNGALGROWTH_FUNGALGROWTH", "infestor_fungal"),
+    ("NEURALPARASITE_NEURALPARASITE", "infestor_neural"),
+    ("EFFECT_SPAWNLOCUSTS", "swarm_host_locust"),
+    ("SWARMHOSTSPAWNLOCUSTS", "swarm_host_locust"),
+    ("PARASITICBOMB_PARASITICBOMB", "viper_parasitic_bomb"),
+    ("BLINDINGCLOUD_BLINDINGCLOUD", "viper_blinding_cloud"),
+    ("EFFECT_ABDUCT", "viper_abduct"),
+    ("LOAD_OVERLORD", "overlord_load"),
+    ("UNLOADALLAT_OVERLORD", "overlord_unload"),
+    ("LOAD_WARPPRISM", "warp_prism_load"),
+    ("UNLOADALLAT_WARPPRISM", "warp_prism_unload"),
+    ("MORPH_WARPPRISMPHASINGMODE", "warp_prism_phasing"),
+    ("MORPH_SURVEILLANCEMODE", "observer_sieged"),
+    ("MORPH_OVERSIGHTMODE", "overseer_sieged"),
+    ("BURROWDOWN_ROACH", "roach_burrowed"),
+    ("BURROWDOWN_BANELING", "baneling_burrowed"),
+    ("BURROWDOWN_INFESTOR", "infestor_burrowed"),
+    ("BURROWDOWN_LURKER", "lurker_burrowed"),
+    ("BURROWDOWN_RAVAGER", "ravager_burrowed"),
+    ("BURROWDOWN_QUEEN", "queen_burrowed"),
+    ("BURROWDOWN_SWARMHOST", "swarm_host_burrowed"),
+    ("BURROWDOWN_ZERGLING", "zergling_burrowed"),
+    ("BURROWDOWN_HYDRALISK", "hydralisk_burrowed"),
+    ("BURROWDOWN_ULTRALISK", "ultralisk_burrowed"),
+    ("VIPERCONSUME", "viper_consume"),
+    ("SUPPLYDROP_SUPPLYDROP", "supply_drop"),
+    ("EFFECT_MASSRECALL_NEXUS", "nexus_recall"),
+    ("BEHAVIOR_GENERATECREEPON", "generate_creep_on"),
+    ("BEHAVIOR_GENERATECREEPOFF", "generate_creep_off"),
 )
 
 
@@ -542,10 +661,26 @@ class ActCombatMission(ActBase):
         self._target_clear_since: Optional[float] = None
         self._return_reason = "withdrawn"
         self._command_revision = -1
+        self.retreat_method = "move"
+        self.recall_status = None
+        self.recall_failure = None
+        self.recall_report = None
+        self._recalled_tags = set()
+        self._recall_home = None
+        self._recall_cast_at = None
+        self.creep_generating = 0
+        self._creep_locked = set()
 
-    def update_order(self, style: str, zone_id: str, withdrawing: bool, revision: int) -> None:
+    def update_order(self, style: str, zone_id: str, withdrawing: bool, revision: int,
+                     retreat_method: str = "move", recall_status: Optional[str] = None) -> None:
         """Change intent without rebinding members or erasing cargo ownership."""
         if revision == self._command_revision:
+            return
+        if retreat_method == "recall" and recall_status == "pending" and not withdrawing:
+            self._command_revision = revision
+            self.retreat_method = "recall"
+            self.recall_status = "pending"
+            self.recall_failure = None
             return
         self._command_revision = revision
         self.style, self.zone_id = style, zone_id
@@ -582,16 +717,20 @@ class ActCombatMission(ActBase):
                            and self._can_hit(enemy, unit) for unit in free_units)
                    for enemy in list(self.ai.enemy_units) + list(self.ai.enemy_structures))
 
+    def _mission_carriers(self, free_units):
+        types = set(_CARRIER_LOAD) | {UnitTypeId.WARPPRISMPHASING}
+        return free_units.filter(lambda unit: unit.type_id in types)
+
     def _maybe_start_transport(self, free_units, target: Point2) -> bool:
         from sc2bench_env.backends.sharpy.combat_styles import TRANSPORT_MIN_TRAVEL
         if self._transport_attempted or self.phase != "fight" or self._transport_contact(free_units):
             return False
-        medivacs = free_units.of_type(UnitTypeId.MEDIVAC)
-        infantry = free_units.filter(lambda unit: self._platform_name(unit.type_id) in _GROUND_CARGO)
-        if not medivacs or not infantry or infantry.center.distance_to(target) <= TRANSPORT_MIN_TRAVEL:
+        carriers = self._mission_carriers(free_units)
+        passengers = free_units.filter(self._is_passenger)
+        if not carriers or not passengers or passengers.center.distance_to(target) <= TRANSPORT_MIN_TRAVEL:
             return False
-        if not any(max(0, med.cargo_max - med.cargo_used) >= unit.cargo_size
-                   for med in medivacs for unit in infantry):
+        if not any(max(0, carrier.cargo_max - carrier.cargo_used) >= unit.cargo_size
+                   for carrier in carriers for unit in passengers):
             return False
         self._transport_attempted = True
         self._load_started_at = None
@@ -701,6 +840,7 @@ class ActCombatMission(ActBase):
         if self._micro_rules is None:
             return
         from sc2bench_env.backends.sharpy.combat_styles import (
+    unit_available_for_background,
             defend_leash_radius,
         )
         self._micro_rules.boundary = None
@@ -740,11 +880,109 @@ class ActCombatMission(ActBase):
             return False
         return int(getattr(unit, "cargo_size", 0) or 0) > 0
 
+    def _release_members(self, units) -> bool:
+        from sc2.units import Units
+        from sharpy.managers.core.roles import UnitTask
+
+        tags = {int(unit.tag) for unit in units}
+        if units:
+            self.roles.set_tasks(UnitTask.Idle, Units(list(units), self.ai))
+            getattr(self.ai, "bench_group0_tags", set()).update(tags)
+        reserved = self._reserved_tags()
+        for tag in tags:
+            reserved.discard(tag)
+        self._tags = [tag for tag in self._tags if int(tag) not in tags]
+        self._recalled_tags -= tags
+        if not self._tags:
+            self.end_reason = "recalled"
+            return True
+        return False
+
+    def _attempt_recall(self, free) -> None:
+        from sc2bench_env.backends.sharpy.protoss_recall import (
+            RECALL_ABILITY, group_center, recall_energy_cost, select_main_nexus, split_by_radius,
+        )
+
+        structures = self.ai.structures(UnitTypeId.NEXUS)
+        nexus, reason = select_main_nexus(list(structures), self.ai.start_location)
+        members = [unit for unit in free if not getattr(unit, "is_structure", False)]
+        member_tags = [int(unit.tag) for unit in members]
+        if nexus is None:
+            self.recall_status = "failed"
+            self.recall_failure = reason
+            self.recall_report = {"failure": reason, "recalled": [], "not_recalled": member_tags}
+            return
+        cost = recall_energy_cost(getattr(self.ai, "_game_data", None))
+        before = float(getattr(nexus, "energy", 0) or 0)
+        if before < cost:
+            self.recall_status = "failed"
+            self.recall_failure = "nexus_energy"
+            self.recall_report = {
+                "failure": "nexus_energy", "energy_before": before, "energy_cost": cost,
+                "recalled": [], "not_recalled": member_tags,
+            }
+            return
+        center = group_center(members)
+        if center is None:
+            self.recall_status = "failed"
+            self.recall_failure = "no_members"
+            self.recall_report = {"failure": "no_members", "energy_before": before, "recalled": [], "not_recalled": []}
+            return
+        inside, outside = split_by_radius(members, center)
+        if not nexus(RECALL_ABILITY, center):
+            self.recall_status = "failed"
+            self.recall_failure = "ability_unavailable"
+            self.recall_report = {
+                "failure": "ability_unavailable", "energy_before": before,
+                "recalled": [], "not_recalled": member_tags,
+            }
+            return
+        after = float(getattr(nexus, "energy", before) or before)
+        self.recall_status = "cast"
+        self.recall_failure = None
+        self._recalled_tags = {int(unit.tag) for unit in inside}
+        self._recall_home = nexus.position
+        self._recall_cast_at = float(getattr(self.ai, "time", 0) or 0)
+        self.recall_report = {
+            "energy_before": before,
+            "energy_after": after,
+            "energy_cost": cost,
+            "recalled": sorted(self._recalled_tags),
+            "not_recalled": [int(unit.tag) for unit in outside],
+        }
+        if outside or not inside:
+            self.phase = "withdrawing"
+
+    def _sync_overlord_creep(self, units, target, hold_group: bool) -> None:
+        from sc2bench_env.backends.sharpy.zerg_creep import is_creep_overlord, maintain_station_creep
+
+        point = self._hold_point or target
+        locked = set()
+        generating = 0
+        creep_tags = getattr(self.ai, "bench_creep_tags", set())
+        for unit in units:
+            if not is_creep_overlord(unit):
+                continue
+            stationary = (
+                hold_group and point is not None and unit.distance_to(point) <= 6
+                and int(getattr(unit, "cargo_used", 0) or 0) == 0
+            )
+            if maintain_station_creep(self.ai, unit, stationary) in {"holding", "toggled"}:
+                locked.add(unit.tag)
+            if int(unit.tag) in getattr(self.ai, "bench_creep_tags", creep_tags):
+                generating += 1
+        self._creep_locked = locked
+        self.creep_generating = generating
+
     def _run_withdraw(self, free_units) -> bool:
         from sc2bench_env.backends.sharpy.combat_styles import PROVISIONAL_WITHDRAW_ARRIVAL
         from sharpy.interfaces.combat_manager import MoveType
 
         home = self._home_point()
+        self._sync_overlord_creep(free_units, home, False)
+        free_units = [unit for unit in free_units if unit.tag not in self._creep_locked and int(unit.tag) not in self._recalled_tags]
+        if not free_units:
+            return False
         self.transport_activity = "withdrawal"
         self._configure_micro_boundary(None)
         if all(unit.distance_to(home) <= PROVISIONAL_WITHDRAW_ARRIVAL for unit in free_units):
@@ -875,6 +1113,8 @@ class ActCombatMission(ActBase):
 
         type_map = self._unit_type_map()
         reserved = self._reserved_tags()
+        blocked = set(reserved)
+        blocked.update(getattr(self.ai, "bench_morph_tags", set()) or ())
         selected: List[int] = []
         for name, need in self.units.items():
             unit_type = type_map.get(name)
@@ -885,19 +1125,29 @@ class ActCombatMission(ActBase):
             candidates = []
             for type_id in types:
                 for unit in self.ai.units(type_id).ready:
-                    if unit.tag in reserved or unit.is_structure:
+                    if unit.tag in blocked or unit.is_structure:
                         continue
                     candidates.append(unit)
+            group0 = getattr(self.ai, "bench_group0_tags", None)
+            excluded = set(self._own_adapter().home_gather_excluded())
             idle = [
                 unit
                 for unit in candidates
-                if available_for_mission(unit, self.roles, reserved)
-                and unit.tag in getattr(self.ai, "bench_group0_tags", {u.tag for u in candidates})
+                if available_for_mission(unit, self.roles, blocked)
+                and (
+                    group0 is None
+                    or unit.tag in group0
+                    or name in excluded
+                )
             ]
             # Never fall back to stealing auto-defense / attack-owned units.
             pool = idle
             if len(pool) < need:
-                self.failure_reason = f"insufficient_units:{name}"
+                available = len(pool)
+                self.failure_reason = (
+                    f"insufficient_units:{name}"
+                    f":requested={int(need)}:available={available}:missing={int(need) - available}"
+                )
                 return False
             pool.sort(key=lambda unit: unit.tag)
             selected.extend(unit.tag for unit in pool[:need])
@@ -930,24 +1180,26 @@ class ActCombatMission(ActBase):
                 continue
             missing.append(tag)
 
-        # Tags that vanished may be inside a mission medivac.
+        # Tags that vanished may be inside a mission carrier.
         still_owned = []
+        carrier_types = tuple(_CARRIER_LOAD) + (UnitTypeId.WARPPRISMPHASING,)
+        owned_tags = set(self._tags) | {unit.tag for unit in free}
         for tag in missing:
             if tag in cargo_tags:
                 still_owned.append(tag)
                 continue
-            # Search all own medivacs for this passenger tag.
             found = False
-            for medivac in self.ai.units(UnitTypeId.MEDIVAC):
-                if medivac.tag not in self._tags and medivac.tag not in {
-                    u.tag for u in free
-                }:
-                    continue
-                for passenger in getattr(medivac, "passengers", []) or []:
-                    if int(passenger.tag) == int(tag):
-                        still_owned.append(tag)
-                        cargo_tags.add(int(tag))
-                        found = True
+            for carrier_type in carrier_types:
+                for carrier in self.ai.units(carrier_type):
+                    if carrier.tag not in owned_tags:
+                        continue
+                    for passenger in getattr(carrier, "passengers", []) or []:
+                        if int(passenger.tag) == int(tag):
+                            still_owned.append(tag)
+                            cargo_tags.add(int(tag))
+                            found = True
+                            break
+                    if found:
                         break
                 if found:
                     break
@@ -1063,32 +1315,32 @@ class ActCombatMission(ActBase):
         from sc2bench_env.backends.sharpy.combat_styles import DROP_LOAD_TIMEOUT_SECONDS
         self.transport_activity = "load"
 
-        medivacs = free_units.of_type(UnitTypeId.MEDIVAC)
-        infantry = free_units.filter(
-            lambda unit: self._platform_name(unit.type_id) in _GROUND_CARGO
-        )
-        if not medivacs.exists:
+        carriers = self._mission_carriers(free_units)
+        passengers = free_units.filter(self._is_passenger)
+        if not carriers.exists:
             self.phase = "fight"
             return
-        if not infantry.exists:
-            # Either loaded or composition has no free ground left outside.
+        for carrier in carriers:
+            if carrier.type_id == UnitTypeId.WARPPRISMPHASING:
+                carrier(AbilityId.MORPH_WARPPRISMTRANSPORTMODE)
+                return
+        if not passengers.exists:
             self.phase = "transit"
             return
         now = float(self.ai.time)
         if self._load_started_at is None:
             self._load_started_at = now
-        capacity = {unit.tag: max(0, unit.cargo_max - unit.cargo_used) for unit in medivacs}
-        loaded = any(unit.cargo_used > 0 for unit in medivacs)
-        # Oversized forces travel with loaded infantry plus ground leftovers;
-        # if nothing can load, use ordinary ground/support combat instead.
-        if (not any(space >= unit.cargo_size for space in capacity.values() for unit in infantry)
+        capacity = {unit.tag: max(0, unit.cargo_max - unit.cargo_used) for unit in carriers}
+        loaded = any(unit.cargo_used > 0 for unit in carriers)
+        if (not any(space >= unit.cargo_size for space in capacity.values() for unit in passengers)
                 or now - self._load_started_at >= DROP_LOAD_TIMEOUT_SECONDS):
             self.phase = "transit" if loaded else "fight"
             return
         issued_load = set()
-        for unit in sorted(infantry, key=lambda unit: unit.tag):
-            transports = [transport for transport in medivacs
-                          if capacity[transport.tag] >= unit.cargo_size]
+        for unit in sorted(passengers, key=lambda unit: unit.tag):
+            transports = [transport for transport in carriers
+                          if transport.type_id in _CARRIER_LOAD
+                          and capacity[transport.tag] >= unit.cargo_size]
             if not transports:
                 continue
             nearest = min(transports, key=lambda transport: transport.distance_to(unit))
@@ -1096,45 +1348,50 @@ class ActCombatMission(ActBase):
             if unit.distance_to(nearest) > _LOAD_RADIUS:
                 unit.move(nearest.position)
             elif nearest.tag not in issued_load:
-                # One load command per transporter per frame; later commands
-                # must not overwrite an earlier passenger order.
-                nearest(AbilityId.LOAD_MEDIVAC, unit)
+                nearest(_CARRIER_LOAD[nearest.type_id], unit)
                 issued_load.add(nearest.tag)
 
     def _run_transit(self, free_units, target: Point2) -> None:
         from sc2bench_env.backends.sharpy.combat_styles import transport_drop_point
         self.transport_activity = "transit"
 
-        medivacs = free_units.of_type(UnitTypeId.MEDIVAC).filter(lambda unit: unit.cargo_used > 0)
-        if not medivacs.exists:
+        carriers = self._mission_carriers(free_units).filter(lambda unit: unit.cargo_used > 0)
+        if not carriers.exists:
             self.phase = "fight"
             return
-        # Unload short of the zone center so ground does not dump into the middle.
         drop_point = target if self.style == "defend" else transport_drop_point(target, self.ai.start_location)
-        if all(medivac.distance_to(drop_point) <= _ARRIVAL_RADIUS for medivac in medivacs):
+        if all(carrier.distance_to(drop_point) <= _ARRIVAL_RADIUS for carrier in carriers):
             self.phase = "unload"
             return
-        for medivac in medivacs:
-            medivac.move(drop_point)
+        for carrier in carriers:
+            if carrier.type_id == UnitTypeId.WARPPRISMPHASING:
+                carrier(AbilityId.MORPH_WARPPRISMTRANSPORTMODE)
+            else:
+                carrier.move(drop_point)
 
     def _run_unload(self, free_units, target: Point2) -> None:
         from sc2bench_env.backends.sharpy.combat_styles import DROP_UNLOAD_TIMEOUT_SECONDS, transport_drop_point
         self.transport_activity = "unload"
 
-        medivacs = free_units.of_type(UnitTypeId.MEDIVAC)
+        carriers = self._mission_carriers(free_units)
         drop_point = target if self.style == "defend" else transport_drop_point(target, self.ai.start_location)
         still_loaded = False
         now = float(self.ai.time)
         if self._unload_started_at is None:
             self._unload_started_at = now
-        for medivac in medivacs:
-            if int(getattr(medivac, "cargo_used", 0) or 0) > 0:
+        for carrier in carriers:
+            if carrier.type_id == UnitTypeId.WARPPRISMPHASING:
+                carrier(AbilityId.MORPH_WARPPRISMTRANSPORTMODE)
                 still_loaded = True
-                point = medivac.position if self._unload_here else drop_point
-                if medivac.distance_to(point) > _UNLOAD_RADIUS:
-                    medivac.move(point)
+                continue
+            if int(getattr(carrier, "cargo_used", 0) or 0) > 0:
+                still_loaded = True
+                point = carrier.position if self._unload_here else drop_point
+                ability = _CARRIER_UNLOAD.get(carrier.type_id)
+                if carrier.distance_to(point) > _UNLOAD_RADIUS or ability is None:
+                    carrier.move(point)
                 else:
-                    medivac(AbilityId.UNLOADALLAT_MEDIVAC, point)
+                    carrier(ability, point)
         if not still_loaded:
             self.drop_unloaded = self.peak_loaded_units > 0
             self.phase = "fight"
@@ -1167,6 +1424,27 @@ class ActCombatMission(ActBase):
             # Reserved so PlanZoneDefense / get_defenders cannot yank mission units.
             self.roles.set_tasks(UnitTask.Reserved, free)
 
+        if self._recalled_tags and self._recall_home is not None:
+            arrived = [
+                unit for unit in free
+                if int(unit.tag) in self._recalled_tags and unit.distance_to(self._recall_home) <= 8
+            ]
+            if arrived and self._release_members(arrived):
+                return True
+            if (self._recall_cast_at is not None and float(self.ai.time) - float(self._recall_cast_at) > 2
+                    and any(int(unit.tag) in self._recalled_tags for unit in free)):
+                self._recalled_tags.clear()
+                self.phase = "withdrawing"
+            free, cargo_tags = self._collect_mission_units()
+
+        hold_creep = self.style == "defend" and self.phase not in {"load", "transit", "unload", "withdrawing"}
+        self._sync_overlord_creep(free, target, hold_creep)
+
+        if self.recall_status == "pending" and self.retreat_method == "recall" and self.phase != "withdrawing":
+            self._attempt_recall(free)
+            if self.end_reason:
+                return True
+
         if self.phase == "withdrawing":
             return self._run_withdraw(free)
 
@@ -1184,13 +1462,13 @@ class ActCombatMission(ActBase):
 
         # No style-selected drops. Decide from current owned units and contact.
         # A delayed LOAD result must not leave cargo trapped in heal/escort.
-        if self.phase == "fight" and any(unit.cargo_used > 0 for unit in free.of_type(UnitTypeId.MEDIVAC)):
+        if self.phase == "fight" and any(unit.cargo_used > 0 for unit in self._mission_carriers(free)):
             self.phase = "transit"
             self._transport_attempted = True
         self._maybe_start_transport(free, target)
         transport_phase = self.phase
         if transport_phase in {"load", "transit"} and self._transport_contact(free):
-            self.phase = "unload" if any(unit.cargo_used > 0 for unit in free.of_type(UnitTypeId.MEDIVAC)) else "fight"
+            self.phase = "unload" if any(unit.cargo_used > 0 for unit in self._mission_carriers(free)) else "fight"
             self._unload_here = True
             self._unload_started_at = None
         transport_phase = self.phase
@@ -1205,10 +1483,12 @@ class ActCombatMission(ActBase):
             # Exclude explicit transport commands so combat micro cannot
             # overwrite LOAD/UNLOAD/MOVE in the same frame.
             if transport_phase == "load":
-                support = free.filter(lambda unit: unit.type_id != UnitTypeId.MEDIVAC
-                                      and self._platform_name(unit.type_id) not in _GROUND_CARGO)
+                support = free.filter(lambda unit: unit.type_id not in _CARRIER_LOAD
+                                      and unit.type_id != UnitTypeId.WARPPRISMPHASING
+                                      and not self._is_passenger(unit))
             else:
-                support = free.filter(lambda unit: unit.type_id != UnitTypeId.MEDIVAC or unit.cargo_used == 0)
+                support = free.filter(lambda unit: unit.type_id not in _CARRIER_LOAD
+                                      or unit.cargo_used == 0)
             if support.exists:
                 await self._drive_combat(support, target, MoveType.Assault)
             return False
@@ -1268,15 +1548,18 @@ class ActCombatMission(ActBase):
         if getattr(move_type, "name", "") == "Assault":
             ahead, hold = self._units_to_keep_with_army(units, target)
         held = {unit.tag for unit in ahead}
+        locked = set(getattr(self, "_creep_locked", set()))
         for unit in units:
-            if unit.tag not in held:
-                self.combat.add_unit(unit)
+            if unit.tag in locked or unit.tag in held:
+                continue
+            self.combat.add_unit(unit)
         rules = self._micro_rules if self._micro_started else None
         raven_micro = rules.unit_micros.get(UnitTypeId.RAVEN) if rules is not None else None
         if raven_micro is not None and hasattr(raven_micro, "prepare"):
             await raven_micro.prepare(units, self.ai)
-        if any(unit.tag not in held for unit in units):
+        if any(unit.tag not in held and unit.tag not in locked for unit in units):
             self.combat.execute(target, move_type, rules)
         if hold is not None:
             for unit in ahead:
-                unit.move(hold)
+                if unit.tag not in locked:
+                    unit.move(hold)

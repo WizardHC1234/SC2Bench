@@ -6,10 +6,6 @@
 两边可以是不同的模型、地址和 skill。run_versus 也接受任意两个可调用对象，不要求同一个类。
 """
 from __future__ import annotations
-from sc2bench_env.interface.races import SUPPORTED_OWN_RACES
-from sc2bench_env.versus import VersusMatch, run_versus
-from sc2bench_env import EpisodeConfig
-from agents.llm_agent.config import env_setting
 
 import argparse
 import json
@@ -19,6 +15,11 @@ from pathlib import Path
 _PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
+
+from sc2bench_env.interface.races import SUPPORTED_OWN_RACES
+from sc2bench_env.versus import VersusMatch, run_versus
+from sc2bench_env import EpisodeConfig
+from agents.llm_agent.config import env_setting
 
 if __package__:
     from . import agent_integration as agent_module

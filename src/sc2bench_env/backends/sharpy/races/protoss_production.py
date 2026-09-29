@@ -76,23 +76,25 @@ def production_order_target(order, game_data, adapter):
 
 
 def read_production_capacity(ai, adapter):
-    """Ready producers and queue headroom. Warp Gates count as gateways."""
-    from sc2.ids.unit_typeid import UnitTypeId
-
+    """Ready producers and queue headroom. Warp Gates are a separate cooldown row."""
     structures = list(ai.structures)
     rows = []
     for facility in _FACILITIES:
         names = adapter.townhall_targets if facility == "nexus" else (facility,)
-        parents = [s for s in structures if adapter.normalize_unit_name(s.type_id.name) in names
-                   and getattr(s, "build_progress", 0) >= 1]
-        if facility == "gateway":
-            parents += [s for s in structures
-                        if getattr(s, "type_id", None) == UnitTypeId.WARPGATE
-                        and getattr(s, "build_progress", 0) >= 1
-                        and s not in parents]
+        parents = [
+            structure for structure in structures
+            if getattr(structure, "build_progress", 0) >= 1
+            and (
+                str(getattr(getattr(structure, "type_id", None), "name", "")) == "GATEWAY"
+                if facility == "gateway"
+                else adapter.normalize_unit_name(structure.type_id.name) in names
+            )
+        ]
         unknown = False
         capacity = occupied = free = 0
         queue_capacity = queued_orders = free_queue_positions = 0
+        reserved_for_morph = 0
+        reserved_tags = set(getattr(ai, "bench_warp_reserve_tags", set()) or ())
         for parent in parents:
             orders = getattr(parent, "orders", None)
             if orders is None:
@@ -106,6 +108,8 @@ def read_production_capacity(ai, adapter):
             queue_capacity += MAX_TRAIN_QUEUE
             queued_orders += min(MAX_TRAIN_QUEUE, len(orders))
             free_queue_positions += max(0, MAX_TRAIN_QUEUE - len(orders))
+            if facility == "gateway" and int(getattr(parent, "tag", 0) or 0) in reserved_tags:
+                reserved_for_morph += 1
         row = {
             "facility": facility,
             "ready_grounded": len(parents),
@@ -116,9 +120,31 @@ def read_production_capacity(ai, adapter):
             "queued_orders": queued_orders,
             "free_queue_positions": free_queue_positions,
         }
+        if facility == "gateway":
+            row["reserved_for_morph"] = reserved_for_morph
+            row["waiting_for_queue"] = sum(
+                1 for parent in parents
+                if int(getattr(parent, "tag", 0) or 0) in reserved_tags
+                and (getattr(parent, "orders", None) or [])
+            )
         if unknown:
             row.update({key: None for key in row if key != "facility"})
         rows.append(row)
+    status = getattr(ai, "bench_warpgate_status", None)
+    if not isinstance(status, dict):
+        status = {"total": None, "ready": None, "cooling": None}
+    rows.append({
+        "facility": "warpgate",
+        "ready_grounded": status.get("total"),
+        "capacity": status.get("total"),
+        "occupied_slots": status.get("cooling"),
+        "free_slots": status.get("ready"),
+        "queue_capacity": None,
+        "queued_orders": None,
+        "free_queue_positions": None,
+        "ready_to_warp": status.get("ready"),
+        "cooling": status.get("cooling"),
+    })
     return rows
 
 

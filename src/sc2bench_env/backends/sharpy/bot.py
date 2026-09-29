@@ -27,6 +27,10 @@ def realtime_sleep_seconds(frames: int, elapsed: float) -> float:
     return max(0.0, int(frames) / FRAMES_PER_SECOND - elapsed)
 
 
+def configured_step_size(bot: Any) -> int:
+    return max(1, int(bot.config["general"]["game_step_size"]))
+
+
 def pin_lockstep_step(bot: Any) -> None:
     """Keep both versus clients on one step size.
 
@@ -36,25 +40,89 @@ def pin_lockstep_step(bot: Any) -> None:
     own buildings and stops seeing the opponent's army, and both can be told
     they won.
     """
-    step = int(bot.config["general"]["game_step_size"])
+    step = configured_step_size(bot)
     bot.realtime = False
     client = getattr(bot, "client", None)
     if client is not None:
         client.game_step = step
+        lock_client_step(client, step)
+
+
+def lock_client_step(client: Any, step: int) -> None:
+    """RequestStep must use the shared size even if Sharpy mutates game_step."""
+    if getattr(client, "_sc2bench_step_locked", False):
+        client._sc2bench_step_size = step
+        return
+    original = getattr(client, "step", None)
+    if not callable(original):
+        return
+
+    async def step_locked(step_size: Optional[int] = None, _original=original, _client=client):
+        return await _original(int(getattr(_client, "_sc2bench_step_size", step)))
+
+    client.step = step_locked
+    client._sc2bench_step_size = step
+    client._sc2bench_step_locked = True
+
+
+_TOWNHALLS = frozenset({
+    "command_center", "orbital_command", "planetary_fortress",
+    "hatchery", "lair", "hive", "nexus",
+})
+
+
+def _result_name(result: Any) -> str:
+    text = getattr(result, "name", None) or str(result)
+    return text.split(".")[-1]
+
+
+def has_townhall(snapshot: Any) -> bool:
+    """True when this side still has a base in the last published frame."""
+    buildings = getattr(snapshot, "buildings", None) or {}
+    info = getattr(snapshot, "info", None) or {}
+    under = info.get("under_construction") or {}
+    for name in _TOWNHALLS:
+        if int(buildings.get(name, 0) or 0) > 0 or int(under.get(name, 0) or 0) > 0:
+            return True
+    return False
 
 
 def reconcile_versus_result(own_result: Any, all_results: Any) -> tuple[str, Optional[str]]:
     """A two-player game cannot award Victory to both sides."""
     own = str(own_result)
+    if not own.startswith("Result."):
+        own = f"Result.{_result_name(own_result)}"
     if not all_results or len(all_results) < 2:
         return own, None
-    names = []
-    for item in all_results.values():
-        text = getattr(item, "name", None) or str(item)
-        names.append(text.split(".")[-1])
+    names = [_result_name(item) for item in all_results.values()]
     if names and all(name == "Victory" for name in names):
         return "Result.Tie", "desync"
     return own, None
+
+
+def reconcile_versus_group(
+    rows: List[tuple[str, Optional[str], bool]],
+) -> List[tuple[str, Optional[str]]]:
+    """Both clients reporting Victory while both bases still exist is a desync.
+
+    Each local result map often contains only that player's Victory, so the
+    per-client check never sees the pair. A side whose protocol result is
+    already Defeat keeps that loss.
+    """
+    if len(rows) < 2:
+        return [(result, reason) for result, reason, _hall in rows]
+    if any(reason == "desync" for _result, reason, _hall in rows):
+        return [("Result.Tie", "desync") for _row in rows]
+    names = [_result_name(result) for result, _reason, _hall in rows]
+    halls = [hall for _result, _reason, hall in rows]
+    if all(name == "Victory" for name in names) and all(halls):
+        return [("Result.Tie", "desync") for _row in rows]
+    if all(name == "Victory" for name in names) and sum(bool(hall) for hall in halls) == 1:
+        return [
+            ("Result.Victory", None) if hall else ("Result.Defeat", None)
+            for hall in halls
+        ]
+    return [(result, reason) for result, reason, _hall in rows]
 
 
 class BenchBot(KnowledgeBot):
@@ -133,15 +201,24 @@ class BenchBot(KnowledgeBot):
         ping = (await self.client.ping()).ping
         from sc2bench_env.catalog.knowledge import require_snapshot_match
 
-        require_snapshot_match(
+        matched = require_snapshot_match(
             game_version=ping.game_version,
             data_version=ping.data_version,
             base_build=int(ping.base_build),
         )
+        from sc2bench_env.catalog.knowledge import activate_game_data
+
+        activate_game_data(matched)
+        self.bridge.knowledge_snapshot = matched
 
     async def on_step(self, iteration):
+        # Pin before Sharpy runs. A repeated game loop must not skip this
+        # client's orders or drop only this client to a one-frame step.
+        pin_lockstep_step(self)
+        state = getattr(self, "state", None)
+        if state is not None:
+            self.last_game_loop = int(state.game_loop) - 1
         await super().on_step(iteration)
-        # The game stays lockstep so advance can step faster than wall-clock time.
         pin_lockstep_step(self)
 
     async def _pace_realtime_until_decision(self) -> None:
@@ -177,13 +254,14 @@ class BenchBot(KnowledgeBot):
             self.bridge.request_leave(end_reason="time_limit")
 
     async def on_end(self, game_result) -> None:
-        result_text, end_reason = reconcile_versus_result(
-            game_result, getattr(getattr(self, "client", None), "_game_result", None),
-        )
+        # Hold the platform result until every versus client has one. Publishing
+        # the first Victory wakes that agent and freezes a double win before
+        # the other client reports.
         try:
-            self.bridge.on_game_end(result_text, end_reason=end_reason)
-        finally:
             await super().on_end(game_result)
+        finally:
+            all_results = getattr(getattr(self, "client", None), "_game_result", None)
+            self.bridge.note_raw_result(game_result, all_results)
 
     def _sync_macro_tasks(self) -> None:
         specs = self.bridge.get_macro_specs()
@@ -210,6 +288,8 @@ class BenchBot(KnowledgeBot):
                     "group": spec.get("group"),
                     "withdrawing": spec.get("withdrawing", False),
                     "command_revision": spec.get("command_revision", 0),
+                    "retreat_method": spec.get("retreat_method", "move"),
+                    "recall_status": spec.get("recall_status"),
                     "units": dict(spec.get("units") or {}),
                     "to_count": spec["to_count"],
                     "order_index": int(spec.get("order_index", 10**9)),
@@ -224,6 +304,8 @@ class BenchBot(KnowledgeBot):
                 existing["group"] = spec.get("group")
                 existing["withdrawing"] = spec.get("withdrawing", False)
                 existing["command_revision"] = spec.get("command_revision", 0)
+                existing["retreat_method"] = spec.get("retreat_method", "move")
+                existing["recall_status"] = spec.get("recall_status")
                 existing["units"] = dict(spec.get("units") or {})
                 existing["order_index"] = int(spec.get("order_index", 10**9))
                 existing["_factory"] = spec["factory"]
@@ -255,7 +337,7 @@ class BenchBot(KnowledgeBot):
             if not task_id:
                 continue
             if task.get("action") in {
-                "scan", "call_mule", "chrono_boost", "inject_larva", "spawn_creep_tumor", "upgrade", "scout",
+                "scan", "call_mule", "supply_drop", "chrono_boost", "inject_larva", "spawn_creep_tumor", "morph_townhall", "scout",
             } and task.get(
                 "_act_done"
             ) and not (task.get("_execution_error") or task.get("_error")):
@@ -277,13 +359,17 @@ class BenchBot(KnowledgeBot):
             moving_to = getattr(act, "current_zone", None)
             index = int(getattr(act, "_index", 0) or 0)
             assigned = getattr(act, "_scout_tag", None) is not None
-            return {
+            row = {
                 "route": route,
                 "moving_to": str(moving_to) if moving_to else None,
                 "waypoint_index": index,
                 "assigned": bool(assigned),
                 "done": bool(getattr(act, "_done", False)),
             }
+            creep_tags = getattr(self, "bench_creep_tags", set())
+            if getattr(act, "_scout_tag", None) in creep_tags:
+                row["creep_generating"] = 1
+            return row
         return None
 
     def _collect_combat_progress(self) -> Optional[Dict[str, Any]]:
@@ -336,6 +422,14 @@ class BenchBot(KnowledgeBot):
                     for k, v in dict(getattr(act, "skill_evidence", {}) or {}).items()
                     if int(v) > 0
                 }
+                creep = int(getattr(act, "creep_generating", 0) or 0)
+                if creep:
+                    row["creep_generating"] = creep
+                report = getattr(act, "recall_report", None)
+                if report:
+                    row["recall"] = dict(report)
+                if getattr(act, "recall_failure", None):
+                    row["recall_failure"] = str(act.recall_failure)
                 row["transport"] = {
                     "loaded_units": dict(getattr(act, "loaded_counts", {})),
                     "activity": str(getattr(act, "transport_activity", "support")),

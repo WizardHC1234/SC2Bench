@@ -6,7 +6,7 @@ import hashlib
 import json
 import math
 from pathlib import Path
-from typing import Any, Dict, Iterable
+from typing import Any, Dict, Iterable, Optional
 
 from sc2bench_env.recording.reader import parse_episode_text
 
@@ -16,6 +16,76 @@ _OUTCOMES = {
     "Result.Defeat": "defeat",
     "Result.Tie": "tie",
 }
+_BATCH_SCHEMAS = {"0.1", "0.2", "0.3", "0.4"}
+
+
+def decision_mode(config: Any) -> str:
+    """blocking pauses the game during inference. realtime lets thinking consume game time."""
+    if not isinstance(config, dict):
+        return "unknown"
+    if config.get("realtime"):
+        return "realtime"
+    if config.get("blocking_decisions", True):
+        return "blocking"
+    return "asynchronous"
+
+
+def _mean(values: list[float]) -> Optional[float]:
+    if not values:
+        return None
+    return sum(values) / len(values)
+
+
+def _trajectory_events(record_directory: Any) -> list[dict[str, Any]]:
+    if not isinstance(record_directory, str) or not record_directory:
+        return []
+    path = Path(record_directory) / "trajectory.json"
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    events = payload.get("events") if isinstance(payload, dict) else None
+    if not isinstance(events, list):
+        return []
+    return [event for event in events if isinstance(event, dict)]
+
+
+def _empty_usage() -> dict[str, Any]:
+    return {
+        "tool_calls": {"knowledge": 0, "read": 0, "action": 0, "advance": 0},
+        "model_calls": {"ok": 0, "failure": 0},
+        "input_tokens": [],
+        "output_tokens": [],
+        "latency_seconds": [],
+    }
+
+
+def _consume_trajectory(usage: dict[str, Any], record_directory: Any) -> None:
+    for event in _trajectory_events(record_directory):
+        payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+        if event.get("event_type") == "tool_call":
+            name = payload.get("name")
+            kind = payload.get("kind")
+            if name == "advance":
+                usage["tool_calls"]["advance"] += 1
+            elif kind in usage["tool_calls"]:
+                usage["tool_calls"][kind] += 1
+        elif event.get("event_type") == "agent_call":
+            status = payload.get("status")
+            if status not in {"ok", "failure"}:
+                continue
+            usage["model_calls"][status] += 1
+            usage["input_tokens"].append(payload.get("input_tokens"))
+            usage["output_tokens"].append(payload.get("output_tokens"))
+            usage["latency_seconds"].append(payload.get("latency_seconds"))
+
+
+def _token_total(values: list[Any]) -> tuple[Optional[int], int]:
+    known = [value for value in values if type(value) is int and value >= 0]
+    missing = sum(value is None for value in values)
+    if not known:
+        return (None, missing) if values else (0, 0)
+    return sum(known), missing
 
 
 class Evaluator:
@@ -30,7 +100,7 @@ class Evaluator:
         """
         path = Path(summary_path).resolve()
         batch = json.loads(path.read_text(encoding="utf-8-sig"))
-        if not isinstance(batch, dict) or batch.get("schema_version") not in {"0.1", "0.2", "0.3"}:
+        if not isinstance(batch, dict) or batch.get("schema_version") not in _BATCH_SCHEMAS:
             raise ValueError("Unsupported batch schema")
         if not isinstance(batch.get("episodes"), list):
             raise ValueError("Missing episode index")
@@ -75,15 +145,18 @@ class Evaluator:
                     row["indexed_runtime_versions"] = saved["runtime_versions"]
             episodes.append(row)
         case_ids = list(dict.fromkeys(row["case_id"] for row in episodes if "case_id" in row))
+        metrics = Evaluator.measure(episodes)
         return {
             "batch_id": batch.get("batch_id"), "source_batch": str(path),
             "source_status": batch.get("status"), "indexed_episode_count": len(episodes),
             "planned_episode_count": len(batch["planned_configs"])
             if isinstance(batch.get("planned_configs"), list) else None,
             "episodes": episodes, "aggregate": Evaluator.summarize(episodes),
+            "metrics": metrics,
             "termination_counts": Evaluator.termination_counts(episodes),
             "case_results": {case_id: {
                 "aggregate": Evaluator.summarize(row for row in episodes if row.get("case_id") == case_id),
+                "metrics": Evaluator.measure(row for row in episodes if row.get("case_id") == case_id),
                 "termination_counts": Evaluator.termination_counts(
                     row for row in episodes if row.get("case_id") == case_id),
             } for case_id in case_ids},
@@ -150,3 +223,101 @@ class Evaluator:
             key = f"{row.get('status', 'incomplete')}/{row.get('end_reason') or 'unknown'}"
             counts[key] = counts.get(key, 0) + 1
         return counts
+
+    @staticmethod
+    def measure(episodes: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
+        """Offline cost and outcome stats. Does not launch SC2 or a model.
+
+        Blocking and realtime episodes are not combined into one win rate.
+        """
+        rows = list(episodes)
+        summary = Evaluator.summarize(rows)
+        modes = []
+        for row in rows:
+            mode = decision_mode(row.get("config") if isinstance(row.get("config"), dict) else {})
+            if mode not in modes:
+                modes.append(mode)
+        comparable = len(modes) <= 1
+        decided = summary["victory"] + summary["defeat"] + summary["tie"]
+        usage = _empty_usage()
+        decision_values = []
+        rejected_values = []
+        for row in rows:
+            if type(row.get("decision_count")) is int:
+                decision_values.append(row["decision_count"])
+            if type(row.get("rejected_count")) is int:
+                rejected_values.append(row["rejected_count"])
+            _consume_trajectory(usage, row.get("record_directory"))
+        input_total, input_missing = _token_total(usage["input_tokens"])
+        output_total, output_missing = _token_total(usage["output_tokens"])
+        if input_total is None or output_total is None:
+            token_total = None
+        else:
+            token_total = input_total + output_total
+        latencies = [value for value in usage["latency_seconds"]
+                     if type(value) in {int, float} and not isinstance(value, bool) and math.isfinite(value)]
+        per_episode_tokens = []
+        per_episode_latency = []
+        # Means use one total per episode. Re-read is cheap next to a match.
+        for row in rows:
+            episode_usage = _empty_usage()
+            _consume_trajectory(episode_usage, row.get("record_directory"))
+            episode_input, _ = _token_total(episode_usage["input_tokens"])
+            episode_output, _ = _token_total(episode_usage["output_tokens"])
+            if episode_input is not None and episode_output is not None and episode_usage["input_tokens"]:
+                per_episode_tokens.append(episode_input + episode_output)
+            episode_latency = [value for value in episode_usage["latency_seconds"]
+                               if type(value) in {int, float} and not isinstance(value, bool)
+                               and math.isfinite(value)]
+            if episode_latency:
+                per_episode_latency.append(sum(episode_latency))
+        alignment = []
+        for row in rows:
+            config = row.get("config") if isinstance(row.get("config"), dict) else {}
+            if config.get("seed") is None:
+                continue
+            alignment.append({
+                "seed": config.get("seed"),
+                "index": row.get("index"),
+                "case_id": row.get("case_id"),
+                "repetition": row.get("repetition"),
+                "episode_id": row.get("episode_id"),
+                "status": row.get("status"),
+                "outcome": row.get("outcome"),
+                "result": row.get("result"),
+            })
+        metrics: Dict[str, Any] = {
+            "decision_mode": modes[0] if len(modes) == 1 else None,
+            "decision_modes": modes,
+            "comparable": comparable,
+            "episodes": summary["episodes"],
+            "victory": summary["victory"],
+            "defeat": summary["defeat"],
+            "tie": summary["tie"],
+            "win_rate": (summary["victory"] / decided) if comparable and decided else None,
+            "decisions": summary["total_decisions"],
+            "rejected": summary["total_rejected"],
+            "tool_calls": usage["tool_calls"],
+            "model_calls": usage["model_calls"],
+            "tokens": {
+                "input": input_total,
+                "output": output_total,
+                "total": token_total,
+                "input_missing_calls": input_missing,
+                "output_missing_calls": output_missing,
+            },
+            "latency_seconds": {
+                "total": sum(latencies) if latencies else None,
+                "calls": len(latencies),
+            },
+            "means": {
+                "decisions_per_episode": _mean(decision_values),
+                "rejected_per_episode": _mean(rejected_values),
+                "total_tokens_per_episode": _mean(per_episode_tokens),
+                "latency_seconds_per_episode": _mean(per_episode_latency),
+                "latency_seconds_per_call": _mean(latencies),
+            },
+        }
+        if alignment:
+            metrics["seed_alignment"] = alignment
+        return metrics

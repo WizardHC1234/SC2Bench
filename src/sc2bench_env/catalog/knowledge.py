@@ -7,9 +7,11 @@ from __future__ import annotations
 
 
 import json
+from contextlib import contextmanager
+from contextvars import ContextVar
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence
+from typing import Any, Dict, Iterable, Iterator, List, Mapping, Optional, Sequence
 
 _ROOT = Path(__file__).resolve().parents[3] / "data" / "sc2"
 _MISSING = (
@@ -71,17 +73,46 @@ def _profile(name: str) -> Dict[str, Any]:
     return _read(path)
 
 
-def bound_snapshot() -> Dict[str, Any]:
-    """The checked-in snapshot used when no live client ping is available."""
+_ACTIVE_SNAPSHOT: ContextVar[Optional[Dict[str, Any]]] = ContextVar(
+    "sc2bench_active_snapshot", default=None,
+)
+
+
+def _default_snapshot() -> Dict[str, Any]:
+    """Offline default. A live session replaces this on its own thread."""
     profile = _profile("windows_retail.json")
     folder = profile.get("snapshot_dir")
     if not folder:
         raise RuntimeError("The Windows retail profile has no extracted snapshot.")
-    snapshot = _snapshot(str(folder))
+    snapshot = dict(_snapshot(str(folder)))
     if profile.get("profile_id"):
-        snapshot = dict(snapshot)
         snapshot["profile_id"] = profile["profile_id"]
     return snapshot
+
+
+def bound_snapshot() -> Dict[str, Any]:
+    """The snapshot for this thread. Unset threads keep the Windows default."""
+    current = _ACTIVE_SNAPSHOT.get()
+    return current if current is not None else _default_snapshot()
+
+
+def activate_game_data(snapshot: Dict[str, Any]) -> None:
+    """Bind one immutable snapshot to the calling thread."""
+    _ACTIVE_SNAPSHOT.set(snapshot)
+
+
+def clear_game_data() -> None:
+    _ACTIVE_SNAPSHOT.set(None)
+
+
+@contextmanager
+def game_data(snapshot: Dict[str, Any]) -> Iterator[Dict[str, Any]]:
+    """Keep two versions in one process from reading each other's numbers."""
+    token = _ACTIVE_SNAPSHOT.set(snapshot)
+    try:
+        yield snapshot
+    finally:
+        _ACTIVE_SNAPSHOT.reset(token)
 
 
 def list_manifests() -> List[Dict[str, Any]]:
@@ -104,12 +135,27 @@ def require_snapshot_match(*, game_version: str, data_version: str, base_build: 
             and str(manifest.get("ruleset") or "native") == "native"
         ):
             folder = f"{game_version}_{data_version}"
-            return _snapshot(folder)
+            snapshot = dict(_snapshot(folder))
+            profile_id = _profile_id_for_folder(folder)
+            if profile_id:
+                snapshot["profile_id"] = profile_id
+            return snapshot
     raise RuntimeError(
         "Installed client "
         f"{game_version} data {data_version} build {base_build} "
         "has no knowledge snapshot. Formal games stop instead of using another version's numbers."
     )
+
+
+def _profile_id_for_folder(folder: str) -> Optional[str]:
+    root = _data_root() / "profiles"
+    if not root.is_dir():
+        return None
+    for path in sorted(root.glob("*.json")):
+        profile = _read(path)
+        if str(profile.get("snapshot_dir") or "") == folder:
+            return profile.get("profile_id")
+    return None
 
 
 def record_fields() -> Dict[str, Any]:
@@ -137,6 +183,11 @@ def _forms(race: str, name: str) -> List[Dict[str, Any]]:
         row = snapshot["by_name"].get(str(proto).upper())
         if row is not None:
             rows.append(row)
+    primary_name = (((_aliases().get("primary_forms") or {}).get(race) or {}).get(wanted))
+    if primary_name:
+        row = snapshot["by_name"].get(str(primary_name).upper())
+        if row is not None and all(existing.get("unit_id") != row.get("unit_id") for existing in rows):
+            rows.append(row)
     return rows
 
 
@@ -159,6 +210,23 @@ def _snake(name: str) -> str:
     return re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", str(name or "")).replace(" ", "_").lower()
 
 
+@lru_cache(maxsize=4)
+def _ability_links(folder: str) -> frozenset:
+    path = _data_root() / "snapshots" / folder / "abilities.json"
+    if not path.is_file():
+        return frozenset()
+    rows = _read(path).get("abilities") or []
+    return frozenset(
+        str(row.get("link_name") or "")
+        for row in rows
+        if row.get("available") and row.get("link_name")
+    )
+
+
+def snapshot_has_ability(link_name: str) -> bool:
+    return str(link_name) in _ability_links(str(bound_snapshot()["folder"]))
+
+
 def upgrade_row(race: str, name: str) -> Optional[Dict[str, Any]]:
     wanted = str(name or "").strip().lower()
     snapshot = bound_snapshot()
@@ -177,7 +245,14 @@ def upgrade_row(race: str, name: str) -> Optional[Dict[str, Any]]:
 def food_provided(race: str, name: str) -> int:
     row = primary_unit(race, name)
     correction = (_platform().get("food_provided_corrections") or {}).get(name)
-    if correction is not None:
+    version = str((bound_snapshot().get("manifest") or {}).get("game_version") or "")
+    # Corrections are version-scoped. 5.0.16.97563 live games open at 8/13 for
+    # both a Command Center and a Nexus, so that version uses ResponseData.
+    if (
+        correction is not None
+        and str(correction.get("version") or "") == version
+        and version
+    ):
         return int(correction["value"])
     if row is None or row.get("food_provided") is None:
         raise RuntimeError(f"No client food_provided for {race} {name}")
@@ -196,6 +271,33 @@ def apply_action_numbers(spec: Any, race: str) -> Any:
     """Override minerals, gas, whole-number supply and rounded time from the snapshot."""
     from dataclasses import replace
 
+    if spec.name == "archon" and spec.action == "train":
+        # Both snapshots report Archon build_time 0 and mineral_incremental 175.
+        # Those figures are the two templar combined, not the merge. Ability 1766
+        # is ArchonWarp on 4.10 and 5.0.16, so the channel time is shared.
+        return replace(spec, minerals=0, vespene=0, supply=0)
+    if spec.name == "warpgate" and spec.action == "build":
+        row = bound_snapshot()["by_name"].get("WARPGATE")
+        if row is None:
+            return spec
+        return _apply_cost_correction(replace(
+            spec,
+            minerals=int(row.get("mineral_incremental") or 0),
+            vespene=int(row.get("vespene_incremental") or 0),
+            supply=0,
+            base_time_seconds=int(round(float(row.get("build_time_seconds") or 0))),
+        ), race)
+    if spec.name == "transport_overlord" and spec.action == "train":
+        row = bound_snapshot()["by_name"].get("OVERLORDTRANSPORT")
+        if row is None:
+            return spec
+        return replace(
+            spec,
+            minerals=int(row.get("mineral_incremental") or 0),
+            vespene=int(row.get("vespene_incremental") or 0),
+            supply=0,
+            base_time_seconds=int(round(float(row.get("build_time_seconds") or 0))),
+        )
     if spec.action == "research":
         row = upgrade_row(race, spec.name)
         if row is None:
@@ -207,22 +309,13 @@ def apply_action_numbers(spec: Any, race: str) -> Any:
             base_time_seconds=int(round(float(row["research_time_seconds"]))),
         )
         return spec if updated == spec else updated
-    if spec.action not in {"train", "build", "upgrade"}:
+    if spec.action not in {"train", "build", "morph_townhall"}:
         return spec
     row = primary_unit(race, spec.name)
     if row is None:
         return spec
     minerals, vespene, supply = _action_cost(spec, race, row)
-    corrected = ((_platform().get("action_cost_corrections") or {}).get(race) or {}).get(spec.name) or {}
-    if "minerals" in corrected:
-        minerals = int(corrected["minerals"])
-    if "vespene" in corrected:
-        vespene = int(corrected["vespene"])
-    if "supply" in corrected:
-        supply = int(corrected["supply"])
     seconds = row["build_time_seconds"]
-    if "time_seconds" in corrected:
-        seconds = corrected["time_seconds"]
     updated = replace(
         spec,
         minerals=minerals,
@@ -230,7 +323,30 @@ def apply_action_numbers(spec: Any, race: str) -> Any:
         supply=supply,
         base_time_seconds=int(round(float(seconds))),
     )
+    updated = _apply_cost_correction(updated, race)
     return spec if updated == spec else updated
+
+
+def _apply_cost_correction(spec: Any, race: str) -> Any:
+    """A correction applies only to the snapshot version it was measured on."""
+    from dataclasses import replace
+
+    corrected = ((_platform().get("action_cost_corrections") or {}).get(race) or {}).get(spec.name) or {}
+    version = str((bound_snapshot().get("manifest") or {}).get("game_version") or "")
+    if not corrected or str(corrected.get("version") or "") not in {"", version}:
+        return spec
+    fields = {}
+    if "minerals" in corrected:
+        fields["minerals"] = int(corrected["minerals"])
+    if "vespene" in corrected:
+        fields["vespene"] = int(corrected["vespene"])
+    if "supply" in corrected:
+        fields["supply"] = int(corrected["supply"])
+    if "time_seconds" in corrected:
+        fields["base_time_seconds"] = int(round(float(corrected["time_seconds"])))
+    if not fields:
+        return spec
+    return replace(spec, **fields)
 
 
 def _action_cost(spec: Any, race: str, row: Mapping[str, Any]) -> tuple:

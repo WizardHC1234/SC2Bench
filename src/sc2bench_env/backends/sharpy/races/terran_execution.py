@@ -14,6 +14,13 @@ from sc2bench_env.runtime.task import DemandState
 
 def execution_blocker(ai, task):
     action, target = task.get("action"), task.get("target")
+    if action == "build" and target not in ADDONS:
+        units = getattr(ai, "units", None)
+        if callable(units):
+            workers = units(UnitTypeId.SCV)
+            ready = getattr(workers, "ready", workers)
+            if not list(ready):
+                return "builder_unavailable:scv"
     if action == "build" and target == "refinery":
         # Use BuildGas's selector. A probe failure is not a placement fact;
         # normal Act execution retains its existing error-reporting path.
@@ -114,13 +121,14 @@ def ready_progress_target(task):
 
 def ability_task_state(action, snapshot, waiting_for):
     """Retain scan/MULE feedback precedence; never infer cast completion."""
-    if action not in {"scan", "call_mule"}:
+    if action not in {"scan", "call_mule", "supply_drop"}:
         raise ValueError("unsupported Terran ability task feedback: " + str(action))
     if int(snapshot.buildings.get("orbital_command", 0)) <= 0:
         return DemandState.WAITING_TO_START, "prerequisite:orbital_command"
     if waiting_for:
         return DemandState.WAITING_TO_START, waiting_for
-    ready_key = "scan_ready" if action == "scan" else "mule_ready"
+    # Scan, MULE and Supply Drop are one Orbital energy pool, not three banks.
+    ready_key = "scan_ready" if action in {"scan", "supply_drop"} else "mule_ready"
     if int(snapshot.info.get(ready_key, 0)) > 0:
         return DemandState.IN_PROGRESS, None
     return DemandState.WAITING_TO_START, "energy"

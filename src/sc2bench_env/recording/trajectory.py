@@ -16,7 +16,8 @@ from datetime import datetime, timezone
 from importlib import metadata
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
+from uuid import uuid4
 
 TRAJECTORY_SCHEMA_VERSION = "0.7"
 TOOL_PROTOCOL_VERSION = "tool_turn_v1"
@@ -120,8 +121,8 @@ def _utc_now() -> str:
 
 
 def episode_folder_name(config: Mapping[str, Any]) -> str:
-    """Readable match metadata, without exposing the internal episode UUID."""
-    stamp = datetime.now(timezone.utc).strftime("%y%m%d_%H%M%S")
+    """Readable match metadata. The clock prefix is the machine's local time."""
+    stamp = datetime.now().strftime("%y%m%d_%H%M%S")
     races = {"terran": "T", "protoss": "P", "zerg": "Z", "random": "R"}
     matchup = "{}v{}".format(
         races.get(str(config.get("race", "")).lower(), "X"),
@@ -223,6 +224,7 @@ class TrajectoryRecorder:
     _session_tools: Optional[List[Any]] = None
     _episode_text: str = ""
     _console_log: Optional[_ConsoleLog] = None
+    _recorded_agent_call_ids: Set[str] = field(default_factory=set)
 
     def start(
         self, root: str | Path, *, prompt: str, backend: str,
@@ -257,18 +259,30 @@ class TrajectoryRecorder:
                 "timestamp_timezone": "UTC",
                 "platform_prompt_char_count": len(prompt),
             }
-        self._episode_text = (
-            "SC2Bench episode\n\n"
-            + "Configuration and versions\n"
-            + json.dumps(_json_safe(metadata_payload), ensure_ascii=False, indent=2)
-            + "\n\nPlatform contract\n" + prompt + "\n"
-        )
-        self._write_atomic_text(self.directory / "episode.txt", self._episode_text + "\nStatus: in progress\n")
+        self._header_prompt = prompt
+        self._header_metadata = metadata_payload
+        self._write_episode_header()
         self._write_session()
         self._write_trajectory()
         self._console_log = _ConsoleLog(self.directory / "log.txt")
         self._console_log.start()
         return self.directory
+
+    def bind_knowledge(self) -> None:
+        """Rewrite the episode header after the live client snapshot is known."""
+        if self.directory is None or self.summary is not None:
+            return
+        self._header_metadata.update(_knowledge_fields())
+        self._write_episode_header()
+
+    def _write_episode_header(self) -> None:
+        self._episode_text = (
+            "SC2Bench episode\n\n"
+            + "Configuration and versions\n"
+            + json.dumps(_json_safe(self._header_metadata), ensure_ascii=False, indent=2)
+            + "\n\nPlatform contract\n" + self._header_prompt + "\n"
+        )
+        self._write_atomic_text(self.directory / "episode.txt", self._episode_text + "\nStatus: in progress\n")
 
     def stop_console_log(self) -> None:
         log = self._console_log
@@ -322,6 +336,20 @@ class TrajectoryRecorder:
         recorded_at = _utc_now()
         self._game_time = float(game_time)
         self._remember_session(agent_context)
+        supplied = agent_context.get("agent_calls")
+        if not isinstance(supplied, list) or not supplied:
+            supplied = [{
+                "call_id": agent_context.get("call_id") or uuid4().hex,
+                "role": agent_context.get("role") or "main",
+                "model": agent_context.get("model"),
+                "status": "failure",
+                "input_tokens": None,
+                "output_tokens": None,
+                "latency_seconds": agent_context.get("latency_seconds"),
+                "error_type": agent_context.get("api_error_type", "unknown"),
+                "http_status": agent_context.get("api_http_status"),
+            }]
+        self.record_agent_calls({"agent_calls": supplied}, game_time=self._game_time)
         self._append({
             "type": "agent_call_failure", "recorded_at": recorded_at,
             "step_index": None, "next_decision_index": self._decision_count + 1,
@@ -330,6 +358,28 @@ class TrajectoryRecorder:
             "http_status": agent_context.get("api_http_status"),
             "attempt": agent_context.get("api_attempt"),
         })
+
+    def record_agent_calls(self, agent_context: Optional[Dict[str, Any]], *, game_time: float) -> None:
+        """Persist harness-supplied model calls. Missing tokens stay null."""
+        if self.summary is not None or not isinstance(agent_context, dict):
+            return
+        calls = agent_context.get("agent_calls")
+        if not isinstance(calls, list):
+            return
+        from sc2bench_env.interface.agent import normalize_agent_call
+
+        for item in calls:
+            normalized = normalize_agent_call(item)
+            if normalized is None or normalized["call_id"] in self._recorded_agent_call_ids:
+                continue
+            self._recorded_agent_call_ids.add(normalized["call_id"])
+            self._append({
+                "type": "agent_call",
+                "recorded_at": _utc_now(),
+                "game_time_seconds": float(game_time),
+                "decision_index": self._decision_count or None,
+                **normalized,
+            })
 
     @staticmethod
     def _write_atomic(path: Path, payload: Dict[str, Any]) -> None:
@@ -394,6 +444,7 @@ class TrajectoryRecorder:
         self, *, code: str, agent_context: Optional[Dict[str, Any]] = None,
         game_time_seconds: float = 0.0,
     ) -> None:
+        self.record_agent_calls(agent_context, game_time=game_time_seconds)
         self._append({
             "type": "agent_protocol_error",
             "code": code,
@@ -471,6 +522,7 @@ class TrajectoryRecorder:
                 "info": info,
             }
         self._remember_session(agent_context)
+        self.record_agent_calls(agent_context, game_time=self._game_time)
         self._append(trajectory_entry)
 
     def record_error(
@@ -490,6 +542,7 @@ class TrajectoryRecorder:
         }
         if phase == "step":
             self._remember_session(agent_context)
+            self.record_agent_calls(agent_context, game_time=self._game_time)
         self._append(error_entry)
 
     def finalize(
@@ -605,11 +658,22 @@ class TrajectoryRecorder:
             indexes = {call.get("decision_index") for call in calls}
             if len(indexes) > 1:
                 errors.append(f"turn {turn_id} mixes decision indexes")
-            advances = [index for index, call in enumerate(calls) if call.get("name") == "advance"]
-            if len(advances) > 1:
+            # A rejected advance stays in the record, but only an advance that
+            # actually closed the decision counts toward the one-advance rule.
+            closed = [
+                index for index, call in enumerate(calls)
+                if call.get("name") == "advance" and call.get("execution_state") == "decision_ready"
+            ]
+            if len(closed) > 1:
                 errors.append(f"turn {turn_id} contains more than one advance")
-            if advances and advances[-1] != len(calls) - 1:
-                errors.append(f"turn {turn_id} does not end on advance")
+            productive = [
+                index for index, call in enumerate(calls)
+                if call.get("execution_state") != "rejected"
+            ]
+            if productive:
+                last = calls[productive[-1]]
+                if last.get("name") != "advance" or last.get("execution_state") != "decision_ready":
+                    errors.append(f"turn {turn_id} does not end on advance")
             ready = [call for call in calls if call.get("execution_state") == "decision_ready"]
             if ready:
                 staged = ((ready[-1].get("data") or {}).get("staged_calls") or [])

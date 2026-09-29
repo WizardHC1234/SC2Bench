@@ -1,4 +1,4 @@
-"""Stable structure object IDs for object-level actions (e.g. CC upgrade)."""
+"""Stable structure object IDs for object-level actions (e.g. morph_townhall)."""
 from __future__ import annotations
 
 
@@ -50,13 +50,13 @@ class StructureRegistry:
         living_tags = {int(tag) for tag, _ in townhalls}
         # Drop destroyed tags so ids are not reused for a different building.
         for tag, object_id in list(self._tag_to_id.items()):
-            if tag not in living_tags and object_id.startswith("cc_"):
+            if tag not in living_tags and object_id.startswith("townhall_"):
                 self._tag_to_id.pop(tag, None)
                 self._id_to_tag.pop(object_id, None)
 
         records: List[dict] = []
         for tag, type_name in townhalls:
-            object_id = self.id_for_tag(int(tag), prefix="cc")
+            object_id = self.id_for_tag(int(tag), prefix="townhall")
             records.append({"id": object_id, "type": type_name})
         records.sort(key=lambda row: row["id"])
         return records

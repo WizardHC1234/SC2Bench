@@ -8,6 +8,7 @@ import math
 import time
 from http.client import HTTPException
 from typing import Any, Callable, Mapping, Optional
+from uuid import uuid4
 
 from sc2bench_env.adapters.llm import LLMAdapter
 from sc2bench_env.interface.agent import AgentInput, AgentStopped, AgentTurn
@@ -60,6 +61,35 @@ def _tool_query_title(name: str) -> str:
     return "Tool call"
 
 
+def _optional_usage_token(usage: Mapping[str, Any], *names: str) -> Optional[int]:
+    for name in names:
+        if name not in usage:
+            continue
+        value = usage.get(name)
+        if type(value) is int and value >= 0:
+            return value
+        return None
+    return None
+
+
+def _model_call(response: Mapping[str, Any]) -> dict[str, Any]:
+    """One provider attempt. Token fields stay null when the provider omits them."""
+    usage = response.get("usage") if isinstance(response.get("usage"), Mapping) else {}
+    latency = response.get("latency_seconds")
+    if isinstance(latency, bool) or not isinstance(latency, (int, float)):
+        latency = None
+    model = response.get("model")
+    return {
+        "call_id": uuid4().hex,
+        "role": "main",
+        "model": model if isinstance(model, str) and model else None,
+        "status": "ok",
+        "input_tokens": _optional_usage_token(usage, "prompt_tokens", "input_tokens"),
+        "output_tokens": _optional_usage_token(usage, "completion_tokens", "output_tokens"),
+        "latency_seconds": None if latency is None else float(latency),
+    }
+
+
 class LLMAgent:
     """One instance serves one episode and keeps that episode's messages."""
 
@@ -110,6 +140,7 @@ class LLMAgent:
         adapter = LLMAdapter(race=race)
         provider_tool_calls: list[dict[str, Any]] = []
         failures: list[dict[str, Any]] = []
+        decision_calls: list[dict[str, Any]] = []
         last_attempt = 1
         phase = "querying"
         query_names, action_names = _tool_roles(request.tool_specs)
@@ -118,8 +149,10 @@ class LLMAgent:
             last_attempt = attempt
             failures.extend(round_failures)
             if response.get("error"):
-                return AgentTurn(None, call_failures=tuple(failures),
+                context = {"agent_calls": decision_calls} if decision_calls else None
+                return AgentTurn(context, call_failures=tuple(failures),
                                  stop_after_call_failures=True)
+            decision_calls.append(_model_call(response))
             tool_calls = list(response.get("tool_calls") or [])
             raw = response.get("raw_content", response.get("content", ""))
             content = response.get("content") or ""
@@ -201,6 +234,7 @@ class LLMAgent:
                 context = self._turn_context(
                     response, request, last_attempt, failures)
                 context["provider_tool_calls"] = list(provider_tool_calls)
+                context["agent_calls"] = list(decision_calls)
                 if self.verbose:
                     print(
                         f"LLM game_seconds={request.observation.game.game_time_seconds:.1f} "

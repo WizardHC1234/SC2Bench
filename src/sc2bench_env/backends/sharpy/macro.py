@@ -17,8 +17,8 @@ def _estimate_cost(task: Dict[str, Any], *, race: str = "terran") -> Dict[str, f
     action = str(task.get("action") or "")
     target = str(task.get("target") or "")
     to = str(task.get("to") or "")
-    key = to if action == "upgrade" else (
-        action if action in {"scan", "call_mule", "chrono_boost", "inject_larva", "spawn_creep_tumor", "scout"} else target
+    key = to if action == "morph_townhall" else (
+        action if action in {"scan", "call_mule", "supply_drop", "chrono_boost", "inject_larva", "spawn_creep_tumor", "scout"} else target
     )
     if action == "combat":
         key = str(task.get("style") or "")
@@ -35,9 +35,9 @@ def _estimate_cost(task: Dict[str, Any], *, race: str = "terran") -> Dict[str, f
 
 def _catalog_key(task: Dict[str, Any]) -> str:
     action = str(task.get("action") or "")
-    if action == "upgrade":
+    if action == "morph_townhall":
         return str(task.get("to") or "")
-    if action in {"scan", "call_mule", "chrono_boost", "inject_larva", "spawn_creep_tumor", "scout"}:
+    if action in {"scan", "call_mule", "supply_drop", "chrono_boost", "inject_larva", "spawn_creep_tumor", "scout"}:
         return action
     if action == "combat":
         return str(task.get("style") or "")
@@ -124,7 +124,7 @@ class ActOngoingMacroTasks(ActBase):
             else:
                 task.setdefault("_ready_seen", progress)
             return not bool(task.get("_paid"))
-        if action in {"research", "upgrade"}:
+        if action in {"research", "morph_townhall"}:
             return not bool(task.get("_paid"))
         return not bool(task.get("_act_done"))
 
@@ -146,6 +146,16 @@ class ActOngoingMacroTasks(ActBase):
             - float(getattr(self.ai, "supply_used", 0) or 0),
         )
         budget_e = self.adapter.ability_energy_budget(self.ai)
+        morph_tags = getattr(self.ai, "bench_morph_tags", None)
+        if isinstance(morph_tags, set):
+            morph_tags.clear()
+        else:
+            self.ai.bench_morph_tags = set()
+        warp_tags = getattr(self.ai, "bench_warp_reserve_tags", None)
+        if isinstance(warp_tags, set):
+            warp_tags.clear()
+        else:
+            self.ai.bench_warp_reserve_tags = set()
 
         for task in ordered:
             if task.get("_disabled", False):
@@ -197,11 +207,15 @@ class ActOngoingMacroTasks(ActBase):
                     continue
                 task["_started"] = True
 
+            if hasattr(act, "reserve_pending_sources"):
+                act.reserve_pending_sources()
+
             cost = _estimate_cost(task, race=self.race)
             if task.get("action") == "combat":
                 act.update_order(str(task["style"]), str(task["target"]),
-                                 bool(task.get("withdrawing")), int(task.get("command_revision", 0)))
-            if task.get("action") in {"scan", "call_mule", "chrono_boost", "inject_larva", "spawn_creep_tumor"}:
+                                 bool(task.get("withdrawing")), int(task.get("command_revision", 0)),
+                                 str(task.get("retreat_method") or "move"), task.get("recall_status"))
+            if task.get("action") in {"scan", "call_mule", "supply_drop", "chrono_boost", "inject_larva", "spawn_creep_tumor"}:
                 if getattr(act, "_done", False):
                     # Keep the acknowledged one-shot visible until TaskManager
                     # collects it, even if its cast left the Orbital below 50.
@@ -212,6 +226,8 @@ class ActOngoingMacroTasks(ActBase):
                 # casters from this frame's usable bank. Retain any earlier
                 # soft reservation by taking the minimum, not resetting it.
                 budget_e = min(budget_e, self.adapter.ability_energy_budget(self.ai, available_only=True))
+            if hasattr(act, "waiting_reason"):
+                act.waiting_reason = None
             committed = self._resource_committed(task)
 
             def _soft_reserve() -> None:
@@ -281,6 +297,9 @@ class ActOngoingMacroTasks(ActBase):
                 else:
                     task.pop("_execution_error", None)
                 self._mark_paid_if_spent(task, before_m, before_v)
+                blocker = self._execution_blocker(task)
+                if blocker and not task["_act_done"]:
+                    task["_waiting_for"] = blocker
                 # Claim this demand's next unit cost until payment is observed.
                 if self._should_hold_budget(task, to_count):
                     _soft_reserve()

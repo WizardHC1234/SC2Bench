@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from sc2bench_env.interface.platform_rules import (
+    AGENT_GUIDANCE,
     ARMY_RULES,
     CONTROL_RULES,
     DECISION_REQUEST,
@@ -34,7 +35,11 @@ class PromptParts:
 
 
 def default_prompt_parts(race: str = "terran") -> PromptParts:
-    """Platform facts for one race. decision_guidance is the replaceable reminder."""
+    """Platform contract plus replaceable decision_guidance.
+
+    Sections 1–5 and the user-message decision request are the platform
+    contract. decision_guidance is default advice a harness may replace.
+    """
     require_supported_own_race(race)
     from sc2bench_env.catalog.registry import render_observation_guide
 
@@ -65,7 +70,7 @@ def default_prompt_parts(race: str = "terran") -> PromptParts:
         observation_rules=render_observation_guide().strip(),
         tool_interaction=INTERACTION_RULES.strip(),
         execution_rules=execution.strip(),
-        decision_guidance=DECISION_REQUEST.strip(),
+        decision_guidance=(DECISION_REQUEST.strip() + "\n\n" + AGENT_GUIDANCE.strip()),
     )
 
 

@@ -16,6 +16,8 @@ def _building(
     seconds: float,
     vespene: int = 0,
     prerequisites: Tuple[str, ...] = (),
+    produced_at: str = "",
+    mechanism: str = "construct",
 ) -> TargetSpec:
     return TargetSpec(
         name=name,
@@ -28,6 +30,8 @@ def _building(
         prerequisites=prerequisites,
         semantics="append",
         success_boundary="unfinished_entity_appears",
+        produced_at=produced_at,
+        mechanism=mechanism,
     )
 
 
@@ -55,6 +59,8 @@ def _unit(
         semantics="append",
         success_boundary="units_produced",
         produced_at=producer,
+        mechanism="merge" if name == "archon" else ("warp" if producer == "gateway" else "queue"),
+        dispatchable=name != "probe",
     )
 
 
@@ -142,10 +148,19 @@ PROTOSS_TARGETS: Tuple[TargetSpec, ...] = (
     ),
     _building(
         "gateway",
-        description="Ground army producer. After Warp Gate research finishes, the backend morphs a completed Gateway into a Warp Gate. There is no separate morph action.",
+        description="Ground army producer. warp_gate research does not morph it. build warpgate converts one completed Gateway.",
         minerals=150,
         seconds=46,
         prerequisites=("pylon",),
+    ),
+    _building(
+        "warpgate",
+        description="Converts one completed idle Gateway after warp_gate research. The conversion uses this version's morph cost. Converted Warp Gates remain Warp Gates; new units warp near the home gather point and each Warp Gate then waits for its cooldown.",
+        minerals=0,
+        seconds=4,
+        prerequisites=("warp_gate",),
+        produced_at="gateway",
+        mechanism="structure_morph",
     ),
     _building(
         "forge",
@@ -236,8 +251,9 @@ PROTOSS_TARGETS: Tuple[TargetSpec, ...] = (
     _unit("stalker", description="Ground attacker that also shoots air.", minerals=125, vespene=50, supply=2, seconds=27, producer="gateway", prerequisites=("cybernetics_core",)),
     _unit("sentry", description="Support caster. Force Field, Guardian Shield and Hallucination are backend-controlled.", minerals=50, vespene=100, supply=2, seconds=23, producer="gateway", prerequisites=("cybernetics_core",)),
     _unit("adept", description="Ground ranged fighter. Shade is backend-controlled. The time is the Gateway train time, not warp-in time.", minerals=100, vespene=25, supply=2, seconds=33, producer="gateway", prerequisites=("cybernetics_core",)),
-    _unit("high_templar", description="Ground caster. Feedback and Psionic Storm are backend-controlled after research. Archon is not a train target.", minerals=50, vespene=150, supply=2, seconds=39, producer="gateway", prerequisites=("templar_archives",)),
-    _unit("dark_templar", description="Permanent cloak melee fighter. Archon is not a train target.", minerals=125, vespene=125, supply=2, seconds=39, producer="gateway", prerequisites=("dark_shrine",)),
+    _unit("high_templar", description="Ground caster. Feedback and Psionic Storm are backend-controlled after research. Two free templar can train one archon.", minerals=50, vespene=150, supply=2, seconds=39, producer="gateway", prerequisites=("templar_archives",)),
+    _unit("dark_templar", description="Permanent cloak melee fighter. Two free templar can train one archon.", minerals=125, vespene=125, supply=2, seconds=39, producer="gateway", prerequisites=("dark_shrine",)),
+    _unit("archon", description="Merges two free High Templar or Dark Templar from group_0. The merge spends those units. It does not spend minerals, gas or extra supply. Both snapshots leave Archon build_time at 0; ability 1766 is the shared merge.", minerals=0, vespene=0, supply=0, seconds=8.57, producer="high_templar"),
     _unit("observer", description="Flying detector. Surveillance mode is backend-controlled and shares this identity.", minerals=25, vespene=75, supply=1, seconds=18, producer="robotics_facility"),
     _unit("warp_prism", description="Flying transport. Phasing mode is backend-controlled and shares this identity.", minerals=250, supply=2, seconds=36, producer="robotics_facility"),
     _unit("immortal", description="Armored ground attacker.", minerals=250, vespene=100, supply=4, seconds=39, producer="robotics_facility"),
@@ -249,7 +265,7 @@ PROTOSS_TARGETS: Tuple[TargetSpec, ...] = (
     _unit("tempest", description="Long-range flying attacker against ground and air.", minerals=250, vespene=175, supply=4, seconds=43, producer="stargate", prerequisites=("fleet_beacon",)),
     _unit("carrier", description="Flying capital ship. The backend builds and releases Interceptors.", minerals=350, vespene=250, supply=6, seconds=64, producer="stargate", prerequisites=("fleet_beacon",)),
     _unit("mothership", description="Flying support capital. Time Warp is backend-controlled. Only one can exist.", minerals=400, vespene=400, supply=8, seconds=89, producer="nexus", prerequisites=("fleet_beacon",)),
-    _research("warp_gate", description="Lets the backend morph completed Gateways into Warp Gates. Gateway units keep the same train names.", minerals=50, vespene=50, seconds=100, researched_at="cybernetics_core"),
+    _research("warp_gate", description="Researched at the Cybernetics Core. Research does not morph Gateways. Gateway units keep the same train names.", minerals=50, vespene=50, seconds=100, researched_at="cybernetics_core"),
     _research("charge", description="Zealots charge to their ground target. The backend uses it.", minerals=100, vespene=100, seconds=100, researched_at="twilight_council"),
     _research("blink", description="Stalkers can blink. The backend uses it.", minerals=150, vespene=150, seconds=121, researched_at="twilight_council"),
     _research("shadow_stride", description="Dark Templars can blink a short distance. The backend uses it.", minerals=100, vespene=100, seconds=100, researched_at="dark_shrine"),
@@ -344,11 +360,11 @@ _TARGET_TABLE_LEGEND = (
 _TARGET_NOTES = {
     "build": (
         "- pylon provides +8 supply and powers Protoss buildings when ready.",
-        "- A completed Gateway morphs into a Warp Gate after warp_gate research. Warp Gates stay the gateway identity.",
+        "- warp_gate research does not morph Gateways. build warpgate converts one completed Gateway. Warp Gates stay the gateway identity for train names.",
     ),
     "train": (
         "- Gateway units can be warped in after that morph. Train names do not change.",
-        "- Warp Prism phasing and Observer surveillance share those train names. Archon is not a train target.",
+        "- Warp Prism phasing and Observer surveillance share those train names. train archon merges two free templar.",
     ),
 }
 
@@ -357,7 +373,7 @@ _PROMPT_DESCRIPTIONS = {
     "chrono_boost": "Chrono Boost. Backend chooses the structure. Not automatic.",
     "pylon": "Adds 8 supply and powers buildings.",
     "assimilator": "Gas mining structure.",
-    "gateway": "Ground army producer. Morphs to a Warp Gate after research.",
+    "gateway": "Ground army producer. Research does not morph it.",
     "forge": "Ground upgrades and Photon Cannon tech.",
     "cybernetics_core": "Advanced Gateway units, Warp Gate and air upgrades.",
     "photon_cannon": "Static detector and ground/air weapon.",
@@ -374,8 +390,8 @@ _PROMPT_DESCRIPTIONS = {
     "stalker": "Attacks ground and air.",
     "sentry": "Support caster.",
     "adept": "Ground ranged fighter.",
-    "high_templar": "Caster. Archon is not trained.",
-    "dark_templar": "Cloaked melee fighter. Archon is not trained.",
+    "high_templar": "Caster. Two free templar train one Archon.",
+    "dark_templar": "Cloaked melee fighter. Two free templar train one Archon.",
     "observer": "Flying detector.",
     "warp_prism": "Flying transport.",
     "immortal": "Armored ground attacker.",
@@ -387,7 +403,9 @@ _PROMPT_DESCRIPTIONS = {
     "tempest": "Long-range flying attacker.",
     "carrier": "Flying capital ship. Interceptors are backend-controlled.",
     "mothership": "Flying support capital. Only one.",
-    "warp_gate": "Backend morphs completed Gateways.",
+    "warp_gate": "Research only. It does not morph Gateways.",
+    "warpgate": "Converts one completed Gateway. Cost and time come from this version.",
+    "archon": "Merges two free templar. No extra minerals, gas or supply.",
     "charge": "Zealot charge.",
     "blink": "Stalker blink.",
     "resonating_glaives": "Faster Adept attacks.",

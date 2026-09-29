@@ -94,7 +94,11 @@ def build_observation(snapshot, task_manager, config, previous=None) -> Observat
             supply_cap=snapshot.supply_cap,
             supply_left=max(0, int(snapshot.supply_cap) - int(snapshot.supply_used)),
             worker_count=worker_count,
-            mining_worker_capacity=snapshot.info.get("ideal_worker_count"),
+            workers_on_minerals=snapshot.info.get("workers_on_minerals"),
+            mineral_worker_saturation=snapshot.info.get("mineral_worker_saturation"),
+            workers_on_vespene=snapshot.info.get("workers_on_vespene"),
+            vespene_worker_saturation=snapshot.info.get("vespene_worker_saturation"),
+            workers_other=snapshot.info.get("workers_other"),
             army_supply=army_supply,
             mineral_income_per_minute=snapshot.info.get("mineral_income_per_minute"),
             vespene_income_per_minute=snapshot.info.get("vespene_income_per_minute"),
@@ -129,6 +133,31 @@ def build_observation(snapshot, task_manager, config, previous=None) -> Observat
         terminated=snapshot.terminated,
     )
 
+def morph_source_reservations(task_manager) -> dict[str, int]:
+    """Source units held by an unfinished unit morph or merge.
+
+    In-flight morphs have already left the source count, so only units still
+    waiting to start are held back from a new combat order.
+    """
+    from sc2bench_env.catalog.registry import get_target
+
+    reserved: dict[str, int] = {}
+    race = getattr(task_manager, "race", None)
+    for demand in task_manager.active_demands():
+        if demand.action != "train" or demand.mechanism not in {"unit_morph", "merge"}:
+            continue
+        spec = get_target(demand.target, race=race) if demand.target else None
+        source = getattr(spec, "produced_at", "") if spec is not None else ""
+        if not source:
+            continue
+        pending = max(0, int(demand.remaining) - int(demand.in_flight or 0))
+        each = 2 if demand.mechanism == "merge" else 1
+        if pending <= 0:
+            continue
+        reserved[source] = reserved.get(source, 0) + pending * each
+    return reserved
+
+
 def assigned_army_counts(snapshot, task_manager) -> dict[str, int]:
     bound: dict[str, int] = {}
     progress = dict(snapshot.info.get("combat_progress") or {})
@@ -140,6 +169,8 @@ def assigned_army_counts(snapshot, task_manager) -> dict[str, int]:
         units = alive if isinstance(alive, dict) else (demand.units or {})
         for name, count in units.items():
             bound[str(name)] = bound.get(str(name), 0) + int(count)
+    for name, count in morph_source_reservations(task_manager).items():
+        bound[str(name)] = bound.get(str(name), 0) + int(count)
     for name, count in dict(snapshot.info.get("unavailable_army") or {}).items():
         bound[str(name)] = max(bound.get(str(name), 0), int(count))
     return bound
@@ -183,15 +214,19 @@ def combat_summary(snapshot, task_manager) -> dict[str, dict]:
         # The backend changes a completed attack to defend so survivors hold
         # the cleared objective. Preserve the submitted order alongside the
         # current style so this does not look like an original defend order.
-        if demand.style == "attack" and current_style == "defend":
+        holding_after_attack = demand.style == "attack" and current_style == "defend"
+        if holding_after_attack:
             summary[label]["order_transition"] = {
                 "from": "attack",
                 "to": "defend",
                 "reason": "target_confirmed_clear",
                 "automatic": True,
             }
+            summary[label]["attack_result"] = "target_confirmed_clear"
         if row.get("phase"):
             summary[label]["phase"] = "executing" if row["phase"] == "fight" else str(row["phase"])
+            if holding_after_attack and summary[label]["phase"] == "executing":
+                summary[label]["phase"] = "holding_after_attack"
         summary[label]["visible_enemy_nearby"] = row.get("visible_enemy_nearby")
         summary[label]["weapon_cooldown_active_count"] = row.get("weapon_cooldown_active_count")
         if "cloaked" in row:
@@ -397,7 +432,7 @@ def available_targets(
     def prereqs_met(spec) -> bool:
         return all(ready(req) for req in spec.prerequisites)
 
-    grouped: Dict[str, List[str]] = {"build": [], "train": [], "research": [], "upgrade": []}
+    grouped: Dict[str, List[str]] = {"build": [], "train": [], "research": [], "morph_townhall": []}
     for spec in catalog.targets:
         if spec.action not in grouped:
             continue
@@ -413,8 +448,8 @@ def available_targets(
             and prereqs_met(spec)
         ):
             grouped["research"].append(spec.name)
-        elif spec.action == "upgrade" and ready(spec.morph_from) and prereqs_met(spec):
-            grouped["upgrade"].append(spec.name)
+        elif spec.action == "morph_townhall" and ready(spec.morph_from) and prereqs_met(spec):
+            grouped["morph_townhall"].append(spec.name)
     return grouped
 
 

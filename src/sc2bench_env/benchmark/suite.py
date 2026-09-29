@@ -1,4 +1,8 @@
-"""Agent-independent, seed-free serial benchmark specifications."""
+"""Agent-independent benchmark specifications.
+
+Optional game_seeds choose the SC2 simulator seed for each repetition.
+That seed does not control the model, harness, Python RNG, or other services.
+"""
 from __future__ import annotations
 
 
@@ -16,7 +20,9 @@ from sc2bench_env.interface.opponents import normalize_opponent, require_enemy_s
 
 _REQUIRED_CONFIG_FIELDS = {"race", "enemy_race", "map_name", "opponent",
                   "blocking_decisions", "game_time_limit_seconds"}
-_CONFIG_FIELDS = _REQUIRED_CONFIG_FIELDS | {"enemy_style"}
+_CONFIG_FIELDS = _REQUIRED_CONFIG_FIELDS | {"enemy_style", "realtime"}
+_SUITE_FIELDS = {"schema_version", "suite_id", "suite_version", "purpose",
+                 "repetitions", "max_decisions", "episode_defaults", "cases"}
 
 
 def _positive_integer(value: Any, name: str) -> None:
@@ -36,6 +42,8 @@ def _validate_config(value: dict[str, Any]) -> None:
     normalize_opponent(value["opponent"])
     if type(value["blocking_decisions"]) is not bool:
         raise ValueError("blocking_decisions must be a boolean")
+    if "realtime" in value and type(value["realtime"]) is not bool:
+        raise ValueError("realtime must be a boolean")
     number = value["game_time_limit_seconds"]
     if type(number) not in {int, float} or not math.isfinite(number) or number <= 0:
         raise ValueError("game_time_limit_seconds must be a finite positive number")
@@ -57,10 +65,20 @@ class BenchmarkSuite:
             data, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False))
 
     @staticmethod
+    def _validate_game_seeds(data: dict[str, Any]) -> None:
+        if "game_seeds" not in data:
+            return
+        seeds = data["game_seeds"]
+        if (not isinstance(seeds, list) or len(seeds) != data["repetitions"]
+                or any(type(seed) is not int or seed < 0 for seed in seeds)):
+            raise ValueError("game_seeds must be non-negative integers and match repetitions")
+
+    @staticmethod
     def _validate(data: Any) -> None:
-        fields = {"schema_version", "suite_id", "suite_version", "purpose",
-                  "repetitions", "max_decisions", "episode_defaults", "cases"}
-        if not isinstance(data, dict) or set(data) != fields:
+        if not isinstance(data, dict):
+            raise ValueError("Unsupported suite fields")
+        keys = set(data)
+        if not _SUITE_FIELDS <= keys or keys - _SUITE_FIELDS - {"game_seeds"}:
             raise ValueError("Unsupported suite fields")
         if data["schema_version"] != "1":
             raise ValueError("Unsupported suite schema_version")
@@ -87,6 +105,7 @@ class BenchmarkSuite:
             if not isinstance(case["episode"], dict) or set(case["episode"]) - _CONFIG_FIELDS:
                 raise ValueError("Unsupported case episode fields; seed is not supported")
             _validate_config({**defaults, **case["episode"]})
+        BenchmarkSuite._validate_game_seeds(data)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "BenchmarkSuite":
@@ -145,7 +164,16 @@ class BenchmarkSuite:
 
     def episode_plan(self) -> list[dict[str, Any]]:
         data = self.to_dict()
-        return [{"case_id": case["case_id"], "repetition": repetition,
-                 "config": EpisodeConfig(**{**data["episode_defaults"], **case["episode"]})}
-                for case in data["cases"]
-                for repetition in range(1, data["repetitions"] + 1)]
+        seeds = data.get("game_seeds")
+        plan = []
+        for case in data["cases"]:
+            for repetition in range(1, data["repetitions"] + 1):
+                fields = {**data["episode_defaults"], **case["episode"]}
+                if seeds is not None:
+                    fields["seed"] = seeds[repetition - 1]
+                plan.append({
+                    "case_id": case["case_id"],
+                    "repetition": repetition,
+                    "config": EpisodeConfig(**fields),
+                })
+        return plan

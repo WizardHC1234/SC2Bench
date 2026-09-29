@@ -13,8 +13,9 @@ class EpisodeConfig:
     """Configuration for one environment episode.
 
     Sharpy uses map/opponent/race and game-clock limits. FakeBackend models the
-    public contract, not an actual map or opponent. The optional seed remains
-    an experimental backend argument; Benchmark Suites do not use it.
+    public contract, not an actual map or opponent. The optional seed controls
+    only the SC2 simulator. Suites may copy game_seeds onto this field. A seed
+    does not control the model, harness, Python RNG, or external services.
     """
 
     race: str = "terran"

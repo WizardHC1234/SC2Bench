@@ -24,6 +24,64 @@ def _townhall_count(buildings: Dict[str, int], targets) -> Optional[int]:
     return None if targets is None else sum(int(buildings.get(key, 0)) for key in targets)
 
 
+def _worker_assignment(ai: Any, total_workers: int) -> Optional[Dict[str, int]]:
+    """Count current permanent-worker orders."""
+    workers = getattr(ai, "workers", None)
+    if workers is None:
+        return None
+    mineral_tags = {
+        int(resource.tag) for resource in (getattr(ai, "mineral_field", None) or [])
+        if getattr(resource, "tag", None) is not None
+    }
+    gas_tags = {
+        int(resource.tag) for resource in (getattr(ai, "gas_buildings", None) or [])
+        if getattr(resource, "tag", None) is not None
+    }
+    on_minerals = 0
+    on_vespene = 0
+    for worker in workers:
+        if bool(getattr(worker, "is_gathering", False)):
+            target = getattr(worker, "order_target", None)
+            if isinstance(target, int) and target in gas_tags:
+                on_vespene += 1
+            elif isinstance(target, int) and target in mineral_tags:
+                on_minerals += 1
+        elif bool(getattr(worker, "is_returning", False)):
+            if bool(getattr(worker, "is_carrying_vespene", False)):
+                on_vespene += 1
+            elif bool(getattr(worker, "is_carrying_minerals", False)):
+                on_minerals += 1
+    assigned = min(max(0, int(total_workers)), on_minerals + on_vespene)
+    # Loaded, constructing, moving, scouting and idle workers are all "other".
+    # Clamp protects the public invariant if a transient client frame reports
+    # more worker orders than living permanent-worker inventory.
+    if on_minerals + on_vespene > assigned:
+        overflow = on_minerals + on_vespene - assigned
+        trim_gas = min(on_vespene, overflow)
+        on_vespene -= trim_gas
+        on_minerals -= overflow - trim_gas
+    return {
+        "workers_on_minerals": on_minerals,
+        "workers_on_vespene": on_vespene,
+        "workers_other": max(0, int(total_workers) - on_minerals - on_vespene),
+    }
+
+
+def _ideal_harvester_total(structures: Any) -> Optional[int]:
+    """Sum SC2's current UI saturation values for completed structures."""
+    if structures is None:
+        return None
+    ready = getattr(structures, "ready", None)
+    completed = list(ready) if ready is not None else [
+        structure for structure in structures
+        if bool(getattr(structure, "is_ready", False))
+    ]
+    values = [getattr(structure, "ideal_harvesters", None) for structure in completed]
+    if any(item is None for item in values):
+        return None
+    return sum(max(0, int(item)) for item in values)
+
+
 def _structure_type_name(structure) -> str:
     return str(getattr(getattr(structure, "type_id", None), "name", "")).upper()
 
@@ -202,13 +260,26 @@ def read_snapshot(
     building_entity_tags: Dict[str, List[int]] = {}
     unavailable_army: Dict[str, int] = {}
     townhall_targets = getattr(adapter, "townhall_targets", None)
+    warpgate_completed = 0
+    warpgate_under_construction = 0
+    morph_tags = set(getattr(ai, "bench_morph_tags", set()) or ())
 
     for unit in ai.structures:
-        name = adapter.normalize_unit_name(unit.type_id.name)
+        raw_type_name = str(getattr(unit.type_id, "name", ""))
+        name = adapter.normalize_unit_name(raw_type_name)
+        if raw_type_name == "WARPGATE" and getattr(adapter, "race_name", None) == "protoss":
+            # Warp Gates share the Gateway production identity, but remain a
+            # distinct observed structure and build target.
+            name = "warpgate"
         if name is None:
             unknown_structures.append(str(unit.type_id.name))
             continue
         building_entity_tags.setdefault(name, []).append(int(unit.tag))
+        if raw_type_name == "WARPGATE":
+            if unit.build_progress < 1:
+                warpgate_under_construction += 1
+            else:
+                warpgate_completed += 1
         if unit.build_progress < 1:
             _bump(in_progress_buildings, name)
             if townhall_targets is not None and name in townhall_targets:
@@ -233,7 +304,11 @@ def read_snapshot(
             from sc2bench_env.backends.sharpy.combat_styles import available_for_mission
 
             pool_tags = getattr(ai, "bench_group0_tags", None)
-            if ((pool_tags is not None and unit.tag not in pool_tags)
+            excluded_fn = getattr(adapter, "home_gather_excluded", None)
+            excluded = set(excluded_fn()) if callable(excluded_fn) else set()
+            in_home_pool = pool_tags is None or unit.tag in pool_tags or name in excluded
+            if (not in_home_pool
+                    or int(unit.tag) in morph_tags
                     or not available_for_mission(unit, getattr(ai, "roles", None), getattr(ai, "bench_combat_tags", set()))):
                 _bump(unavailable_army, name)
 
@@ -375,17 +450,10 @@ def read_snapshot(
         ai, "supply_workers", sum(units.get(name, 0) for name in ("scv", "probe", "drone"))
     ) or 0)
     supply_army = int(getattr(ai, "supply_army", 0) or 0)
-    townhalls = getattr(townhall_units, "ready", None)
-    gas_buildings = getattr(getattr(ai, "gas_buildings", None), "ready", None)
-    ideal_worker_count = None
-    if townhalls is not None and gas_buildings is not None:
-        ready_harvester_sites = list(townhalls) + list(gas_buildings)
-        if all(getattr(structure, "ideal_harvesters", None) is not None
-               for structure in ready_harvester_sites):
-            ideal_worker_count = sum(
-                max(0, int(structure.ideal_harvesters))
-                for structure in ready_harvester_sites
-            )
+    total_workers = sum(int(units.get(name, 0)) for name in ("scv", "probe", "drone"))
+    worker_assignment = _worker_assignment(ai, total_workers)
+    mineral_worker_saturation = _ideal_harvester_total(townhall_units)
+    vespene_worker_saturation = _ideal_harvester_total(getattr(ai, "gas_buildings", None))
     # Sharpy's default IncomeCalculator estimates collection from assigned
     # harvesters. The SC2 score exposes the observed collection rate directly.
     score = getattr(getattr(ai, "state", None), "score", None)
@@ -432,6 +500,13 @@ def read_snapshot(
             "base_resources": base_resources,
             "structures": structures,
             **ability_facts,
+            **(
+                {
+                    "warpgate_completed": warpgate_completed,
+                    "warpgate_under_construction": warpgate_under_construction,
+                }
+                if getattr(adapter, "race_name", None) == "protoss" else {}
+            ),
             "under_construction": under_construction,
             "workers_en_route": dict(workers_en_route),
             "in_production_units": dict(in_production_units),
@@ -441,7 +516,13 @@ def read_snapshot(
             "unknown_units": sorted(set(unknown_units)),
             "supply_workers": supply_workers,
             "supply_army": supply_army,
-            "ideal_worker_count": ideal_worker_count,
+            **(worker_assignment or {
+                "workers_on_minerals": None,
+                "workers_on_vespene": None,
+                "workers_other": None,
+            }),
+            "mineral_worker_saturation": mineral_worker_saturation,
+            "vespene_worker_saturation": vespene_worker_saturation,
             "mineral_income_per_minute": mineral_per_min,
             "vespene_income_per_minute": vespene_per_min,
             "known_enemy_base_count": enemy_zone_count,

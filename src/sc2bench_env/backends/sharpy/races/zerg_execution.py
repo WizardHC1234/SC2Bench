@@ -14,6 +14,23 @@ from sc2bench_env.runtime.task import DemandState
 
 def execution_blocker(ai, task):
     action, target = task.get("action"), task.get("target")
+    if action == "build":
+        spec = get_target(str(target), race="zerg")
+        if spec is not None and spec.mechanism != "structure_morph":
+            units = getattr(ai, "units", None)
+            if callable(units):
+                workers = units(UnitTypeId.DRONE)
+                ready = getattr(workers, "ready", workers)
+                if not list(ready):
+                    return "builder_unavailable:drone"
+    waiting = getattr(task.get("_act"), "waiting_reason", None)
+    if waiting:
+        return waiting
+    if action == "train" and target == "transport_overlord":
+        from sc2.ids.unit_typeid import UnitTypeId as _Unit
+        halls = list(ai.structures(_Unit.LAIR).ready) + list(ai.structures(_Unit.HIVE).ready)
+        if not halls:
+            return "prerequisite:lair"
     if action == "build" and target == "extractor":
         act = task.get("_act")
         finder = getattr(act, "find_best", None)
@@ -30,7 +47,7 @@ def execution_blocker(ai, task):
                 return None
     if action == "train" and target in LARVA_UNITS:
         if not list(ai.units(UnitTypeId.LARVA)):
-            return "producer_busy"
+            return "no_larva"
     if action == "train" and target == "queen":
         producers = []
         for unit_type in (UnitTypeId.HATCHERY, UnitTypeId.LAIR, UnitTypeId.HIVE):
@@ -79,6 +96,8 @@ def ability_task_state(action, snapshot, waiting_for):
         raise ValueError("unsupported Zerg ability task feedback: " + str(action))
     if int(snapshot.units.get("queen", 0)) <= 0:
         return DemandState.WAITING_TO_START, "prerequisite:queen"
+    if waiting_for in {"queen_unavailable", "source_unit_unavailable", "source_unit_reserved"}:
+        return DemandState.WAITING_TO_START, waiting_for
     if waiting_for:
         return DemandState.WAITING_TO_START, waiting_for
     energies = snapshot.info.get("queen_energies") or []

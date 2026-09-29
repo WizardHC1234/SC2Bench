@@ -946,6 +946,11 @@
       "proto_name": "StarportReactor",
       "reason": "Debug create produced Reactor, Starport.",
       "unit_id": 42
+    },
+    {
+      "proto_name": "OverlordTransport",
+      "reason": "ResponseData lists OverlordTransport. The runtime extract did not include unit 893, so health, shields and energy stay unknown.",
+      "unit_id": 893
     }
   ]
 }

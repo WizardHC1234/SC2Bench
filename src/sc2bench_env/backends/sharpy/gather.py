@@ -14,11 +14,21 @@ from sc2bench_env.interface.observations import WORKER_UNIT_NAMES
 
 HOME_GATHER_RADIUS = 6.5
 HOME_DEFEND_RADIUS = 20.0
-PRODUCTION_TYPES = frozenset({UnitTypeId.BARRACKS, UnitTypeId.FACTORY, UnitTypeId.STARPORT})
 MOBILE_FORM_ABILITIES = {
     UnitTypeId.SIEGETANKSIEGED: AbilityId.UNSIEGE_UNSIEGE,
     UnitTypeId.WIDOWMINEBURROWED: AbilityId.BURROWUP_WIDOWMINE,
     UnitTypeId.LIBERATORAG: AbilityId.MORPH_LIBERATORAAMODE,
+    UnitTypeId.OBSERVERSIEGEMODE: AbilityId.MORPH_OBSERVERMODE,
+    UnitTypeId.WARPPRISMPHASING: AbilityId.MORPH_WARPPRISMTRANSPORTMODE,
+    UnitTypeId.HYDRALISKBURROWED: AbilityId.BURROWUP_HYDRALISK,
+    UnitTypeId.LURKERMPBURROWED: AbilityId.BURROWUP_LURKER,
+    UnitTypeId.INFESTORBURROWED: AbilityId.BURROWUP_INFESTOR,
+    UnitTypeId.RAVAGERBURROWED: AbilityId.BURROWUP_RAVAGER,
+    UnitTypeId.ROACHBURROWED: AbilityId.BURROWUP_ROACH,
+    UnitTypeId.BANELINGBURROWED: AbilityId.BURROWUP_BANELING,
+    UnitTypeId.SWARMHOSTBURROWEDMP: AbilityId.BURROWUP_SWARMHOST,
+    UnitTypeId.ULTRALISKBURROWED: AbilityId.BURROWUP_ULTRALISK,
+    UnitTypeId.ZERGLINGBURROWED: AbilityId.BURROWUP_ZERGLING,
 }
 # Economy casts are explicit orders. Home gathering must not replace them.
 _KEEP_ORDER = {
@@ -101,6 +111,7 @@ class PlanHomeGather(ActBase):
         spec = get_target(name, race=self.adapter.race_name) if name is not None else None
         return (
             spec is not None and spec.action == "train" and name not in WORKER_UNIT_NAMES
+            and name not in self.adapter.home_gather_excluded()
             and available_for_mission(unit, self.roles, getattr(self.ai, "bench_combat_tags", set()))
             and unit.tag not in self._bunker_tags()
             and not getattr(unit, "cargo_used", 0)
@@ -123,8 +134,9 @@ class PlanHomeGather(ActBase):
         if self._last_point is None or self._last_point.distance_to(point) > 1:
             self._rallied_tags.clear()
             self._last_point = point
+        production_types = self.adapter.home_production_types()
         producers = [b for b in self.ai.structures
-                     if b.type_id in PRODUCTION_TYPES and b.is_ready and not b.is_flying]
+                     if b.type_id in production_types and b.is_ready and not b.is_flying]
         self._rallied_tags.intersection_update(b.tag for b in producers)
         for building in producers:
             if building.tag not in self._rallied_tags:

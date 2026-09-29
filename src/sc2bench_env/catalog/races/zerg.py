@@ -20,6 +20,9 @@ def _building(
     seconds: float,
     vespene: int = 0,
     prerequisites: Tuple[str, ...] = (),
+    executable: bool = True,
+    mechanism: str = "construct",
+    morph_from: str = "",
 ) -> TargetSpec:
     return TargetSpec(
         name=name,
@@ -32,6 +35,9 @@ def _building(
         prerequisites=prerequisites,
         semantics="append",
         success_boundary="unfinished_entity_appears",
+        executable=executable,
+        mechanism=mechanism,
+        morph_from=morph_from,
     )
 
 
@@ -59,6 +65,9 @@ def _unit(
         semantics="append",
         success_boundary="units_produced",
         produced_at=producer,
+        mechanism=("queue" if name == "queen" else "unit_morph" if producer != "hatchery" else "larva"),
+        production_batch_size=2 if name == "zergling" else 1,
+        dispatchable=name not in {"drone", "overlord"},
     )
 
 
@@ -99,7 +108,7 @@ def _morph(
 ) -> TargetSpec:
     return TargetSpec(
         name=name,
-        action="upgrade",
+        action="morph_townhall",
         kind="morph",
         description=description,
         minerals=minerals,
@@ -109,6 +118,7 @@ def _morph(
         semantics="morph",
         success_boundary="morph_issued",
         morph_from=morph_from,
+        mechanism="structure_morph",
     )
 
 
@@ -152,21 +162,22 @@ ZERG_TARGETS: Tuple[TargetSpec, ...] = (
     _building("extractor", description="Gas mining structure on a geyser.", minerals=25, seconds=21, prerequisites=("hatchery",)),
     _building("spawning_pool", description="Zergling and Queen tech.", minerals=200, seconds=46, prerequisites=("hatchery",)),
     _building("evolution_chamber", description="Ground upgrades.", minerals=75, seconds=25, prerequisites=("hatchery",)),
-    _building("spine_crawler", description="Static ground weapon. It roots on creep.", minerals=100, seconds=36, prerequisites=("spawning_pool",)),
-    _building("spore_crawler", description="Static detector and anti-air weapon. It roots on creep.", minerals=75, seconds=21, prerequisites=("spawning_pool",)),
+    _building("spine_crawler", description="Static ground weapon. It roots on creep and is not uprooted.", minerals=100, seconds=36, prerequisites=("spawning_pool",)),
+    _building("spore_crawler", description="Static detector and anti-air weapon. It roots on creep and is not uprooted.", minerals=75, seconds=21, prerequisites=("spawning_pool",)),
     _building("roach_warren", description="Roach production.", minerals=150, seconds=39, prerequisites=("spawning_pool",)),
     _building("baneling_nest", description="Baneling morph tech.", minerals=100, vespene=50, seconds=43, prerequisites=("spawning_pool",)),
     _building("hydralisk_den", description="Hydralisk production.", minerals=100, vespene=100, seconds=29, prerequisites=("lair",)),
-    _building("lurker_den", description="Morphs a completed Hydralisk Den. Hydralisk production remains available.", minerals=100, vespene=150, seconds=57, prerequisites=("hydralisk_den",)),
+    _building("lurker_den", description="Morphs a completed Hydralisk Den. Hydralisk production remains available.", minerals=100, vespene=150, seconds=57, prerequisites=("hydralisk_den",), mechanism="structure_morph", morph_from="hydralisk_den"),
     _building("infestation_pit", description="Infestor and Swarm Host tech.", minerals=100, vespene=100, seconds=36, prerequisites=("lair",)),
     _building("spire", description="Mutalisk and Corruptor production, plus air upgrades.", minerals=200, vespene=200, seconds=71, prerequisites=("lair",)),
-    _building("nydus_network", description="Nydus Network. Placing a worm is not an action.", minerals=150, vespene=150, seconds=36, prerequisites=("lair",)),
+    _building("nydus_network", description="Nydus Network. The exit is not supported, so this building is not an executable build.", minerals=150, vespene=150, seconds=36, prerequisites=("lair",), executable=False),
     _building("ultralisk_cavern", description="Ultralisk production.", minerals=150, vespene=200, seconds=46, prerequisites=("hive",)),
-    _building("greater_spire", description="Morphs a completed Spire once a Hive exists. Mutalisk and Corruptor production remains available.", minerals=100, vespene=150, seconds=71, prerequisites=("spire", "hive")),
+    _building("greater_spire", description="Morphs a completed Spire once a Hive exists. Mutalisk and Corruptor production remains available.", minerals=100, vespene=150, seconds=71, prerequisites=("spire", "hive"), mechanism="structure_morph", morph_from="spire"),
     _morph("lair", description="Morph the selected Hatchery. Larva and Queen production stay on this town hall.", minerals=150, vespene=100, seconds=57, morph_from="hatchery", prerequisites=("spawning_pool",)),
     _morph("hive", description="Morph the selected Lair.", minerals=200, vespene=150, seconds=71, morph_from="lair", prerequisites=("infestation_pit",)),
     _unit("drone", description="Worker: mines and builds. It does not repair.", minerals=50, supply=1, seconds=12, producer="hatchery"),
-    _unit("overlord", description="Adds 8 supply when complete. Overlords are not built automatically.", minerals=100, supply=0, seconds=18, producer="hatchery"),
+    _unit("overlord", description="Adds 8 supply when complete. A normal Overlord cannot load units. Overlords are not built automatically.", minerals=100, supply=0, seconds=18, producer="hatchery"),
+    _unit("transport_overlord", description="Morphs one empty idle Overlord after a Lair exists. The cost and time are the morph increment from this version, not the full Overlord value. It can then carry a combat group.", minerals=0, vespene=0, supply=0, seconds=15, producer="overlord", prerequisites=("lair",)),
     _unit("queen", description="Support unit trained at a town hall. Transfusion is backend-controlled. inject_larva is a separate action and is not cast automatically.", minerals=150, supply=2, seconds=36, producer="hatchery", prerequisites=("spawning_pool",)),
     _unit("zergling", description="Ground melee fighter. One larva order produces two, and two use 1 supply. The supply column shows 1.", minerals=25, supply=1, seconds=17, producer="hatchery", prerequisites=("spawning_pool",)),
     _unit("baneling", description="Morphs an existing Zergling. Does not train Zerglings. Two Banelings use 1 supply.", minerals=25, vespene=25, supply=1, seconds=14, producer="zergling", prerequisites=("baneling_nest",)),
@@ -198,7 +209,7 @@ ZERG_TARGETS: Tuple[TargetSpec, ...] = (
     _ability(
         "spawn_creep_tumor",
         action="spawn_creep_tumor",
-        description="Spend 25 Queen energy to plant one creep tumor on creep, toward the enemy. A burrowed tumor spreads the next one when it can. It is not cast automatically.",
+        description="Plant one creep tumor on creep, toward the enemy. A burrowed tumor spreads the next one for free. If none can, one ready Queen spends 25 energy. It is not cast automatically.",
         energy=25,
         prerequisites=("queen",),
     ),
@@ -284,14 +295,14 @@ _TARGET_TABLE_LEGEND = (
 _TARGET_NOTES = {
     "build": (
         "- A completed Hatchery, Lair or Hive provides 4 supply. Morphing among them does not add more. A completed Overlord adds 8 supply and is a train target, not an automatic building.",
-        "- Lurker Den morphs a Hydralisk Den. Greater Spire morphs a Spire. Creep tumors and Nydus worms are not actions.",
+        "- Lurker Den morphs a Hydralisk Den. Greater Spire morphs a Spire. Creep tumors and Nydus worms are not actions. nydus_network is knowledge only; its exit is not supported.",
     ),
     "train": (
         "- Drones, Overlords and army units except Queens, morphs and the Queen itself come from larva at a Hatchery, Lair or Hive.",
         "- Baneling, Ravager, Lurker, Overseer and Brood Lord morph existing units. They do not train the source unit.",
         "- Two Zerglings or Banelings use 1 supply. The supply column shows 1.",
     ),
-    "upgrade": (
+    "morph_townhall": (
         "- Lair morphs one Hatchery. Hive morphs one Lair. Use the town hall structure id.",
     ),
 }
@@ -309,7 +320,7 @@ _PROMPT_DESCRIPTIONS = {
     "lurker_den": "Morphs a Hydralisk Den.",
     "infestation_pit": "Infestor and Swarm Host tech.",
     "spire": "Air production and air upgrades.",
-    "nydus_network": "Nydus Network. Worms are not an action.",
+    "nydus_network": "Knowledge only. The exit is not supported.",
     "ultralisk_cavern": "Ultralisk production.",
     "greater_spire": "Morphs a Spire.",
     "lair": "Morph a Hatchery.",

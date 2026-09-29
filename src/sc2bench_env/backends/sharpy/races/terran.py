@@ -20,6 +20,7 @@ from sharpy.plans.build_step import Step
 
 from sc2bench_env.backends.sharpy.acts import (
     ActCallMule,
+    ActSupplyDrop,
     ActCombatMission,
     ActMorphTownhall,
     ActScanZone,
@@ -397,10 +398,10 @@ class TerranAdapter(RaceAdapter):
                 building = ADDONS[spec.produced_at][0]
             return TerranTech(upgrade, from_building=building)
 
-        if task.action == "upgrade":
+        if task.action == "morph_townhall":
             if not task.to:
-                raise ValueError("upgrade requires 'to'")
-            _require_catalog("upgrade", task.to)
+                raise ValueError("morph_townhall requires 'to'")
+            _require_catalog("morph_townhall", task.to)
             return ActMorphTownhall(task.target, task.to)
         if task.action == "scan":
             _require_catalog("scan", "scan")
@@ -408,6 +409,9 @@ class TerranAdapter(RaceAdapter):
         if task.action == "call_mule":
             _require_catalog("call_mule", "call_mule")
             return ActCallMule()
+        if task.action == "supply_drop":
+            _require_catalog("supply_drop", "supply_drop")
+            return ActSupplyDrop()
         if task.action == "scout":
             _require_catalog("scout", "scout")
             route = task.route or ()
@@ -459,6 +463,9 @@ class TerranAdapter(RaceAdapter):
 
     def combat_forms(self, name: str) -> Tuple[UnitTypeId, ...]:
         return combat_unit_types(name)
+
+    def home_production_types(self) -> frozenset:
+        return frozenset({UnitTypeId.BARRACKS, UnitTypeId.FACTORY, UnitTypeId.STARPORT})
 
     def create_tactics(self) -> BuildOrder:
         # Phase 1: AutoDepot() stays OFF. Supply is entirely agent-owned via

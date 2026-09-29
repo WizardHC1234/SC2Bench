@@ -35,6 +35,7 @@
       "twilight_council": "TWILIGHTCOUNCIL",
       "void_ray": "VOIDRAY",
       "warp_prism": "WARPPRISM",
+      "warpgate": "WARPGATE",
       "zealot": "ZEALOT"
     },
     "terran": {
@@ -115,6 +116,7 @@
       "spire": "SPIRE",
       "spore_crawler": "SPORECRAWLER",
       "swarm_host": "SWARMHOSTMP",
+      "transport_overlord": "OVERLORDTRANSPORT",
       "ultralisk": "ULTRALISK",
       "ultralisk_cavern": "ULTRALISKCAVERN",
       "viper": "VIPER",
@@ -252,6 +254,7 @@
       "NYDUSCANAL": "nydus_worm",
       "NYDUSNETWORK": "nydus_network",
       "OVERLORD": "overlord",
+      "OVERLORDTRANSPORT": "transport_overlord",
       "OVERSEER": "overseer",
       "OVERSEERSIEGEMODE": "overseer",
       "QUEEN": "queen",

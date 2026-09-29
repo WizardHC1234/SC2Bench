@@ -97,6 +97,9 @@ class SharpyVersusGame:
         self.players[1].prepare_for_versus(right)
         self.players[0]._bridge.companions = [self.players[1]._bridge]
         self.players[1]._bridge.companions = [self.players[0]._bridge]
+        outcome_lock = threading.Lock()
+        self.players[0]._bridge.outcome_lock = outcome_lock
+        self.players[1]._bridge.outcome_lock = outcome_lock
         self.players[0]._bridge.notify = self._notify
         self.players[1]._bridge.notify = self._notify
         self._error = None
@@ -114,6 +117,13 @@ class SharpyVersusGame:
         if self._error is not None:
             self.close()
             raise RuntimeError(f"SC2/Sharpy versus failed to start: {self._error}") from self._error
+        matched = getattr(self.players[0]._bridge, "knowledge_snapshot", None)
+        for player in self.players:
+            player.knowledge_snapshot = matched
+        if matched is not None:
+            from sc2bench_env.catalog.knowledge import activate_game_data
+
+            activate_game_data(matched)
         return self.players[0].snapshot(), self.players[1].snapshot()
 
     def waiting(self) -> list[int]:

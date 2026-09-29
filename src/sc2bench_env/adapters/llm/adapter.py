@@ -43,16 +43,12 @@ class LLMAdapter:
         ]
 
     def render_input(self, request: AgentInput) -> str:
+        from sc2bench_env.adapters.llm.observation import platform_messages
+
         observation = request.observation.to_dict()
         previous = getattr(request.observation, "text_previous", None)
-        user = "[Current Observation]\n" + render_observation_text(observation, previous=previous)
-        if request.feedback is not None:
-            feedback = request.feedback.to_dict()
-            user += "\n\n[Previous Feedback]\n" + render_feedback_text(
-                feedback, shown_events=observation.get("recent_events", []))
-        if not observation.get("terminated", False):
-            user += "\n\n" + DECISION_REQUEST
-        return user
+        feedback = request.feedback.to_dict() if request.feedback is not None else None
+        return platform_messages("", observation, feedback, previous=previous)[1]["content"]
 
     def render_tool_result(self, call: ToolCall, result: ToolResult | Mapping[str, Any]) -> str:
         if isinstance(result, ToolResult):
