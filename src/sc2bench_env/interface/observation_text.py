@@ -265,81 +265,33 @@ def waiting_summary(action, target, priority, fallback):
     return "; ".join(f"{reason}: {value(amount)}" for reason, amount in amounts.items()) or "none"
 
 
-def _aggregate_priority_rows(data):
-    """Text-only merge of adjacent identical macro requests. Structured rows stay separate."""
-    aggregated = []
-    for index, source in enumerate(data, 1):
-        key = (
-            source.get("action"),
-            source.get("target"),
-            source.get("state"),
-            source.get("waiting_for"),
-            source.get("mechanism"),
-            source.get("to"),
-        )
-        if aggregated and aggregated[-1]["_key"] == key:
-            row = aggregated[-1]
-            row["request_count"] = int(row.get("request_count", 1)) + 1
-            if source.get("task_id"):
-                row.setdefault("task_ids", []).append(source["task_id"])
-            for field in ("remaining", "in_production", "waiting_to_produce", "cancellable_count"):
-                left, right = row.get(field), source.get(field)
-                if type(left) is int and type(right) is int:
-                    row[field] = left + right
-                elif right is not None and left in {None, "-"}:
-                    row[field] = right
-            continue
-        row = dict(source, priority=index, request_count=1, _key=key)
-        task_id = row.pop("task_id", None)
-        if task_id:
-            row["task_ids"] = [task_id]
-        for name in ("order_progress", "in_production", "waiting_to_produce"):
-            row.setdefault(name, "-")
-        row.setdefault("waiting_for", "not reported")
-        aggregated.append(row)
-    for row in aggregated:
-        row.pop("_key", None)
-    return aggregated
-
-
 def priority_lines(data):
-    """Full per-order status, explicitly separated from new Agent commands."""
-    rows = _aggregate_priority_rows(data)
-    lines = ["Active macro requests: " + str(len(data)),
-             "ALREADY ACCEPTED WORK — execution status and cancellable quantities."]
-    if any(int(row.get("request_count", 1)) > 1 for row in rows):
-        lines.append("Identical adjacent requests are aggregated in this text only.")
-    columns = [("Priority", "priority"), ("Action", "action"), ("Target", "target"),
-               ("Requests", "request_count"),
-               ("Remaining", "remaining"), ("Order progress", "order_progress"),
-               ("Paid train queue", "in_production"), ("Unqueued train", "waiting_to_produce"),
-               ("State", "state", execution_state_text),
-               ("Waiting for", "waiting_for", blocker_text),
-               ("Cancellable", "cancellable_count")]
-    if any(row.get("task_ids") for row in rows):
-        columns.insert(1, (
-            "Task IDs", "task_ids",
-            lambda items: ", ".join(value(item) for item in (items or [])) or "unknown",
-        ))
-    if any(row.get("to") for row in rows):
-        for row in rows:
-            row.setdefault("to", "-")
-        columns.append(("To", "to"))
-    if any(row.get("mechanism") for row in rows):
-        for row in rows:
-            row.setdefault("mechanism", "-")
-        columns.append(("Mechanism", "mechanism"))
-    if any("actual_produced" in row for row in rows):
-        for row in rows:
-            row.setdefault("requested_count", "-")
-            row.setdefault("actual_produced", "-")
-            row.setdefault("production_batch_size", "-")
-        columns.extend((
-            ("Requested", "requested_count"),
-            ("Actual", "actual_produced"),
-            ("Batch size", "production_batch_size"),
-        ))
-    return lines + table(rows, columns)
+    """Compact text for persistent macro work; structured rows keep full detail."""
+    if not data:
+        return ["none"]
+    lines = [
+        f"Active macro requests: {len(data)}",
+        "Accepted work continues automatically; repeating a request adds more work.",
+    ]
+    for index, row in enumerate(data, 1):
+        target = value(row.get("target"))
+        if row.get("to"):
+            target += " -> " + value(row.get("to"))
+        summary = [f"remaining {value(row.get('remaining'))}"]
+        if row.get("action") == "train":
+            summary.extend((
+                f"paid {value(row.get('in_production'))}",
+                f"unqueued {value(row.get('waiting_to_produce'))}",
+            ))
+        lines.append(
+            f"{index}. {value(row.get('action'))} {target}; "
+            + "; ".join(summary)
+        )
+        lines.append(
+            f"   Status: {execution_state_text(row.get('state'))}; "
+            f"waiting: {blocker_text(row.get('waiting_for'))}"
+        )
+    return lines
 
 
 def execution_state_text(state):
@@ -553,7 +505,9 @@ def section(key, data, *, production_priority=None, buildings=None, training=Non
     if key == "available_targets":
         if not isinstance(data, dict):
             return ["none"]
-        lines = []
+        lines = [
+            "Technology and producer requirements are met; resources, supply and free slots are not considered."
+        ]
         for group in ("build", "train", "research", "morph_townhall"):
             names = data.get(group) or []
             lines.append(f"{group.capitalize()}: {', '.join(value(name) for name in names) or 'none'}")

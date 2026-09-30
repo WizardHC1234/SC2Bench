@@ -10,7 +10,6 @@ ACTION_FIELDS = {
     "train": {"target": "catalog unit name", "count": "additional units (positive integer)"},
     "research": {"target": "catalog research name"},
     "cancel": {
-        "task_id": "one exact ID from Production Priority",
         "target_action": "build, train, research or morph_townhall",
         "target": "name of matching work to cancel",
     },
@@ -43,8 +42,7 @@ COMMAND_TEMPLATES = {
     "build": '{"name":"build","arguments":{"target":"<building_or_addon_name>"}}',
     "train": '{"name":"train","arguments":{"target":"<unit_name>","count":<positive_integer>}}',
     "research": '{"name":"research","arguments":{"target":"<research_name>"}}',
-    "cancel_task": '{"name":"cancel","arguments":{"task_id":"<task_id>"}}',
-    "cancel_target": '{"name":"cancel","arguments":{"target_action":"<build_or_train_or_research_or_morph_townhall>","target":"<target_name>"}}',
+    "cancel": '{"name":"cancel","arguments":{"target_action":"<build_or_train_or_research_or_morph_townhall>","target":"<target_name>"}}',
     "morph_townhall": '{"name":"morph_townhall","arguments":{"target":"<townhall_id>","to":"<morph_name>"}}',
     "scout": '{"name":"scout","arguments":{"route":["<zone_id>","<another_zone_id>"]}}',
     "scan": '{"name":"scan","arguments":{"target":"<zone_id>"}}',

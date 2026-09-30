@@ -7,6 +7,8 @@ are retained for compatibility with existing callers.
 """
 from __future__ import annotations
 
+from sharpy.combat.move_type import MoveType
+
 
 PROVISIONAL_DEFEND_LEASH = 1.25  # × zone radius
 TRANSPORT_STANDOFF = 8.0
@@ -24,6 +26,21 @@ MARCH_SLOW_SPEED_RATIO = 1.35
 MARCH_SLOW_SHARE_KEEP = 0.25
 # Any soldier this close to a visible enemy is already in the fight.
 MARCH_CONTACT_RADIUS = 12.0
+DEFEND_DEPLOY_RADIUS = 5.0
+
+
+def at_defend_station(micro, unit, radius: float = DEFEND_DEPLOY_RADIUS) -> bool:
+    """True only after a fixed-defense mission member reaches its hold point."""
+    if getattr(micro, "move_type", None) in {MoveType.DefensiveRetreat, MoveType.PanicRetreat}:
+        return False
+    rules = getattr(micro, "rules", None)
+    point = getattr(rules, "return_point", None)
+    if not bool(getattr(rules, "hold_position", False)) or point is None:
+        return False
+    try:
+        return float(unit.distance_to(point)) <= float(radius)
+    except (AttributeError, TypeError, ValueError):
+        return False
 
 
 def unit_available_for_background(unit, ai, *, require_group0: bool) -> bool:

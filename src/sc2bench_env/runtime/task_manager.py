@@ -187,7 +187,6 @@ class TaskManager:
             cleared = self._cancel_waiting(
                 target_action=action.target_action or "",
                 target=action.target or "",
-                task_id=action.task_id,
                 game_time=game_time,
             )
             if action.action_id:
@@ -199,7 +198,6 @@ class TaskManager:
                 result="accepted",
                 reason=f"cleared_waiting={cleared}",
                 action_id=action.action_id,
-                task_id=action.task_id,
             )
 
         if action.action == "research":
@@ -263,7 +261,6 @@ class TaskManager:
                     self._push_event(
                         {
                             "type": "demand_cancelled",
-                            "task_id": demand.task_id,
                             "action": "scout",
                             "target": demand.target,
                             "reason": "replaced",
@@ -290,14 +287,14 @@ class TaskManager:
                     existing.recall_failure = None
                     existing.command_revision += 1
                     existing.updated_at = game_time
-                    self._push_event({"type": "group_order_updated", "task_id": existing.task_id,
+                    self._push_event({"type": "group_order_updated",
                                       "group": existing.group,
                                       "action": action.action, "style": existing.style,
                                       "target": existing.target, "method": "recall"})
                 if action.action_id:
                     self.seen_action_ids.add(action.action_id)
                 return ActionReceipt(action=action.action, target=action.target, style=action.style,
-                                     group=existing.group, task_id=existing.task_id,
+                                     group=existing.group,
                                      result="idempotent_noop" if unchanged else "accepted")
             withdrawing = action.action == "retreat"
             unchanged = (existing.withdrawing and existing.retreat_method != "recall" if withdrawing else
@@ -314,13 +311,13 @@ class TaskManager:
                     existing.recall_status = None
                 existing.command_revision += 1
                 existing.updated_at = game_time
-                self._push_event({"type": "group_order_updated", "task_id": existing.task_id,
+                self._push_event({"type": "group_order_updated",
                                   "group": existing.group,
                                   "action": action.action, "style": existing.style, "target": existing.target})
             if action.action_id:
                 self.seen_action_ids.add(action.action_id)
             return ActionReceipt(action=action.action, target=action.target, style=action.style,
-                                 group=existing.group, task_id=existing.task_id,
+                                 group=existing.group,
                                  result="idempotent_noop" if unchanged else "accepted")
 
         if action.action == "combat":
@@ -347,7 +344,6 @@ class TaskManager:
                         action_id=action.action_id,
                         details={"requested": requested},
                         group=demand.group,
-                        task_id=demand.task_id,
                     )
             available = {name: int(idle_army.get(name, 0)) for name in requested}
             missing = {
@@ -411,7 +407,6 @@ class TaskManager:
             self.seen_action_ids.add(action.action_id)
         event = {
             "type": "demand_accepted",
-            "task_id": demand.task_id,
             "action": demand.action,
             "target": demand.target,
             "count": demand.count,
@@ -427,7 +422,6 @@ class TaskManager:
             target=action.target,
             count=action.count,
             result="accepted",
-            task_id=demand.task_id,
             action_id=action.action_id,
             style=action.style,
             details={"requested": dict(action.units)} if action.action == "combat" else None,
@@ -439,7 +433,6 @@ class TaskManager:
         *,
         target_action: str,
         target: str,
-        task_id: Optional[str] = None,
         game_time: float,
     ) -> int:
         """Clear not-yet-started work for matching demands.
@@ -450,19 +443,13 @@ class TaskManager:
         """
         cleared = 0
         for demand in list(self.demands.values()):
-            if task_id is not None:
-                if demand.task_id != task_id:
+            if demand.action != target_action:
+                continue
+            if demand.action == "morph_townhall":
+                if target not in {demand.target, demand.to}:
                     continue
-                if demand.action not in {"build", "train", "research", "morph_townhall"}:
-                    continue
-            else:
-                if demand.action != target_action:
-                    continue
-                if demand.action == "morph_townhall":
-                    if target not in {demand.target, demand.to}:
-                        continue
-                elif demand.target != target:
-                    continue
+            elif demand.target != target:
+                continue
             if not demand.is_active:
                 continue
 
@@ -477,7 +464,6 @@ class TaskManager:
                     self._push_event(
                         {
                             "type": "demand_trimmed",
-                            "task_id": demand.task_id,
                             "action": demand.action,
                             "target": demand.target,
                             "kept": keep,
@@ -498,7 +484,6 @@ class TaskManager:
                 self._push_event(
                     {
                         "type": "demand_cancelled",
-                        "task_id": demand.task_id,
                         "action": demand.action,
                         "target": demand.target,
                     }
@@ -561,7 +546,6 @@ class TaskManager:
             demand.mark_failed(failure or "backend_failed", game_time)
             event = {
                 "type": "demand_failed",
-                "task_id": demand.task_id,
                 "action": demand.action,
                 "target": demand.target,
                 "reason": demand.failure_reason,
@@ -585,7 +569,6 @@ class TaskManager:
             self._push_event(
                 {
                     "type": "combat_ended",
-                    "task_id": demand.task_id,
                     "group": demand.group,
                     "style": demand.style,
                     "target": demand.target,
@@ -617,7 +600,6 @@ class TaskManager:
             self._push_event(
                 {
                     "type": "build_started",
-                    "task_id": demand.task_id,
                     "target": demand.target,
                 }
             )
@@ -651,8 +633,7 @@ class TaskManager:
             state == DemandState.COMPLETED or demand.produced >= 1
         ):
             demand.mark_completed(game_time)
-            self._push_event({"type": "research_queued", "task_id": demand.task_id,
-                              "target": demand.target})
+            self._push_event({"type": "research_queued", "target": demand.target})
             return
         elif demand.action in {
             "scan", "call_mule", "supply_drop", "chrono_boost", "inject_larva", "spawn_creep_tumor", "morph_townhall", "scout",
@@ -660,8 +641,7 @@ class TaskManager:
             state == DemandState.COMPLETED or demand.produced >= 1
         ):
             demand.mark_completed(game_time)
-            event: dict = {"type": demand.action, "task_id": demand.task_id,
-                           "target": demand.target}
+            event: dict = {"type": demand.action, "target": demand.target}
             if demand.to:
                 event["to"] = demand.to
             if demand.route:
@@ -674,7 +654,6 @@ class TaskManager:
             self._push_event(
                 {
                     "type": "combat_ended",
-                    "task_id": demand.task_id,
                     "style": demand.style,
                     "target": demand.target,
                     "units": dict(demand.units or {}),
@@ -753,7 +732,6 @@ class TaskManager:
     def _train_completed_event(demand: Demand) -> dict:
         event = {
             "type": "train_completed",
-            "task_id": demand.task_id,
             "target": demand.target,
             "count": demand.count,
         }
@@ -782,13 +760,12 @@ class TaskManager:
         return 0
 
     def production_priority_summary(self) -> List[dict]:
-        """Relative active macro order with stable Agent-visible task IDs."""
+        """Relative active macro order without exposing internal demand IDs."""
         rows = []
         for demand in self.active_demands():
             if demand.action not in {"build", "train", "research", "morph_townhall"}:
                 continue
-            row = {"task_id": demand.task_id,
-                   "action": demand.action, "target": demand.target,
+            row = {"action": demand.action, "target": demand.target,
                    "state": demand.state.value, "remaining": demand.remaining,
                    "cancellable_count": self._cancellable_count(demand)}
             if demand.to:

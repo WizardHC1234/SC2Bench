@@ -10,7 +10,7 @@ WORKER_UNIT_NAMES = frozenset({"scv", "probe", "drone", "mule"})
 OBSERVATION_SECTIONS = (
     ("game", "Game"), ("economy", "Economy"), ("map_control", "Map Control"),
     ("map_topology", "Map Topology"), ("zone_state", "Zone State"),
-    ("available_targets", "Currently Available Targets"),
+    ("available_targets", "Tech-Available Targets"),
     ("relevant_zone_ids", "Relevant Zones"),
     ("production_priority", "Production Priority"), ("production", "Production Capacity"), ("building", "Building"),
     ("training", "Training"), ("own_forces", "Own Forces"), ("research", "Research"),

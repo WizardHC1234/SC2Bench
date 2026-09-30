@@ -21,7 +21,7 @@ PLANNING_RULES = """Planning context:
 """
 
 EXECUTION_RULES = """Execution model:
-- Accepted structure and unit requests remain in Production Priority across later decisions and continue when their requirements can be satisfied. Before submitting another build, train or morph_townhall command, check whether the same work is already present. Repeating a command requests additional buildings or units; it does not remind the platform to continue an existing request. Use cancel when matching unstarted work is no longer wanted. Pass a Production Priority task_id to cancel one request exactly, or pass target_action with target to cancel matching requests.
+- Accepted structure and unit requests remain in Production Priority across later decisions and continue when their requirements can be satisfied. Before submitting another build, train or morph_townhall command, check whether the same work is already present. Repeating a command requests additional buildings or units; it does not remind the platform to continue an existing request. Use cancel with target_action and target when matching unstarted work is no longer wanted.
 - Commands are registered in submission order before backend execution. Eligible requests receive available resources in that order, while a request blocked by missing prerequisites does not reserve resources. The waiting_for field reports blockers observed by the platform.
 - If the submitted batch is schema-invalid, none of its actions are applied. Otherwise, inspect Feedback for accepted, normalized, rejected or failed entries, and only resubmit rejected work when it is still wanted.
 - Production buildings provide capacity but do not create units by themselves. Units and research require explicit train or research commands, so constructing additional production buildings alone does not expand the army.
@@ -83,15 +83,15 @@ ZERG_GAME_RULES = """- Minerals and gas pay for buildings, units and research. C
 """
 
 # Action-local behavior is exposed through each Action tool's schema.
-COMBAT_DISPATCH_RULES = "units atomically dispatches the requested free units from group_0 to create a new outbound group. To support an existing mission, create another units-based group with the same target. If any requested units are unavailable, the command is rejected instead of waiting or partially dispatching."
-COMBAT_RETARGET_RULES = "group changes only the named outbound group's style and target; it keeps the surviving membership and adds no replacements. group_0 is invalid, and repeating the same style and target creates no group."
-COMBAT_STYLE_RULES = "attack advances and engages, then holds the cleared zone as defend until changed or retreated; defend holds an area without cross-map pursuit or attacking structures until changed or retreated. Acceptance does not prove arrival, success or target clearance; use retreat for an immediate return order."
+COMBAT_DISPATCH_RULES = "units atomically dispatches requested free units from group_0 into a new outbound group. If any requested count is unavailable, the whole command is rejected instead of waiting or partially dispatching. Reinforce by dispatching another units-based group to the same target."
+COMBAT_RETARGET_RULES = "group retargets one existing outbound group, keeps its members and adds no replacements. group_0 is invalid; repeating the same style and target creates nothing."
+COMBAT_STYLE_RULES = "attack advances and engages, then changes to defend after the target is reached and continuously confirmed clear; defend holds an area without cross-map pursuit or attacking structures. Acceptance registers the order but does not prove arrival or success; use retreat for an immediate return."
 
 ACTION_RULES = {
     "build": "Request one additional structure or structure form. The platform chooses a legal placement or a valid source building. A town hall is placed as an expansion. Gas buildings require a free geyser at a ready owned town hall. Completes when construction or the structure morph starts.",
     "train": "count is the minimum number of additional target units. The platform trains, warps, hatches, morphs or merges them. A game batch may finish more than requested; Feedback then reports the requested count and the actual count. The request stays active until that minimum is met. Later losses do not reopen completed production.",
     "research": "Duplicate accepted, active or completed research requests are ignored. The request completes on queue entry; its effect becomes available only after Research reports it completed.",
-    "cancel": "Cancel unstarted build, train, research or morph_townhall work. Use task_id for one exact Production Priority request, or target_action with target for all matching requests. Started or paid work remains without a refund. For train, finished and paid in-flight units stay; only the unstarted remainder is cleared.",
+    "cancel": "Cancel all matching unstarted build, train, research or morph_townhall work using target_action and target. Started or paid work remains without a refund. For train, finished and paid in-flight units stay; only the unstarted remainder is cleared.",
     "scan": "Spend 50 energy from one ready Orbital for temporary local vision and detection in the target zone; it does not reveal the entire zone.",
     "call_mule": "Spend 50 energy from one ready Orbital to call a MULE at a safe owned mineral line. Scan, MULE and Supply Drop share that Orbital's energy.",
     "supply_drop": "Spend 50 energy from one ready Orbital to add supply to one completed living Supply Depot the platform chooses. The same Orbital energy is shared with Scan and MULE. One depot can receive one drop.",

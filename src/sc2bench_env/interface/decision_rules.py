@@ -60,7 +60,7 @@ VERB_FIELD_RULES: Dict[str, VerbFieldRule] = {
     "build": VerbFieldRule("build", required=("target",)),
     "train": VerbFieldRule("train", required=("target", "count")),
     "research": VerbFieldRule("research", required=("target",)),
-    "cancel": VerbFieldRule("cancel", optional=("task_id", "target_action", "target")),
+    "cancel": VerbFieldRule("cancel", required=("target_action", "target")),
     "scan": VerbFieldRule("scan", required=("target",)),
     "call_mule": VerbFieldRule("call_mule"),
     "supply_drop": VerbFieldRule("supply_drop"),
@@ -187,19 +187,8 @@ def _validate_entry_values(raw: Mapping[str, Any], *, verb: str, index: int, rac
                 f"allowed={list(known_target_names('research', race=race))}"
             )
     elif verb == "cancel":
-        task_id = raw.get("task_id")
         target_action = raw.get("target_action")
         target = raw.get("target")
-        has_task_id = task_id is not None
-        has_target_form = target_action is not None or target is not None
-        if has_task_id == has_target_form:
-            raise DecisionSchemaError(
-                f"{where} cancel requires exactly one form: task_id, or target_action with target"
-            )
-        if has_task_id:
-            if not isinstance(task_id, str) or not task_id.strip():
-                raise DecisionSchemaError(f"{where}.task_id must be a non-empty string")
-            return
         if not isinstance(target_action, str) or target_action.strip().lower() not in {
             "build",
             "train",
@@ -320,7 +309,6 @@ def action_tool_argument_schema(verb: str) -> Tuple[Dict[str, Any], Tuple[str, .
         },
         "research": {"target": {"type": "string"}},
         "cancel": {
-            "task_id": {"type": "string", "minLength": 1},
             "target_action": {"type": "string", "enum": ["build", "train", "research", "morph_townhall"]},
             "target": {"type": "string"},
         },
@@ -384,43 +372,6 @@ def _tool_call_object_schema(
     }
 
 
-def _cancel_tool_call_schema() -> Dict[str, Any]:
-    """Schema for exact task cancellation or legacy target-wide cancellation."""
-    return {
-        "type": "object",
-        "required": ["name", "arguments"],
-        "properties": {
-            "name": {"type": "string", "const": "cancel"},
-            "arguments": {
-                "type": "object",
-                "properties": {
-                    "task_id": {"type": "string", "minLength": 1},
-                    "target_action": {
-                        "type": "string",
-                        "enum": ["build", "train", "research", "morph_townhall"],
-                    },
-                    "target": {"type": "string", "minLength": 1},
-                },
-                "additionalProperties": False,
-                "oneOf": [
-                    {
-                        "required": ["task_id"],
-                        "not": {"anyOf": [
-                            {"required": ["target_action"]},
-                            {"required": ["target"]},
-                        ]},
-                    },
-                    {
-                        "required": ["target_action", "target"],
-                        "not": {"required": ["task_id"]},
-                    },
-                ]
-            },
-        },
-        "additionalProperties": False,
-    }
-
-
 def decision_json_schema(*, race: str = "terran") -> Dict[str, Any]:
     """Platform-owned JSON Schema for one NormalizedToolCall array (draft-07)."""
     require_supported_own_race(race)
@@ -448,7 +399,17 @@ def decision_json_schema(*, race: str = "terran") -> Dict[str, Any]:
             properties={"target": _string_enum(research_targets)},
             required=("target",),
         ),
-        _cancel_tool_call_schema(),
+        _tool_call_object_schema(
+            "cancel",
+            properties={
+                "target_action": {
+                    "type": "string",
+                    "enum": ["build", "train", "research", "morph_townhall"],
+                },
+                "target": {"type": "string", "minLength": 1},
+            },
+            required=("target_action", "target"),
+        ),
         _tool_call_object_schema(
             "scan",
             properties={"target": _zone_string()},

@@ -1,9 +1,11 @@
 """Example-harness reminders. Platform facts stay in PromptParts."""
 from __future__ import annotations
 
+from dataclasses import replace
 
 from sc2bench_env.adapters.llm import LLMAdapter
 from sc2bench_env.interface.agent import AgentInput
+from sc2bench_env.interface.platform_prompt import default_prompt_parts
 
 
 MAX_TOOL_ROUNDS = 24
@@ -18,11 +20,20 @@ TOOL_NOTE_HINT = (
     "Then call the tools again."
 )
 DECISION_FLOW = (
-    "For each decision, query any missing information first. Queries may take multiple rounds. "
-    "After querying, submit all chosen actions together in one tool-call reply without advance. "
-    "After their results return, call advance by itself to submit the decision and move game time. "
-    "Do not mix queries, actions and advance in the same reply."
+    "Example Agent decision process:\n"
+    "- Read the current Observation and previous Feedback. Check Production Priority before adding work.\n"
+    "- If accepted work no longer fits the current plan, cancel matching unstarted work by target action "
+    "and target before adding replacement work. Do not cancel work merely because it is temporarily blocked.\n"
+    "- Query missing static or map facts first and reuse facts already queried in this session. "
+    "Queries may take multiple rounds.\n"
+    "- Before staging work, check minerals, gas, supply, prerequisites and free production slots.\n"
+    "- After querying, submit all chosen actions together in one tool-call reply without advance.\n"
+    "- Every operation chosen in the reply text must appear as a tool call in that same reply; "
+    "mentioning an operation in text does not execute it.\n"
+    "- After their results return, call advance by itself to submit the decision and move game time.\n"
+    "- Do not mix queries, actions and advance in the same reply."
 )
+EXAMPLE_AGENT_GUIDANCE = DECISION_FLOW + "\n\n" + TOOL_NOTE_RULE
 NO_TOOL_HINT = (
     "Text without tool calls does not act. "
     "Query any missing information, or submit this decision's actions together without advance. "
@@ -46,9 +57,17 @@ QUERY_AFTER_ACTIONS_HINT = (
 )
 
 
+def example_prompt_parts(race: str):
+    """Replace the platform's optional decision guidance for this example Agent."""
+    return replace(
+        default_prompt_parts(race),
+        decision_guidance=EXAMPLE_AGENT_GUIDANCE,
+    )
+
+
 def platform_turn_messages(observation, feedback, race: str = "terran"):
     """Example harness messages. Tests use this in place of Environment.get_context."""
-    adapter = LLMAdapter(race=race)
+    adapter = LLMAdapter(example_prompt_parts(race), race=race)
     request = AgentInput(observation, feedback)
     return [
         {"role": "system", "content": adapter.system_prompt()},

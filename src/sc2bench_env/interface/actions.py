@@ -78,7 +78,6 @@ class GameAction:
     target: Optional[str] = None
     count: Optional[int] = None
     target_action: Optional[str] = None
-    task_id: Optional[str] = None
     to: Optional[str] = None
     route: Optional[ScoutRoute] = None
     units: Optional[Dict[str, int]] = None
@@ -99,8 +98,6 @@ class GameAction:
             payload["count"] = self.count
         if self.target_action is not None:
             payload["target_action"] = self.target_action
-        if self.task_id is not None:
-            payload["task_id"] = self.task_id
         if self.to is not None:
             payload["to"] = self.to
         if self.route is not None:
@@ -121,8 +118,6 @@ class GameAction:
         if self.action == "train":
             return f"train {self.target} {self.count}"
         if self.action == "cancel":
-            if self.task_id:
-                return f"cancel {self.task_id}"
             return f"cancel {self.target_action} {self.target}"
         if self.action in {"call_mule", "supply_drop", "chrono_boost", "inject_larva", "spawn_creep_tumor"}:
             return self.action
@@ -250,12 +245,6 @@ def parse_game_action(raw: Mapping[str, Any], *, race: str = "terran") -> GameAc
         return GameAction(action="research", target=target, count=1)
 
     if action == "cancel":
-        task_id = raw.get("task_id")
-        if task_id is not None:
-            return GameAction(
-                action="cancel",
-                task_id=_require_str(task_id, "task_id"),
-            )
         target_action = _require_str(raw.get("target_action"), "target_action").lower()
         if target_action not in {"build", "train", "research", "morph_townhall"}:
             raise ActionValidationError(
@@ -420,7 +409,6 @@ def attach_retry_ids(
                 target=action.target,
                 count=action.count,
                 target_action=action.target_action,
-                task_id=action.task_id,
                 to=action.to,
                 route=action.route,
                 units=action.units,

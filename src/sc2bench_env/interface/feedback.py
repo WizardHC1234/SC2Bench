@@ -8,17 +8,13 @@ from typing import Any, List, Optional
 
 @dataclass(frozen=True)
 class ActionReceipt:
-    """Per-action result returned in Feedback after step().
-
-    Accepted persistent work exposes its stable task_id for later reference.
-    """
+    """Per-action result returned in Feedback after step()."""
 
     action: str
     result: str
     target: Optional[str] = None
     count: Optional[int] = None
     target_action: Optional[str] = None
-    task_id: Optional[str] = None
     reason: Optional[str] = None
     action_id: Optional[str] = None
     style: Optional[str] = None
@@ -40,8 +36,6 @@ class ActionReceipt:
             payload["reason"] = self.reason
         if self.action_id is not None:
             payload["action_id"] = self.action_id
-        if self.task_id is not None:
-            payload["task_id"] = self.task_id
         if self.details is not None:
             payload["details"] = self.details
         return payload

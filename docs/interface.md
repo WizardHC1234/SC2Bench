@@ -23,7 +23,7 @@
 | `build` | `target`；追加一个建筑、附件或建筑形态。选址或变形来源由底层决定。基地按扩张放置 |
 | `train` | `target/count`；`count` 是至少再获得的目标单位数。底层负责训练、折跃、孵化、单位变异或融合。一次游戏批次可能多于请求，反馈同时给出请求数和实际数 |
 | `research` | `target`；已接受、排队或完成时重复提交不新增 |
-| `cancel` | 使用 `task_id` 精确撤销一项请求，或使用 `target_action/target` 撤销同动作、同目标的匹配请求；`target_action` 为 `build`、`train`、`research` 或 `morph_townhall`。只撤销未启动的工作 |
+| `cancel` | 使用 `target_action/target` 撤销同动作、同目标的匹配请求；`target_action` 为 `build`、`train`、`research` 或 `morph_townhall`。只撤销未启动的工作 |
 | `morph_townhall` | `target/to`；人族和虫族。`target` 是观测中的 `townhall_<n>`。神族没有这个动作 |
 | `scan` | `target` 为 Zone；仅人族。底层用可用热点选点，不保证扫描全区 |
 | `call_mule` | 无额外字段；仅人族。矿区由底层选择。与扫描、补给投送共用轨道指挥部能量 |
@@ -46,7 +46,7 @@ Agent 只提交规范化 Tool Call。Read / Knowledge 立即查询；Action Tool
 
 命令完成边界：建造或建筑形态转换实际开始、训练达到请求的最少单位、研究进入游戏队列、基地形态转换发令。建筑就绪和科技生效继续看观测。
 
-平台为接受的持久任务返回稳定的 `task_id`，并在 `Production Priority` 与后续任务事件中沿用该 ID。`cancel(task_id=...)` 只处理这项请求；`cancel(target_action=..., target=...)` 跨轮次匹配所有同动作、同目标的未启动工作。已派工人、施工、已付费或已完成的训练、折跃、融合、变异和研究不取消，也不退款。批量训练只清掉尚未开始的剩余数量。观测的 `Cancellable` 显示当前可撤销数量，未知不猜。
+`cancel(target_action=..., target=...)` 跨轮次匹配所有同动作、同目标的未启动工作。已派工人、施工、已付费或已完成的训练、折跃、融合、变异和研究不取消，也不退款。批量训练只清掉尚未开始的剩余数量。观测的 `Cancellable` 显示当前可撤销数量，未知不猜。
 
 ### 军队与侦察
 

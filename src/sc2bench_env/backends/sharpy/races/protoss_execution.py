@@ -5,7 +5,6 @@ issue commands, select a build order, cancel demands or infer tactical success.
 """
 
 from sc2.ids.unit_typeid import UnitTypeId
-from sharpy.plans.acts.act_unit import MAX_TRAIN_QUEUE
 
 from sc2bench_env.backends.sharpy.races.protoss import BUILDINGS, GATEWAY_UNITS, UNITS
 from sc2bench_env.catalog.registry import get_target
@@ -50,7 +49,7 @@ def execution_blocker(ai, task):
         spec = get_target(str(target), race="protoss")
         if spec is None:
             return None
-        if all(len(getattr(parent, "orders", []) or []) >= MAX_TRAIN_QUEUE for parent in producers):
+        if all(len(getattr(parent, "orders", []) or []) >= 1 for parent in producers):
             return "producer_busy"
     return None
 

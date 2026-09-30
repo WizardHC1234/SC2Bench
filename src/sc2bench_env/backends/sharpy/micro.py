@@ -1,8 +1,7 @@
-"""Platform-owned Terran micro extensions used by combat missions.
+"""Platform-owned combat micro extensions used by combat missions.
 
-Stim / Tank reuse Sharpy defaults. Banshee cloak and Medivac heal/escort
-fill gaps called out in PLATFORM_PLAN and the original encapsulation notes.
-Transport load/unload is owned by ActCombatMission, not these micros.
+Sharpy supplies the general combat behavior. These handlers add missing form
+control and support behavior while mission boundaries remain platform-owned.
 """
 from __future__ import annotations
 
@@ -13,7 +12,12 @@ from sc2.position import Point2
 from sc2.unit import Unit
 from sc2.units import Units
 from sharpy.combat import Action, GenericMicro, MicroRules, MicroStep
+from sharpy.combat.action import NoAction
 from sharpy.combat.move_type import MoveType
+from sharpy.combat.terran import MicroTanks
+from sharpy.combat.zerg import MicroLurkers
+
+from sc2bench_env.backends.sharpy.combat_styles import at_defend_station
 
 
 class MicroBanshee(GenericMicro):
@@ -106,6 +110,40 @@ class MicroMedivacsSupport(MicroStep):
         return anchor + Point2((x_offset, y_offset))
 
 
+class MicroDefendTanks(MicroTanks):
+    """Deploy at a reached defend station and remain deployed there."""
+
+    def unit_solve_combat(self, unit: Unit, current_command: Action) -> Action:
+        if at_defend_station(self, unit):
+            status = self.get_siege_status(unit)
+            if unit.type_id == UnitTypeId.SIEGETANK:
+                order = status.relay_order(
+                    unit, AbilityId.SIEGEMODE_SIEGEMODE, self.ai.time,
+                )
+                return order or NoAction()
+            if unit.type_id == UnitTypeId.SIEGETANKSIEGED:
+                status.relay_order(unit, None, self.ai.time)
+                return NoAction()
+        return super().unit_solve_combat(unit, current_command)
+
+
+class MicroDefendLurkers(MicroLurkers):
+    """Burrow at a reached defend station and remain able to fire there."""
+
+    def unit_solve_combat(self, unit: Unit, current_command: Action) -> Action:
+        if at_defend_station(self, unit):
+            status = self.get_siege_status(unit)
+            if unit.type_id == UnitTypeId.LURKERMP:
+                order = status.relay_order(
+                    unit, AbilityId.BURROWDOWN_LURKER, self.ai.time,
+                )
+                return order or NoAction()
+            if unit.type_id == UnitTypeId.LURKERMPBURROWED:
+                status.relay_order(unit, None, self.ai.time)
+                return NoAction()
+        return super().unit_solve_combat(unit, current_command)
+
+
 class MissionMicroRules(MicroRules):
     """Apply mission boundaries AFTER specialized micro chooses its command.
 
@@ -186,12 +224,10 @@ class MissionMicroRules(MicroRules):
 
 def build_combat_micro_rules() -> MicroRules:
     """Sharpy micro plus platform handlers for the supported races."""
-    from sharpy.combat.terran import MicroTanks
-
     rules = MissionMicroRules()
     rules.load_default_methods()
     rules.load_default_micro()
-    tanks = MicroTanks()
+    tanks = MicroDefendTanks()
     rules.unit_micros[UnitTypeId.SIEGETANK] = tanks
     rules.unit_micros[UnitTypeId.SIEGETANKSIEGED] = tanks
     rules.unit_micros[UnitTypeId.BANSHEE] = MicroBanshee()
@@ -240,6 +276,9 @@ def build_combat_micro_rules() -> MicroRules:
     overseer = MicroOverseerSafe()
     rules.unit_micros[UnitTypeId.OVERSEER] = overseer
     rules.unit_micros[UnitTypeId.OVERSEERSIEGEMODE] = overseer
+    lurkers = MicroDefendLurkers()
+    rules.unit_micros[UnitTypeId.LURKERMP] = lurkers
+    rules.unit_micros[UnitTypeId.LURKERMPBURROWED] = lurkers
     for normal, burrowed, down, up in (
         (UnitTypeId.ZERGLING, UnitTypeId.ZERGLINGBURROWED, AbilityId.BURROWDOWN_ZERGLING, AbilityId.BURROWUP_ZERGLING),
         (UnitTypeId.HYDRALISK, UnitTypeId.HYDRALISKBURROWED, AbilityId.BURROWDOWN_HYDRALISK, AbilityId.BURROWUP_HYDRALISK),

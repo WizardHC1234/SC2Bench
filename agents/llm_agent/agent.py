@@ -27,14 +27,13 @@ from .config import (
     llm_model,
 )
 from .prompts import (
-    DECISION_FLOW,
     MAX_TOOL_ROUNDS,
     MIXED_REPLY_HINT,
     NO_TOOL_HINT,
     QUERY_AFTER_ACTIONS_HINT,
     READY_TEXT_HINT,
     TOOL_NOTE_HINT,
-    TOOL_NOTE_RULE,
+    example_prompt_parts,
 )
 from .skills import DEFAULT_SKILL, load_skill, skill_race
 from .tools import tool_schemas
@@ -345,7 +344,7 @@ class LLMAgent:
                     f"skill {self.skill_name!r} requires race {expected_race!r}, "
                     f"but the episode race is {race!r}"
                 )
-        adapter = LLMAdapter(race=race)
+        adapter = LLMAdapter(example_prompt_parts(race), race=race)
         user = {"role": "user", "content": adapter.render_input(request)}
         if not self.messages:
             content = adapter.system_prompt().rstrip()
@@ -354,10 +353,6 @@ class LLMAgent:
                     f"\n\n[Agent Skill: {self.skill_name}]\n"
                     f"{self.skill_text}\n"
                 )
-            if DECISION_FLOW not in content:
-                content += f"\n\n{DECISION_FLOW}\n"
-            if TOOL_NOTE_RULE not in content:
-                content += f"\n\n{TOOL_NOTE_RULE}\n"
             self.messages = [{"role": "system", "content": content}, user]
             return
         self.messages.append(user)

@@ -291,10 +291,7 @@ def action_syntax_examples() -> Tuple[Dict[str, Any], ...]:
                 if encoded not in seen:
                     entries.append(entry)
                     seen.add(encoded)
-    entries += [
-        {"name": "cancel", "arguments": {"task_id": "<task_id>"}},
-        {"name": "advance", "arguments": {"seconds": 20}},
-    ]
+    entries.append({"name": "advance", "arguments": {"seconds": 20}})
     return tuple(entries)
 
 
@@ -314,7 +311,7 @@ def render_decision_guide(*, race: str = "terran") -> str:
 
     expected_forms = (
         (set(VERB_FIELD_RULES) - {"combat", "cancel"})
-        | {"combat_units", "combat_group", "cancel_task", "cancel_target"}
+        | {"combat_units", "combat_group", "cancel"}
     )
     if set(COMMAND_TEMPLATES) != expected_forms:
         raise RuntimeError("Prompt templates must cover the actual action forms")
@@ -332,7 +329,7 @@ def render_decision_guide(*, race: str = "terran") -> str:
             raise RuntimeError("Prompt combat templates must select units or group")
         expected_verb = (
             "combat" if form.startswith("combat_") else
-            "cancel" if form.startswith("cancel_") else form
+            form
         )
         if verb != expected_verb:
             raise RuntimeError("Prompt templates must match their action form")
@@ -365,6 +362,7 @@ def render_observation_guide() -> str:
         "- unknown means that information is unavailable, while none means that the observed value is empty.",
         "- Visible enemies are current sightings; last-seen enemies are history under fog.",
         "- Waiting work, paid queues and living units are different quantities.",
+        "- Tech-Available Targets means that technology and producer requirements are met; current resources, supply and free production slots are not considered.",
         "- In Combat, Originally requested is the group's initial membership and Living members is its current surviving membership. Own Forces free, not phase alone, determines what can be newly dispatched.",
         "- Group phase reports progress only. holding_after_attack means the prior attack target was confirmed clear and the same active group is now defending that zone. Other phase, nearest-zone and nearby-enemy values do not prove arrival or mission completion; use the current group list and recent events to determine whether a mission ended. combat_ended refers to the group mission, not the match result.",
         "- Names and IDs keep their exact platform spelling. Copy zone_id and group_id from Observation.",

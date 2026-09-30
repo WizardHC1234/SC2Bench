@@ -91,8 +91,6 @@ def validate_tool_arguments(spec: ToolSpec, arguments: Mapping[str, Any]) -> Opt
             errors.append(error)
         if spec.name == "combat":
             return "arguments must match one combat form"
-        if spec.name == "cancel":
-            return "arguments must contain either task_id, or target_action with target"
         return "; ".join(errors)
     properties = parameters.get("properties") or {}
     required = list(parameters.get("required") or [])
@@ -217,6 +215,13 @@ def action_tool_names(race: str = "terran") -> Tuple[str, ...]:
 
 
 def _action_description(name: str, race: str) -> str:
+    if race == "terran" and name == "build":
+        return (
+            "Request one additional Terran building or add-on. The platform chooses a legal "
+            "placement or compatible source building. A Command Center is placed as an expansion, "
+            "and a Refinery requires a free geyser at a ready owned town hall. Command Center "
+            "upgrades use morph_townhall. Completes when construction or add-on construction starts."
+        )
     if race == "protoss" and name == "build":
         return (
             "Request one additional structure or structure form. The platform chooses a legal "
@@ -234,6 +239,28 @@ def _action_description(name: str, race: str) -> str:
             "not built automatically. Lurker Den morphs a Hydralisk Den, and Greater Spire morphs "
             "a Spire. Completes when construction or the structure morph starts."
         )
+    if name == "train":
+        mechanism = {
+            "terran": "The platform queues them at compatible producers.",
+            "protoss": "The platform trains, warps in or merges them as required by the target.",
+            "zerg": "The platform trains, hatches or morphs them as required by the target.",
+        }[race]
+        return (
+            "Count is the minimum number of additional target units. " + mechanism + " "
+            "A game batch may finish more than requested; Feedback then reports the requested "
+            "and actual counts. The request stays active until that minimum is met. Later losses "
+            "do not reopen completed production."
+        )
+    if name == "cancel":
+        kinds = "build, train and research"
+        if "morph_townhall" in action_tool_names(race):
+            kinds = "build, train, research and morph_townhall"
+        return (
+            f"Cancel all matching unstarted {kinds} work using target_action and target. "
+            "Started or paid work remains "
+            "without a refund. For train, finished and paid in-flight units stay; only the unstarted "
+            "remainder is cleared."
+        )
     if race == "zerg" and name == "scout":
         return ACTION_RULES["scout"].replace("one SCV", "one Drone")
     if race == "protoss" and name == "retreat":
@@ -245,10 +272,17 @@ def _action_description(name: str, race: str) -> str:
             "Members outside that radius walk home. If that Nexus is dead, incomplete, low on energy, "
             "or the ability is unavailable, the order fails and the group keeps its current order."
         )
+    if race == "terran" and name == "morph_townhall":
+        return (
+            "Morph the selected Command Center, identified by a townhall ID from Structures, into "
+            "an Orbital Command or Planetary Fortress. The request completes when issued, not when "
+            "the morph finishes."
+        )
     if race == "zerg" and name == "morph_townhall":
         return (
-            "Morph the selected Hatchery into a Lair, or the selected Lair into a Hive. "
-            "The request completes when issued, not when the morph finishes."
+            "Morph the selected Hatchery or Lair, identified by a townhall ID from Structures, "
+            "into a Lair or Hive respectively. The request completes when issued, not when the "
+            "morph finishes."
         )
     return ACTION_RULES[name]
 
@@ -257,11 +291,13 @@ def _action_specs(race: str = "terran") -> Tuple[ToolSpec, ...]:
     from sc2bench_env.interface.decision_rules import action_tool_argument_schema
 
     schemas = []
-    for name in action_tool_names(race):
+    available_actions = action_tool_names(race)
+    for name in available_actions:
         properties, required = action_tool_argument_schema(name)
         if name == "combat":
             units = dict(properties)
             units.pop("group", None)
+            units["units"] = dict(units["units"], minProperties=1)
             group = dict(properties)
             group.pop("units", None)
             schemas.append(ToolSpec(
@@ -281,32 +317,29 @@ def _action_specs(race: str = "terran") -> Tuple[ToolSpec, ...]:
             ))
             continue
         if name == "cancel":
+            target_action = dict(properties["target_action"])
+            target_action["enum"] = [
+                action for action in target_action["enum"]
+                if action in available_actions
+            ]
             schemas.append(ToolSpec(
                 name=name,
                 kind=_kind(name),
                 description=_action_description(name, race),
                 parameters={
                     "type": "object",
-                    "oneOf": [
-                        {
-                            "type": "object",
-                            "properties": {"task_id": properties["task_id"]},
-                            "required": ["task_id"],
-                            "additionalProperties": False,
-                        },
-                        {
-                            "type": "object",
-                            "properties": {
-                                "target_action": properties["target_action"],
-                                "target": properties["target"],
-                            },
-                            "required": ["target_action", "target"],
-                            "additionalProperties": False,
-                        },
-                    ],
+                    "properties": {
+                        "target_action": target_action,
+                        "target": properties["target"],
+                    },
+                    "required": ["target_action", "target"],
+                    "additionalProperties": False,
                 },
             ))
             continue
+        if name == "retreat" and race != "protoss":
+            properties = dict(properties)
+            properties.pop("method", None)
         schemas.append(_spec(name, _action_description(name, race), properties, required))
     return tuple(schemas)
 
@@ -316,12 +349,14 @@ def tool_specs(race: str = "terran") -> Tuple[ToolSpec, ...]:
     return (
         _spec(
             "query_map_overview",
-            "Use when selecting zones, targets or routes without verified map topology.",
+            "Read static zone topology from the current Observation when selecting zones, targets "
+            "or routes. Does not scout or reveal hidden enemies.",
             {},
         ),
         _spec(
             "query_zone_state",
-            "Use when a decision depends on the current or last-seen state of specific zones.",
+            "Read the current or last-seen state and known base resources of specific zones from "
+            "the current Observation. Does not scout or reveal hidden information.",
             {"zone_ids": {"type": "array", "minItems": 1, "items": {"type": "string"}}},
             ("zone_ids",),
         ),

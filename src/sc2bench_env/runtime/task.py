@@ -132,11 +132,6 @@ class Demand:
     def identity(self) -> tuple[str, str]:
         return (self.action, self.target)
 
-    @property
-    def task_id(self) -> str:
-        """Short session-local ID exposed to the Agent; demand_id stays internal."""
-        return f"task_{self.order_index + 1}"
-
     def mark_failed(self, reason: str, game_time: float) -> None:
         self.state = DemandState.FAILED
         self.failure_reason = reason

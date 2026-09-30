@@ -161,10 +161,16 @@ class ActUnit(ActBase):
         return cooldown_manager.is_ready(builder_tag, ability)
 
     def has_order_ready(self, builder: Unit) -> bool:
-        return len(builder.orders) < MAX_TRAIN_QUEUE
+        # The runtime revisits persistent train demands every game frame, so it
+        # only needs to occupy lanes that can produce now. Filling later queue
+        # positions makes an older low-priority command non-preemptible and can
+        # change the order selected by the Agent.
+        return len(builder.orders) < self.parallel_slots(builder)
 
     def _issue_train(self, builder: Unit):
-        queue = len(builder.orders) >= self.parallel_slots(builder)
+        # A Reactor's second live lane must append to the first order. Normal
+        # producers never reach this path with an existing order.
+        queue = bool(builder.orders)
         return builder.train(self.unit_type, queue=queue)
 
     def parallel_slots(self, builder: Unit) -> int:

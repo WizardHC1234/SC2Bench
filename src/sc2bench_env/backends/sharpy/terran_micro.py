@@ -10,6 +10,7 @@ from sc2.position import Point2
 from sharpy.combat import Action, GenericMicro, MicroStep, MoveType
 from sharpy.combat.action import NoAction
 from sharpy.combat.terran import MicroLiberators, MicroVikings, MicroBattleCruisers
+from sc2bench_env.backends.sharpy.combat_styles import at_defend_station
 from sc2bench_env.backends.sharpy.compat import has_antiarmor_debuff
 
 RETREAT = {MoveType.DefensiveRetreat, MoveType.PanicRetreat}
@@ -151,6 +152,13 @@ class MicroWidowMine(GenericMicro):
             if unit.type_id == UnitTypeId.WIDOWMINEBURROWED:
                 return Action(None, False, AbilityId.BURROWUP_WIDOWMINE)
             return Action(command.position if command.position is not None else self.original_target, False)
+        if at_defend_station(self, unit):
+            if unit.type_id == UnitTypeId.WIDOWMINE:
+                if self.cd_manager.is_ready(unit.tag, AbilityId.BURROWDOWN_WIDOWMINE):
+                    return cast(self, unit, AbilityId.BURROWDOWN_WIDOWMINE)
+                return NoAction()
+            if unit.type_id == UnitTypeId.WIDOWMINEBURROWED:
+                return NoAction()
         enemies = [e for e in self.enemies_near_by if visible_enemy(e)]
         distance = min((e.distance_to(unit) for e in enemies), default=100)
         if unit.type_id == UnitTypeId.WIDOWMINE and distance <= 10:
