@@ -68,15 +68,33 @@ def episode_status(directory: Path) -> str | None:
 
 
 def completed_in_cell(directory: Path) -> int:
+    """Count completed episode folders under a case cell.
+
+    BenchmarkRunner writes ``batch_*/episodes/<episode>/``, so only looking at
+    direct children would always report zero and never resume correctly.
+    """
     if not directory.is_dir():
         return 0
-    return sum(1 for child in directory.iterdir() if child.is_dir() and episode_status(child) == "completed")
+    seen: set[Path] = set()
+    count = 0
+    for marker in directory.rglob("episode.txt"):
+        parent = marker.parent.resolve()
+        if parent in seen:
+            continue
+        seen.add(parent)
+        if episode_status(parent) == "completed":
+            count += 1
+    return count
 
 
 def game_started(row: dict) -> bool:
     if row.get("status") != "completed" and row.get("decision_count") in (None, 0):
         return False
     return row.get("record_directory") is not None
+
+
+def episode_completed(row: dict) -> bool:
+    return row.get("status") == "completed" and row.get("record_directory") is not None
 
 
 def main(argv=None) -> int:
@@ -151,6 +169,8 @@ def main(argv=None) -> int:
 
     metadata = {
         "name": "llm_agent",
+        "version": "1",
+        "model": model["model_name"],
         "kind": "llm",
         "implementation": "agents.llm_agent.LLMAgent",
         "model_requested": model["model_name"],
@@ -169,9 +189,14 @@ def main(argv=None) -> int:
                 continue
             shortfall = planned - already
             print(f"{case['case_id']}: {already} completed, scheduling {shortfall}.", flush=True)
-            started = []
-            for attempt in range(1, LAUNCH_ATTEMPTS + 1):
-                need = shortfall - len(started)
+            finished = []
+            stagnant = 0
+            previous = already
+            # Only completed episodes fill the quota. Interrupted/failed games are
+            # rescheduled in the same case instead of waiting for a later suite run.
+            for attempt in range(1, LAUNCH_ATTEMPTS + planned):
+                already = completed_in_cell(cell_dir)
+                need = planned - already
                 if need < 1:
                     break
                 one = BenchmarkSuite.from_dict({**data, "cases": [case], "repetitions": need})
@@ -179,22 +204,41 @@ def main(argv=None) -> int:
                     backend_factory=lambda: args.backend,
                     record_dir=cell_dir,
                 ).run(one, agent_factory, agent_metadata=metadata, max_parallel=args.max_parallel)
-                fresh = [row for row in batch["episodes"] if game_started(row)]
-                started.extend(fresh)
-                missed = need - len(fresh)
+                fresh_ok = [row for row in batch["episodes"] if episode_completed(row)]
+                fresh_bad = [
+                    row for row in batch["episodes"]
+                    if game_started(row) and not episode_completed(row)
+                ]
+                finished.extend(fresh_ok)
+                already = completed_in_cell(cell_dir)
+                if fresh_bad:
+                    print(
+                        f"{case['case_id']}: {len(fresh_bad)} game(s) started but did not "
+                        f"complete; rescheduling ({attempt}).",
+                        flush=True,
+                    )
+                missed = need - len(fresh_ok) - len(fresh_bad)
                 if missed:
                     print(
                         f"{case['case_id']}: {missed} game(s) did not start "
-                        f"(attempt {attempt}/{LAUNCH_ATTEMPTS}).",
+                        f"(attempt {attempt}).",
                         flush=True,
                     )
-            if len(started) < shortfall:
-                print(
-                    f"{case['case_id']}: still short {shortfall - len(started)} "
-                    f"after {LAUNCH_ATTEMPTS} launch attempts.",
-                    flush=True,
-                )
-            episodes.extend(started)
+                if already <= previous:
+                    stagnant += 1
+                else:
+                    stagnant = 0
+                previous = already
+                if already >= planned:
+                    break
+                if stagnant >= LAUNCH_ATTEMPTS:
+                    print(
+                        f"{case['case_id']}: still short {planned - already} "
+                        f"after {stagnant} rounds with no new completions.",
+                        flush=True,
+                    )
+                    break
+            episodes.extend(finished)
     except KeyboardInterrupt:
         print("Interrupted; completed episode records remain.", flush=True)
         return 130

@@ -3,7 +3,7 @@
   "suite_id": "deepseek_flash_ai",
   "suite_version": "1",
   "purpose": "evaluation",
-  "repetitions": 20,
+  "repetitions": 25,
   "max_decisions": 500,
   "episode_defaults": {
     "enemy_style": "random",
