@@ -82,6 +82,17 @@ class Demand:
     retreat_method: str = "move"
     recall_status: Optional[str] = None
     recall_failure: Optional[str] = None
+    membership_revision: int = 0
+    reinforcement_history: tuple[dict[str, int], ...] = ()
+    merge_source_ids: tuple[str, ...] = ()
+    pending_merge_batches: tuple[tuple[str, ...], ...] = ()
+    merge_transfer_counts: dict[str, dict[str, int]] = field(default_factory=dict)
+    merge_pending_into: Optional[str] = None
+    merged_from: tuple[str, ...] = ()
+    # Partial ownership moves are applied by the backend after both combat
+    # missions exist. Each request has a stable id, source demand and counts.
+    transfer_requests: tuple[dict[str, object], ...] = ()
+    return_to_group0: bool = False
 
     @classmethod
     def from_action(

@@ -14,7 +14,14 @@ TARGET_ALIASES = MappingProxyType({
 })
 
 
-RACE_TARGET_ALIASES = MappingProxyType({"terran": TARGET_ALIASES})
+RACE_TARGET_ALIASES = MappingProxyType({
+    "terran": TARGET_ALIASES,
+    # ``warpgate`` remains the canonical build target.  Only research uses
+    # the underscored catalog name, so this compatibility must stay verb-local.
+    "protoss": MappingProxyType({
+        "research": MappingProxyType({"warpgate": "warp_gate"}),
+    }),
+})
 
 
 def normalize_target_aliases(
@@ -25,6 +32,33 @@ def normalize_target_aliases(
     aliases = RACE_TARGET_ALIASES.get(race, {})
     entry = dict(raw)
     action = entry.get("action")
+    if action == "scout" and entry.get("route") == ["all"]:
+        entry["route"] = "all"
+        return entry, ({
+            "entry_index": index,
+            "name": "scout",
+            "field": "route",
+            "original": ["all"],
+            "canonical": "all",
+        },)
+
+    # Public army tools have one clear responsibility each.  Runtime and
+    # Sharpy continue to consume the established combat/retreat tasks.
+    if action in {"attack_group", "defend_group"}:
+        source = entry.get("group")
+        entry["action"] = "combat"
+        entry["style"] = "attack" if action == "attack_group" else "defend"
+        if "units" in entry:
+            entry["source"] = source
+            entry.pop("group", None)
+        return entry, ()
+    if action == "reinforce_group":
+        entry["action"] = "combat"
+        return entry, ()
+    if action == "retreat_group":
+        entry["action"] = "retreat"
+        return entry, ()
+
     target = entry.get("target")
     if not isinstance(action, str) or not isinstance(target, str):
         return entry, ()

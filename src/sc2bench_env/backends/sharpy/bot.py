@@ -288,6 +288,10 @@ class BenchBot(KnowledgeBot):
                     "group": spec.get("group"),
                     "withdrawing": spec.get("withdrawing", False),
                     "command_revision": spec.get("command_revision", 0),
+                    "membership_revision": spec.get("membership_revision", 0),
+                    "merge_source_ids": list(spec.get("merge_source_ids") or []),
+                    "transfer_requests": [dict(item) for item in spec.get("transfer_requests") or []],
+                    "merge_pending_into": spec.get("merge_pending_into"),
                     "retreat_method": spec.get("retreat_method", "move"),
                     "recall_status": spec.get("recall_status"),
                     "units": dict(spec.get("units") or {}),
@@ -304,6 +308,12 @@ class BenchBot(KnowledgeBot):
                 existing["group"] = spec.get("group")
                 existing["withdrawing"] = spec.get("withdrawing", False)
                 existing["command_revision"] = spec.get("command_revision", 0)
+                existing["membership_revision"] = spec.get("membership_revision", 0)
+                existing["merge_source_ids"] = list(spec.get("merge_source_ids") or [])
+                existing["transfer_requests"] = [
+                    dict(item) for item in spec.get("transfer_requests") or []
+                ]
+                existing["merge_pending_into"] = spec.get("merge_pending_into")
                 existing["retreat_method"] = spec.get("retreat_method", "move")
                 existing["recall_status"] = spec.get("recall_status")
                 existing["units"] = dict(spec.get("units") or {})
@@ -390,10 +400,14 @@ class BenchBot(KnowledgeBot):
                 "alive": {str(k): int(v) for k, v in alive.items()},
                 "assigned": bool(getattr(act, "_bound", False)) if act is not None else False,
             }
+            applied_transfers = task.get("_applied_transfer_ids") or set()
+            if applied_transfers:
+                row["applied_transfer_ids"] = sorted(str(item) for item in applied_transfers)
             if act is not None:
                 from sc2bench_env.backends.sharpy.combat_observation import observe_group_activity
 
                 member_tags = set(getattr(act, "_tags", []))
+                row["member_tags"] = sorted(int(tag) for tag in member_tags)
                 cargo_tags = {p.tag for u in self.units if u.tag in member_tags
                               for p in getattr(u, "passengers", [])}
                 members = [u for u in self.units if u.tag in member_tags and u.tag not in cargo_tags]
@@ -411,6 +425,9 @@ class BenchBot(KnowledgeBot):
                 if phase:
                     # Internal fight is a control branch, not observed contact.
                     row["phase"] = "executing" if phase == "fight" else str(phase)
+                holding_since = getattr(act, "_holding_since", None)
+                if holding_since is not None:
+                    row["holding_since_game_time"] = float(holding_since)
                 row["cloaked"] = dict(getattr(act, "cloaked_counts", {}))
                 row["forms"] = {
                     str(k): int(v)
@@ -439,5 +456,8 @@ class BenchBot(KnowledgeBot):
                 end_reason = getattr(act, "end_reason", None)
                 if end_reason:
                     row["end_reason"] = str(end_reason)
+                    transferred = dict(getattr(act, "merge_transferred_counts", {}) or {})
+                    if transferred:
+                        row["merge_transferred_units"] = transferred
             progress[str(task_id)] = row
         return progress or None

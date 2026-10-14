@@ -86,6 +86,9 @@ def build_observation(snapshot, task_manager, config, previous=None) -> Observat
             seconds_remaining=remaining,
             race=config.race,
             enemy_race=enemy_race,
+            status="terminated" if snapshot.terminated else "ongoing",
+            result=snapshot.result,
+            end_reason=snapshot.end_reason,
         ),
         economy=EconomyView(
             minerals=snapshot.minerals,
@@ -211,6 +214,36 @@ def combat_summary(snapshot, task_manager) -> dict[str, dict]:
             "assigned": bool(row.get("assigned", True)),
             "nearest_zone": row.get("nearest_zone"),
         }
+        reinforcement_history = getattr(demand, "reinforcement_history", ())
+        if reinforcement_history:
+            summary[label]["reinforcements"] = [
+                dict(item) for item in reinforcement_history
+            ]
+        transfer_requests = getattr(demand, "transfer_requests", ())
+        if transfer_requests:
+            summary[label]["pending_transfers"] = [
+                {
+                    "source": item.get("source_group"),
+                    "units": dict(item.get("units") or {}),
+                }
+                for item in transfer_requests
+            ]
+        merged_from = getattr(demand, "merged_from", ())
+        if merged_from:
+            summary[label]["merged_from"] = list(merged_from)
+        merge_pending_into = getattr(demand, "merge_pending_into", None)
+        if merge_pending_into:
+            summary[label]["merge_pending_into"] = merge_pending_into
+        merge_source_ids = getattr(demand, "merge_source_ids", ())
+        if merge_source_ids:
+            groups_by_id = {
+                item.demand_id: item.group
+                for item in task_manager.active_demands()
+                if item.action == "combat" and item.group
+            }
+            summary[label]["pending_merge_sources"] = [
+                groups_by_id.get(item, item) for item in merge_source_ids
+            ]
         # The backend changes a completed attack to defend so survivors hold
         # the cleared objective. Preserve the submitted order alongside the
         # current style so this does not look like an original defend order.
@@ -223,6 +256,11 @@ def combat_summary(snapshot, task_manager) -> dict[str, dict]:
                 "automatic": True,
             }
             summary[label]["attack_result"] = "target_confirmed_clear"
+            holding_since = row.get("holding_since_game_time")
+            if isinstance(holding_since, (int, float)):
+                summary[label]["holding_seconds"] = max(
+                    0, int(float(snapshot.game_time_seconds) - float(holding_since))
+                )
         if row.get("phase"):
             summary[label]["phase"] = "executing" if row["phase"] == "fight" else str(row["phase"])
             if holding_after_attack and summary[label]["phase"] == "executing":
@@ -237,6 +275,8 @@ def combat_summary(snapshot, task_manager) -> dict[str, dict]:
             summary[label]["skill_evidence"] = dict(row["skill_evidence"])
         if "transport" in row:
             summary[label]["transport"] = dict(row["transport"])
+        if "member_tags" in row:
+            summary[label]["member_tags"] = [int(tag) for tag in row["member_tags"]]
         if row.get("end_reason"):
             summary[label]["end_reason"] = str(row["end_reason"])
     main_zone = next((z.get("zone_id") for z in snapshot.info.get("zone_state", [])
@@ -299,12 +339,16 @@ def build_terran_view(*, snapshot, scout_demand=None) -> RaceObservationView:
     scan_ready = _known_int(info.get('scan_ready', 0))
     mule_ready = _known_int(info.get('mule_ready', info.get('scan_ready', 0)))
     energies = info.get('orbital_energies', [])
+    abilities = {
+        'scan_ready': scan_ready,
+        'mule_ready': mule_ready,
+        'orbital_energies': None if energies is None else list(energies),
+    }
+    for key in ('supply_drop_ready', 'supply_drop_targets'):
+        if key in info:
+            abilities[key] = _known_int(info[key])
     return RaceObservationView(
-        abilities={
-            'scan_ready': scan_ready,
-            'mule_ready': mule_ready,
-            'orbital_energies': None if energies is None else list(energies),
-        },
+        abilities=abilities,
         scouting=_scout_row(snapshot, scout_demand, 'scv'),
         legacy_attributes={
             'orbital_count': orbital_count,
@@ -317,11 +361,14 @@ def build_terran_view(*, snapshot, scout_demand=None) -> RaceObservationView:
 def build_protoss_view(*, snapshot, scout_demand=None) -> RaceObservationView:
     info = snapshot.info
     energies = info.get('nexus_energies', [])
+    abilities = {
+        'chrono_ready': _known_int(info.get('chrono_ready', 0)),
+        'nexus_energies': None if energies is None else list(energies),
+    }
+    if 'recall_ready' in info:
+        abilities['recall_ready'] = _known_int(info['recall_ready'])
     return RaceObservationView(
-        abilities={
-            'chrono_ready': _known_int(info.get('chrono_ready', 0)),
-            'nexus_energies': None if energies is None else list(energies),
-        },
+        abilities=abilities,
         scouting=_scout_row(snapshot, scout_demand, 'probe'),
     )
 
@@ -329,11 +376,15 @@ def build_protoss_view(*, snapshot, scout_demand=None) -> RaceObservationView:
 def build_zerg_view(*, snapshot, scout_demand=None) -> RaceObservationView:
     info = snapshot.info
     energies = info.get('queen_energies', [])
+    abilities = {
+        'inject_ready': _known_int(info.get('inject_ready', 0)),
+        'queen_energies': None if energies is None else list(energies),
+    }
+    for key in ('inject_targets', 'spawn_creep_tumor_ready'):
+        if key in info:
+            abilities[key] = _known_int(info[key])
     return RaceObservationView(
-        abilities={
-            'inject_ready': _known_int(info.get('inject_ready', 0)),
-            'queen_energies': None if energies is None else list(energies),
-        },
+        abilities=abilities,
         scouting=_scout_row(snapshot, scout_demand, 'drone'),
     )
 
@@ -513,7 +564,10 @@ def compact_map_control(
     for row in map_control.get("base_resources") or []:
         if not isinstance(row, Mapping) or row.get("zone_id") not in allowed:
             continue
-        if row.get("resource_visibility") != "visible":
+        # A missing marker means this is already a compact public row. Keeping
+        # it makes compact_observation idempotent when an AgentInput view is
+        # rendered again by an adapter.
+        if row.get("resource_visibility") not in {None, "visible"}:
             continue
         # Initial totals, visibility and total geyser slots are stable or
         # derivable. Keep only the current values needed for a turn decision.
@@ -571,16 +625,6 @@ def compact_observation(
         if isinstance(observation.get("map_control"), Mapping):
             payload["map_control"] = compact_map_control(observation["map_control"], relevant)
 
-    # A match is one Agent session. Race and the fixed time limit are part of
-    # the opening briefing; later turns retain only changing clock values.
-    if previous is not None and isinstance(observation.get("game"), Mapping):
-        game = observation["game"]
-        payload["game"] = {
-            key: game.get(key)
-            for key in ("game_time_seconds", "seconds_remaining")
-            if key in game
-        }
-
     # Economy already owns the live worker total. Do not repeat the same count
     # in Own Forces, while preserving it for partial observations without an
     # economy section.
@@ -608,6 +652,15 @@ def compact_observation(
             str(name): dict(row) if isinstance(row, Mapping) else row
             for name, row in observation["combat"].items()
         }
+        brief_group_fields = {
+            "status", "style", "target", "phase", "alive", "nearest_zone",
+            "visible_enemy_nearby", "order_transition", "attack_result", "holding_seconds",
+        }
+        combat = {
+            name: ({key: value for key, value in row.items() if key in brief_group_fields}
+                   if isinstance(row, dict) else row)
+            for name, row in combat.items()
+        }
         home = combat.get("group_0")
         if isinstance(home, dict):
             free = observation["own_forces"].get("free")
@@ -617,6 +670,10 @@ def compact_observation(
         payload["combat"] = combat
     if "production" in observation:
         payload["production"] = compact_production(observation.get("production"))
+    if "production_priority" in observation:
+        payload["production_priority"] = compact_production_priority(
+            observation.get("production_priority")
+        )
     payload.pop("map_topology", None)
     race = "terran"
     game = observation.get("game")
@@ -636,3 +693,40 @@ def compact_observation(
         except ValueError:
             payload["available_targets"] = {}
     return payload
+
+
+def compact_production_priority(
+    rows: Optional[Sequence[Mapping[str, Any]]],
+) -> List[dict[str, Any]]:
+    """Group equivalent persistent work while preserving first-seen priority."""
+    grouped: List[dict[str, Any]] = []
+    positions: dict[tuple[Any, ...], int] = {}
+    for row in rows or ():
+        if not isinstance(row, Mapping):
+            continue
+        key = (
+            row.get("action"), row.get("target"), row.get("to"),
+            row.get("state"), row.get("waiting_for"), row.get("mechanism"),
+        )
+        position = positions.get(key)
+        if position is None:
+            item = dict(row)
+            item["request_count"] = 1
+            grouped.append(item)
+            positions[key] = len(grouped) - 1
+            continue
+        item = grouped[position]
+        item["request_count"] = int(item.get("request_count", 1)) + 1
+        for name in (
+            "remaining", "cancellable_count", "in_production",
+            "waiting_to_produce", "requested_count", "actual_produced",
+        ):
+            left, right = item.get(name), row.get(name)
+            if type(left) is int and type(right) is int:
+                item[name] = left + right
+            elif name in item or name in row:
+                item[name] = None
+        # Per-request fractions are misleading after aggregation. Totals above
+        # retain the actionable paid and outstanding quantities.
+        item.pop("order_progress", None)
+    return grouped

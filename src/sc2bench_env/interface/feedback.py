@@ -20,13 +20,17 @@ class ActionReceipt:
     style: Optional[str] = None
     details: Optional[dict[str, Any]] = None
     group: Optional[str] = None
+    destination: Optional[str] = None
+    sources: Optional[tuple[str, ...]] = None
 
     def to_dict(self) -> dict[str, Any]:
         arguments: dict[str, Any] = {}
-        for key in ("target", "count", "target_action", "style", "group"):
+        for key in ("target", "count", "target_action", "style", "group", "destination"):
             value = getattr(self, key)
             if value is not None:
                 arguments[key] = value
+        if self.sources is not None:
+            arguments["sources"] = list(self.sources)
         payload: dict[str, Any] = {
             "name": self.action,
             "arguments": arguments,
@@ -48,6 +52,7 @@ class Feedback:
     receipts: List[ActionReceipt] = field(default_factory=list)
     events: List[dict[str, Any]] = field(default_factory=list)
     name_normalizations: List[dict[str, Any]] = field(default_factory=list)
+    receipts_delivered: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         payload = {
@@ -56,4 +61,6 @@ class Feedback:
         }
         if self.name_normalizations:
             payload["name_normalizations"] = list(self.name_normalizations)
+        if self.receipts_delivered:
+            payload["receipts_delivered"] = True
         return payload

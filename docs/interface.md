@@ -23,7 +23,7 @@
 | `build` | `target`；追加一个建筑、附件或建筑形态。选址或变形来源由底层决定。基地按扩张放置 |
 | `train` | `target/count`；`count` 是至少再获得的目标单位数。底层负责训练、折跃、孵化、单位变异或融合。一次游戏批次可能多于请求，反馈同时给出请求数和实际数 |
 | `research` | `target`；已接受、排队或完成时重复提交不新增 |
-| `cancel` | 使用 `target_action/target` 撤销同动作、同目标的匹配请求；`target_action` 为 `build`、`train`、`research` 或 `morph_townhall`。只撤销未启动的工作 |
+| `cancel` | 使用 `target_action/target` 调整同动作、同目标的任务队列；可用 `count` 从最新请求开始撤销指定数量，省略时撤销全部匹配的未启动工作 |
 | `morph_townhall` | `target/to`；人族和虫族。`target` 是观测中的 `townhall_<n>`。神族没有这个动作 |
 | `scan` | `target` 为 Zone；仅人族。底层用可用热点选点，不保证扫描全区 |
 | `call_mule` | 无额外字段；仅人族。矿区由底层选择。与扫描、补给投送共用轨道指挥部能量 |
@@ -32,8 +32,11 @@
 | `inject_larva` | 无额外字段；仅虫族。消耗一只就绪女王的 25 能量，底层选择一座主基地。不会自动施放 |
 | `spawn_creep_tumor` | 无额外字段；仅虫族。消耗一只就绪女王的 25 能量，在菌毯上朝敌方种一个瘤。不会自动施放 |
 | `scout` | `route` 为有序 Zone 数组，或字符串 `"all"` |
-| `combat` | `style/target` 加 `units` 创建编队，或加已有 `group` 改令 |
-| `retreat` | `group`；可选 `method`。省略 `method` 时按移动撤回，到家后归并。神族 `method` 为 `recall` 时只使用当前主基地星灵枢纽召回，半径外的成员继续移动撤回；枢纽死亡、未完成、能量不足或技能不可用时失败，编队保持原命令 |
+| `attack_group` | `group/target` 给已有编队下达进攻命令；增加 `units` 时从该编队拆出单位建立新的进攻编队。`group_0` 只能配合 `units` 使用 |
+| `defend_group` | 与 `attack_group` 的选兵方式相同，用于下达区域防守命令 |
+| `reinforce_group` | `source/destination/units`；在 `group_0` 和活动外派编队之间转移指定单位，不改变目标编队的当前命令 |
+| `merge_groups` | `destination/sources`；把一个或多个活动编队的存活成员转入目标编队，目标编队保留 ID 和当前命令 |
+| `retreat_group` | `group`；可选 `method`。省略 `method` 时按移动撤回，到家后归并。神族 `method` 为 `recall` 时只使用当前主基地星灵枢纽召回，半径外的成员继续移动撤回；枢纽死亡、未完成、能量不足或技能不可用时失败，编队保持原命令 |
 | `advance` | 必填正数 `seconds`；推进指定游戏秒后返回下一次观测 |
 
 生产和科技的目标、成本、前提与参考耗时由 Knowledge Tools（`query_unit_data`、`query_building_data`、`query_research_data`、`query_prerequisite_path`、`query_race_data`）从 Catalog 读取，不再写入固定系统提示词。耗时是单项开始后到就绪的近似游戏秒，不含排队、资源等待和工人行走。
@@ -46,13 +49,15 @@ Agent 只提交规范化 Tool Call。Read / Knowledge 立即查询；Action Tool
 
 命令完成边界：建造或建筑形态转换实际开始、训练达到请求的最少单位、研究进入游戏队列、基地形态转换发令。建筑就绪和科技生效继续看观测。
 
-`cancel(target_action=..., target=...)` 跨轮次匹配所有同动作、同目标的未启动工作。已派工人、施工、已付费或已完成的训练、折跃、融合、变异和研究不取消，也不退款。批量训练只清掉尚未开始的剩余数量。观测的 `Cancellable` 显示当前可撤销数量，未知不猜。
+`cancel(target_action=..., target=..., count=...)` 用于主动调整跨轮次维护的任务队列。提供 `count` 时，从最新加入的匹配请求开始撤销，直到达到指定数量或没有更多可撤销工作；省略 `count` 时撤销全部匹配的未启动工作。已派工人、施工、已付费或已完成的训练、折跃、融合、变异和研究不取消，也不退款。工具结果会立即给出实际撤销量、剩余未启动数量和保留的已开始或已付费数量；调用 `advance` 后修改才正式提交。观测的 `Cancellable` 显示当前可撤销数量，未知不猜。
 
 ### 军队与侦察
 
-`combat.style` 仅支持 `attack/defend`，目标使用观测里的 Zone。首次派兵用 `units`；兵力不足整项拒绝，不部分派遣或自动等待。后续用观测返回的 `group` 改令，不同时提供 `units`。
+`attack_group` 和 `defend_group` 的目标使用观测里的 Zone。省略 `units` 时对整支已有外派编队改令；提供 `units` 时从指定来源拆出单位建立新编队。`reinforce_group` 可以从 `group_0` 或任意可转移的活动编队向另一编队增援，也可以把部分成员送回 `group_0`。兵力不足时整项拒绝，不部分派遣。
 
-`group_0` 是默认防守和可派兵力池：二基地完成后驻守己方 natural，二基地未完成或失守时回退主基地，且不能直接改令。外出组不自动补员；新兵默认归入 `group_0`，需显式再次派遣。进攻组到达目标并连续确认该区域已清空后，改为 `defend` 并留在该区域，直到新指令或 `retreat`。`defend` 持续驻守，直到改令或撤回。`retreat` 立刻开始回家；幸存单位到家后才并入 `group_0`，原编组随之结束。阵亡、撤回和当前运输状态在观测显示；执行中不表示交火或成功。运输、移动和交战微操由底层处理，不自动选择下一进攻目标。
+`merge_groups(destination=..., sources=[...])` 显式整合已有外出编队。所有参与编队会先统一校验；任意 ID 不存在、重复、正在撤退或召回时整项拒绝。合并完成后，source 编队以 `merged_into:<destination>` 结束，成员不会中途释放到 `group_0`。
+
+`group_0` 是默认防守和可派兵力池：二基地完成后驻守己方 natural，二基地未完成或失守时回退主基地，且不能整体改令。外出组不自动补员；新兵默认归入 `group_0`，需显式再次派遣。进攻组到达目标并连续确认该区域已清空后，改为驻守并留在该区域，直到新指令或 `retreat_group`。`defend_group` 持续驻守，直到改令或撤回。`retreat_group` 立刻开始回家；幸存单位到家后才并入 `group_0`，原编组随之结束。阵亡、撤回、成员转移和当前运输状态在观测显示；执行中不表示交火或成功。运输、移动和交战微操由底层处理，不自动选择下一进攻目标。
 
 `scout.route` 数组按序检查选定矿区；`"all"` 请求一轮非己方扩张矿区中心巡查。仅检查中心，不保证全区可见或敌人找全；探员死亡失败，不自动替换，新侦察替换旧任务。侦察不自动改军队目标。
 
@@ -62,13 +67,15 @@ Agent 只提交规范化 Tool Call。Read / Knowledge 立即查询；Action Tool
 
 ## 观测和反馈
 
-`obs.to_dict()` 是客观结构化数据，含完整 Zone 表、地图拓扑和当前可生产目标名称。紧凑文本用 `observation_lines(obs)`，`LLMAdapter.render_input` 也使用同一份简报：省略静态 Map Topology、与当前基地、敌情、编组和侦察无关的 Zone，以及全零产能行。完整地图与指定 Zone 由 Read Tools（`query_map_overview`、`query_zone_state`、`query_route`）按需返回。
+平台内部保留 Full Observation，Read Tools 在一个决策中读取同一份冻结快照。Runner 和 Versus 交给 `AgentInput.observation` 的是结构化 Brief Observation；`LLMAdapter.render_input` 将它渲染为 `[Game]`、`[Economy]`、`[Production]`、`[Infrastructure]`、`[Available Targets]`、`[Army]`、`[Relevant Zones]`、`[Abilities]`、`[Changes]` 和 `[Decision]`。Brief 仍保留普通决策所需的资源、收入、饱和度、供给、持续生产任务、建筑规模和每个活动 Group 的实际兵力，但不展开完整地图拓扑、生产槽位和低频编队诊断。相同 action、target、状态和阻塞原因的持久生产请求在 Brief 中合并显示总请求数、剩余量和付费量，最早一项的位置保留其优先级；`query_production_state` 仍返回未合并的完整顺序。
+
+Read Tools 包括 `query_map_overview`、`query_zone_state`、`query_route`、`query_production_state` 和 `query_army_state`。前两类动态详情查询可按生产动作/目标或 Group ID 过滤。所有查询结果都标明 `as_of_game_time`，不会推进游戏、执行侦察或获得战争迷雾中的隐藏信息。Knowledge Tools 继续提供静态单位、建筑、升级和前置关系。
 
 | 内容 | 关注信息 |
 | --- | --- |
 | 游戏和经济 | 游戏时间、种族、时限、资源、供给、实际矿物/瓦斯/其他工人分配、矿物与瓦斯工人饱和值、每分钟收入 |
 | 地图和基地 | Zone、角色、已知归属、矿气剩余/可靠容量、中心视野和地形关系 |
-| 生产 | 实际建筑/训练/研究、设施和槽位、逐笔优先级、出生进度、付费队列及阻塞 |
+| 生产 | 实际建筑/训练/研究、设施和槽位、持久任务优先级摘要、出生进度、付费队列及阻塞 |
 | 军队 | 总兵力和可派兵力、编队、成员损失、目标、执行及运输状态 |
 | 侦察和能力 | 路线、路点、探员状态、本族能量与施法条件、近期事件 |
 
@@ -80,4 +87,4 @@ Agent 只提交规范化 Tool Call。Read / Knowledge 立即查询；Action Tool
 
 Agent 负责生产、供给、科技、基地形态转换、侦察，以及本族的扫描、MULE、时空增压、注卵、菌毯肿瘤和军队宏观行动。底层负责选址、工人分配、采矿、维修、续建、集结、局部战斗和运输。自动补给、自动基地形态转换、自动 MULE、自动时空增压、自动注卵和自动种瘤都关闭。
 
-Schema 非法整批不提交，旧任务保留，不推进游戏；默认阻塞模式暂停，连续模式仍可能推进或结束。合法批次中单项拒绝不撤销其他项。超时为 `Tie/time_limit`，Agent 中断和故障不伪装成游戏败局。
+统一 Tool 接口逐次校验：Action 会在冻结状态上预演当前事务，立即返回 staged、rejected 或 no-op，以及相关的待办数量、兵力缺口或取消数量。被拒绝和 no-op 的调用不进入 staged actions，之前已暂存的调用仍保留；Agent 可以根据结果修正，最终由 `advance` 原子提交并推进游戏。执行期间发生的开始、阻塞、完成和失败在下一 Observation 的 Changes 中返回。直接调用 `Environment.step()` 并传入旧式动作数组时，数组 Schema 非法则整批不提交。旧任务保留；默认阻塞模式暂停，连续模式仍可能推进或结束。超时为 `Tie/time_limit`，Agent 中断和故障不伪装成游戏败局。

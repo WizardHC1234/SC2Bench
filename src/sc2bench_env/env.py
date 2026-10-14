@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
+from copy import deepcopy
 from pathlib import Path
 from typing import Any, Mapping, Optional, Sequence, Tuple
 from uuid import uuid4
@@ -12,7 +13,9 @@ from sc2bench_env.backends.base import Backend
 from sc2bench_env.backends.fake import FakeBackend
 from sc2bench_env.interface.actions import (
     ActionValidationError,
+    AdvanceAction,
     DecisionBatch,
+    GameAction,
     action_batch_to_dicts,
     attach_retry_ids,
 )
@@ -216,6 +219,7 @@ class Environment:
             receipts=pending["receipts"],
             events=list(self.task_manager.events_since_boundary()),
             name_normalizations=list(batch.normalizations),
+            receipts_delivered=batch.receipts_delivered,
         )
         terminated = bool(snapshot.terminated)
         info = {
@@ -229,6 +233,7 @@ class Environment:
                 actions=action_batch_to_dicts(batch),
                 submitted_decision=pending["submitted"],
                 observation=observation.to_dict(), feedback=feedback.to_dict(),
+                previous_observation=self._last_observation,
                 terminated=terminated, info=info,
                 game_time_before_seconds=pending["before"],
                 wall_time_seconds=time.perf_counter() - pending["started"],
@@ -257,6 +262,7 @@ class Environment:
             self.recorder.record_step(
                 actions=[], submitted_decision=submitted, accepted=False,
                 validation_error=str(exc), observation=observation.to_dict(),
+                previous_observation=self._last_observation,
                 feedback=feedback.to_dict(), terminated=snapshot.terminated, info=info,
                 game_time_before_seconds=before,
                 wall_time_seconds=time.perf_counter() - started, agent_context=agent_context,
@@ -286,6 +292,7 @@ class Environment:
         if self.recorder is not None:
             self.recorder.record_step(
                 actions=[], submitted_decision=submitted, observation=observation.to_dict(),
+                previous_observation=self._last_observation,
                 feedback=feedback.to_dict(), terminated=True, info=info,
                 game_time_before_seconds=before,
                 wall_time_seconds=time.perf_counter() - started, agent_context=agent_context,
@@ -310,6 +317,14 @@ class Environment:
         if self._active_turn is not None and self._active_turn.active:
             raise ToolTurnError("turn_in_progress")
         snapshot = self.backend.snapshot()
+        preview_base = deepcopy(self.task_manager)
+        idle_army = self._idle_army_counts(snapshot)
+        upgrades = set(snapshot.info.get("upgrades") or [])
+        researching_raw = snapshot.info.get("in_progress_research") or []
+        if isinstance(researching_raw, dict):
+            researching = {key for key, value in researching_raw.items() if value}
+        else:
+            researching = set(researching_raw)
         decision_index = 0
         if self.recorder is not None:
             decision_index = self.recorder.decision_count
@@ -319,6 +334,45 @@ class Environment:
                 return
             self.recorder.record_tool_event(**payload)
 
+        def preview_actions(actions: Sequence[GameAction]) -> Mapping[str, Any]:
+            """Run the ordered turn on an isolated manager so results are definitive."""
+            manager = deepcopy(preview_base)
+            manager.begin_decision_step(game_time=snapshot.game_time_seconds)
+            baselines = {
+                action.identity(): snapshot.owned_count(action.action, action.target or "")
+                for action in actions
+                if action.action in {"build", "train", "research", "scan"}
+            }
+            submit_kwargs = {
+                "game_time": snapshot.game_time_seconds,
+                "baseline_owned": baselines,
+                "known_upgrades": upgrades,
+                "researching": researching,
+                "idle_army": idle_army,
+                "group_army": self._outbound_group_counts(snapshot),
+                "bunker_garrison": snapshot.info.get("bunker_garrison"),
+            }
+            prior_actions = tuple(actions[:-1])
+            if prior_actions:
+                manager.submit_decision(
+                    DecisionBatch(
+                        actions=prior_actions, advance=AdvanceAction(seconds=1.0),
+                    ),
+                    **submit_kwargs,
+                )
+            before_priority = manager.production_priority_summary()
+            receipts = manager.submit_decision(
+                DecisionBatch(
+                    actions=(actions[-1],), advance=AdvanceAction(seconds=1.0),
+                ),
+                **submit_kwargs,
+            )
+            return {
+                "receipt": receipts[-1].to_dict(),
+                "before_priority": before_priority,
+                "after_priority": manager.production_priority_summary(),
+            }
+
         turn = ToolTurn(
             specs=self.tool_specs(),
             race=self.config.race,
@@ -326,6 +380,7 @@ class Environment:
             game_time_seconds=snapshot.game_time_seconds,
             decision_index=decision_index,
             record=record,
+            preview_actions=preview_actions,
         )
         self._active_turn = turn
         return turn
@@ -348,6 +403,7 @@ class Environment:
             batch, game_time=snapshot.game_time_seconds, baseline_owned=baselines,
             known_upgrades=upgrades, researching=researching,
             idle_army=self._idle_army_counts(snapshot),
+            group_army=self._outbound_group_counts(snapshot),
             bunker_garrison=snapshot.info.get("bunker_garrison"),
         )
         self.backend.submit(self.task_manager.active_demands())
@@ -469,6 +525,7 @@ class Environment:
         if self.recorder is not None:
             self.recorder.record_step(
                 actions=[], submitted_decision=None, observation=observation.to_dict(),
+                previous_observation=self._last_observation,
                 feedback=feedback.to_dict(), terminated=True, info=info,
                 game_time_before_seconds=before,
                 wall_time_seconds=time.perf_counter() - started, agent_context=agent_context,
@@ -509,6 +566,7 @@ class Environment:
                 self.recorder.record_step(
                     actions=[], submitted_decision=submitted,
                     observation=observation.to_dict(), feedback=feedback.to_dict(),
+                    previous_observation=self._last_observation,
                     terminated=True, info=info, game_time_before_seconds=before,
                     wall_time_seconds=time.perf_counter() - started, agent_context=agent_context,
                 )
@@ -536,6 +594,7 @@ class Environment:
                     actions=[], submitted_decision=submitted,
                     accepted=False, validation_error=str(exc),
                     observation=observation.to_dict(), feedback=feedback.to_dict(),
+                    previous_observation=self._last_observation,
                     terminated=snapshot.terminated, info=info,
                     game_time_before_seconds=before,
                     wall_time_seconds=time.perf_counter() - started,
@@ -565,6 +624,7 @@ class Environment:
             receipts=receipts,
             events=list(self.task_manager.events_since_boundary()),
             name_normalizations=list(batch.normalizations),
+            receipts_delivered=batch.receipts_delivered,
         )
         info = {
             "result": snapshot.result,
@@ -578,6 +638,7 @@ class Environment:
                 actions=action_batch_to_dicts(batch),
                 submitted_decision=submitted,
                 observation=observation.to_dict(),
+                previous_observation=self._last_observation,
                 feedback=feedback.to_dict(),
                 terminated=terminated or snapshot.terminated,
                 info=info,
@@ -681,3 +742,20 @@ class Environment:
     def _idle_army_counts(self, snapshot) -> dict[str, int]:
         from sc2bench_env.runtime.observation_builder import idle_army_counts
         return idle_army_counts(snapshot, self.task_manager)
+
+    def _outbound_group_counts(self, snapshot) -> dict[str, dict[str, int]]:
+        """Current living counts keyed by stable public group ID."""
+        progress = dict(snapshot.info.get("combat_progress") or {})
+        groups: dict[str, dict[str, int]] = {}
+        for demand in self.task_manager.active_demands():
+            if demand.action != "combat" or not demand.group:
+                continue
+            row = progress.get(demand.demand_id) or {}
+            alive = row.get("alive") if isinstance(row, Mapping) else None
+            if not isinstance(alive, Mapping):
+                alive = demand.units or {}
+            groups[demand.group] = {
+                str(name): int(count) for name, count in alive.items()
+                if type(count) is int and count > 0
+            }
+        return groups

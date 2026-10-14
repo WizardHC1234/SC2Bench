@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, Optional
 
 from sc2bench_env.recording.reader import parse_episode_text
+from sc2bench_env.interface.tools import KNOWLEDGE_TOOLS, READ_TOOLS, known_tool_names
 
 
 _OUTCOMES = {
@@ -17,6 +18,7 @@ _OUTCOMES = {
     "Result.Tie": "tie",
 }
 _BATCH_SCHEMAS = {"0.1", "0.2", "0.3", "0.4"}
+_KNOWN_TOOL_NAMES = known_tool_names()
 
 
 def decision_mode(config: Any) -> str:
@@ -53,6 +55,9 @@ def _trajectory_events(record_directory: Any) -> list[dict[str, Any]]:
 def _empty_usage() -> dict[str, Any]:
     return {
         "tool_calls": {"knowledge": 0, "read": 0, "action": 0, "advance": 0},
+        "tool_rejections": {
+            "total": 0, "by_kind": {}, "by_tool": {}, "by_code": {},
+        },
         "model_calls": {"ok": 0, "failure": 0},
         "input_tokens": [],
         "output_tokens": [],
@@ -66,10 +71,33 @@ def _consume_trajectory(usage: dict[str, Any], record_directory: Any) -> None:
         if event.get("event_type") == "tool_call":
             name = payload.get("name")
             kind = payload.get("kind")
+            # tool_turn_v3 records written before this fix replaced the family
+            # with kind="rejected". Infer the original family so old batches
+            # remain measurable.
+            if kind == "rejected":
+                if name in KNOWLEDGE_TOOLS:
+                    kind = "knowledge"
+                elif name in READ_TOOLS:
+                    kind = "read"
+                elif name in _KNOWN_TOOL_NAMES:
+                    kind = "action"
+                else:
+                    kind = "unknown"
             if name == "advance":
                 usage["tool_calls"]["advance"] += 1
             elif kind in usage["tool_calls"]:
                 usage["tool_calls"][kind] += 1
+            if payload.get("status") == "rejected":
+                rejected = usage["tool_rejections"]
+                rejected["total"] += 1
+                for bucket, value in (("by_kind", kind), ("by_tool", name)):
+                    key = str(value or "unknown")
+                    rejected[bucket][key] = rejected[bucket].get(key, 0) + 1
+                result = payload.get("result") if isinstance(payload.get("result"), dict) else {}
+                data = result.get("data") if isinstance(result.get("data"), dict) else {}
+                error = data.get("error") if isinstance(data.get("error"), dict) else {}
+                code = str(error.get("code") or "unknown")
+                rejected["by_code"][code] = rejected["by_code"].get(code, 0) + 1
         elif event.get("event_type") == "agent_call":
             status = payload.get("status")
             if status not in {"ok", "failure"}:
@@ -140,6 +168,8 @@ class Evaluator:
                               "worker_pid", "worker_exitcode"):
                     if field in saved:
                         row[field] = saved[field]
+                if row.get("status") == "incomplete" and saved.get("end_reason"):
+                    row["end_reason"] = saved["end_reason"]
                 # Runtime version was supplied by Runner, not stored in episode.txt.
                 if "runtime_versions" in saved:
                     row["indexed_runtime_versions"] = saved["runtime_versions"]
@@ -297,7 +327,9 @@ class Evaluator:
             "win_rate": (summary["victory"] / decided) if comparable and decided else None,
             "decisions": summary["total_decisions"],
             "rejected": summary["total_rejected"],
+            "rejected_decisions": summary["total_rejected"],
             "tool_calls": usage["tool_calls"],
+            "tool_rejections": usage["tool_rejections"],
             "model_calls": usage["model_calls"],
             "tokens": {
                 "input": input_total,
@@ -305,6 +337,10 @@ class Evaluator:
                 "total": token_total,
                 "input_missing_calls": input_missing,
                 "output_missing_calls": output_missing,
+                "max_input_per_call": max(
+                    (value for value in usage["input_tokens"] if type(value) is int),
+                    default=None,
+                ),
             },
             "latency_seconds": {
                 "total": sum(latencies) if latencies else None,

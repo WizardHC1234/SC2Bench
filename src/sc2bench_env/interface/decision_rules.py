@@ -14,7 +14,9 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 from sc2bench_env.interface.races import require_supported_own_race
 
 COMBAT_STYLES: Tuple[str, ...] = ("attack", "defend")
-ACTION_VERBS: Tuple[str, ...] = (
+# Canonical runtime verbs after public ToolCall names have been normalized.
+# Public names such as attack_group and retreat_group live in tools.ACTION_TOOLS.
+INTERNAL_ACTION_VERBS: Tuple[str, ...] = (
     "build",
     "train",
     "research",
@@ -28,9 +30,12 @@ ACTION_VERBS: Tuple[str, ...] = (
     "scout",
     "morph_townhall",
     "combat",
+    "merge_groups",
     "retreat",
     "advance",
 )
+# Compatibility alias for callers that consume the normalized runtime contract.
+ACTION_VERBS = INTERNAL_ACTION_VERBS
 
 from sc2bench_env.catalog.registry import decision_examples, dispatchable_unit_names, known_target_names
 
@@ -38,6 +43,7 @@ ZONE_PATTERN = r"^zone_[A-Za-z0-9_]+$"
 # Town hall object ids: townhall_<n>, stable for the session.
 STRUCTURE_ID_PATTERN = r"^townhall_[A-Za-z0-9_]+$"
 GROUP_PATTERN = r"^group_[1-9][0-9]*$"
+ANY_GROUP_PATTERN = r"^group_(?:0|[1-9][0-9]*)$"
 
 # Model JSON must never include these keys on any entry.
 GLOBAL_FORBIDDEN_FIELDS: Tuple[str, ...] = ("action_id",)
@@ -56,11 +62,13 @@ class VerbFieldRule:
         return frozenset(("action",) + self.required + self.optional)
 
 
-VERB_FIELD_RULES: Dict[str, VerbFieldRule] = {
+INTERNAL_VERB_FIELD_RULES: Dict[str, VerbFieldRule] = {
     "build": VerbFieldRule("build", required=("target",)),
     "train": VerbFieldRule("train", required=("target", "count")),
     "research": VerbFieldRule("research", required=("target",)),
-    "cancel": VerbFieldRule("cancel", required=("target_action", "target")),
+    "cancel": VerbFieldRule(
+        "cancel", required=("target_action", "target"), optional=("count",)
+    ),
     "scan": VerbFieldRule("scan", required=("target",)),
     "call_mule": VerbFieldRule("call_mule"),
     "supply_drop": VerbFieldRule("supply_drop"),
@@ -69,10 +77,16 @@ VERB_FIELD_RULES: Dict[str, VerbFieldRule] = {
     "spawn_creep_tumor": VerbFieldRule("spawn_creep_tumor"),
     "scout": VerbFieldRule("scout", required=("route",)),
     "morph_townhall": VerbFieldRule("morph_townhall", required=("target", "to")),
-    "combat": VerbFieldRule("combat", required=("style", "target"), optional=("units", "group")),
+    "combat": VerbFieldRule(
+        "combat", optional=("style", "target", "units", "group", "source", "destination")
+    ),
+    "merge_groups": VerbFieldRule("merge_groups", required=("destination", "sources")),
     "retreat": VerbFieldRule("retreat", required=("group",), optional=("method",)),
     "advance": VerbFieldRule("advance", required=("seconds",)),
 }
+# Compatibility alias. This table intentionally describes internal entries,
+# not the public tool surface.
+VERB_FIELD_RULES = INTERNAL_VERB_FIELD_RULES
 
 
 class DecisionSchemaError(ValueError):
@@ -147,6 +161,13 @@ def _validate_entry_values(raw: Mapping[str, Any], *, verb: str, index: int, rac
         target = raw.get("target")
         if not isinstance(target, str) or not target.strip():
             raise DecisionSchemaError(f"{where}.target must be a non-empty string")
+        count = raw.get("count")
+        if count is not None and (
+            not isinstance(count, int) or isinstance(count, bool) or count < 1
+        ):
+            raise DecisionSchemaError(
+                f"{where}.count must be a positive integer when provided"
+            )
         normalized = target.strip().lower()
         if normalized in {"orbital_command", "planetary_fortress"}:
             raise DecisionSchemaError(
@@ -236,19 +257,59 @@ def _validate_entry_values(raw: Mapping[str, Any], *, verb: str, index: int, rac
         style = raw.get("style")
         target = raw.get("target")
         units = raw.get("units")
-        if not isinstance(style, str) or style.strip().lower() not in COMBAT_STYLES:
+        has_group = "group" in raw
+        has_units = "units" in raw
+        has_order = "style" in raw or "target" in raw
+        source = raw.get("source")
+        destination = raw.get("destination")
+        is_transfer = destination is not None
+        if is_transfer:
+            if not (source is not None and destination is not None and has_units):
+                raise DecisionSchemaError(
+                    f"{where}: a transfer requires source, destination and units"
+                )
+            if has_group or has_order:
+                raise DecisionSchemaError(
+                    f"{where}: a transfer uses only source, destination and units"
+                )
+        elif has_group and has_units:
+            if has_order:
+                raise DecisionSchemaError(f"{where}: reinforcement uses only group and units")
+        elif has_group:
+            if not ("style" in raw and "target" in raw):
+                raise DecisionSchemaError(f"{where}: retargeting requires style, target and group")
+        elif has_units:
+            if not ("style" in raw and "target" in raw):
+                raise DecisionSchemaError(f"{where}: creating a group requires style, target and units")
+        else:
+            raise DecisionSchemaError(f"{where}: combat must create, retarget or reinforce a group")
+        if has_group and (
+            not isinstance(raw["group"], str)
+            or not re.fullmatch(GROUP_PATTERN, raw["group"])
+        ):
+            raise DecisionSchemaError(f"{where}.group must reference an outbound group such as group_1, not group_0; use the full quoted ID, not a numeric index; received {raw['group']!r}")
+        if source is not None and (
+            not isinstance(source, str)
+            or not re.fullmatch(ANY_GROUP_PATTERN, source)
+        ):
             raise DecisionSchemaError(
-                f"{where}.style must be one of {list(COMBAT_STYLES)}"
+                f"{where}.source must be group_0 or an outbound group ID"
             )
-        if not isinstance(target, str) or not re.match(ZONE_PATTERN, target.strip().lower()):
-            raise DecisionSchemaError(f"{where}.target must be a zone_id string copied from Observation, not a numeric index; received {target!r}")
-        if "group" in raw:
-            if "units" in raw:
-                raise DecisionSchemaError(f"{where}: group orders cannot include units or change membership")
-            if not isinstance(raw["group"], str) or not re.fullmatch(GROUP_PATTERN, raw["group"]):
-                raise DecisionSchemaError(f"{where}.group must reference an outbound group such as group_1, not group_0; use the full quoted ID, not a numeric index; received {raw['group']!r}")
-            return
+        if destination is not None and (
+            not isinstance(destination, str)
+            or not re.fullmatch(ANY_GROUP_PATTERN, destination)
+        ):
+            raise DecisionSchemaError(
+                f"{where}.destination must be group_0 or an outbound group ID"
+            )
+        if has_order:
+            if not isinstance(style, str) or style.strip().lower() not in COMBAT_STYLES:
+                raise DecisionSchemaError(f"{where}.style must be one of {list(COMBAT_STYLES)}")
+            if not isinstance(target, str) or not re.match(ZONE_PATTERN, target.strip().lower()):
+                raise DecisionSchemaError(f"{where}.target must be a zone_id string copied from Observation, not a numeric index; received {target!r}")
         if not isinstance(units, Mapping) or not units:
+            if has_group and not has_units:
+                return
             raise DecisionSchemaError(f"{where}.units must be a non-empty object")
         allowed_units = set(dispatchable_unit_names(race=race))
         for unit_name, count in units.items():
@@ -261,6 +322,20 @@ def _validate_entry_values(raw: Mapping[str, Any], *, verb: str, index: int, rac
                 raise DecisionSchemaError(
                     f"{where}.units[{unit_name!r}] must be a positive integer"
                 )
+    elif verb == "merge_groups":
+        destination = raw.get("destination")
+        sources = raw.get("sources")
+        if not isinstance(destination, str) or not re.fullmatch(GROUP_PATTERN, destination):
+            raise DecisionSchemaError(f"{where}.destination must be an outbound group ID")
+        if not isinstance(sources, Sequence) or isinstance(sources, (str, bytes)) or not sources:
+            raise DecisionSchemaError(f"{where}.sources must be a non-empty array of outbound group IDs")
+        if len(set(sources)) != len(sources):
+            raise DecisionSchemaError(f"{where}.sources must not contain duplicates")
+        for source in sources:
+            if not isinstance(source, str) or not re.fullmatch(GROUP_PATTERN, source):
+                raise DecisionSchemaError(f"{where}.sources must contain outbound group IDs")
+            if source == destination:
+                raise DecisionSchemaError(f"{where}.sources must not include destination")
     elif verb == "advance":
         seconds = raw.get("seconds")
         if not _is_number(seconds) or seconds <= 0:
@@ -311,6 +386,7 @@ def action_tool_argument_schema(verb: str) -> Tuple[Dict[str, Any], Tuple[str, .
         "cancel": {
             "target_action": {"type": "string", "enum": ["build", "train", "research", "morph_townhall"]},
             "target": {"type": "string"},
+            "count": {"type": "integer", "minimum": 1},
         },
         "scan": {"target": {"type": "string"}},
         "call_mule": {},
@@ -340,6 +416,13 @@ def action_tool_argument_schema(verb: str) -> Tuple[Dict[str, Any], Tuple[str, .
                 "additionalProperties": {"type": "integer", "minimum": 1},
             },
             "group": {"type": "string", "description": "existing outbound group ID"},
+        },
+        "merge_groups": {
+            "destination": {"type": "string", "description": "outbound group that keeps its ID and order"},
+            "sources": {
+                "type": "array", "minItems": 1, "uniqueItems": True,
+                "items": {"type": "string"},
+            },
         },
         "retreat": {
             "group": {"type": "string", "description": "existing outbound group ID"},
@@ -407,6 +490,7 @@ def decision_json_schema(*, race: str = "terran") -> Dict[str, Any]:
                     "enum": ["build", "train", "research", "morph_townhall"],
                 },
                 "target": {"type": "string", "minLength": 1},
+                "count": {"type": "integer", "minimum": 1},
             },
             required=("target_action", "target"),
         ),
@@ -439,7 +523,7 @@ def decision_json_schema(*, race: str = "terran") -> Dict[str, Any]:
             required=("target", "to"),
         ),
         _tool_call_object_schema(
-            "retreat",
+            "retreat_group",
             properties={
                 "group": {"type": "string", "pattern": GROUP_PATTERN},
                 "method": {"type": "string", "enum": ["move", "recall"]},
@@ -447,15 +531,9 @@ def decision_json_schema(*, race: str = "terran") -> Dict[str, Any]:
             required=("group",),
         ),
         _tool_call_object_schema(
-            "combat",
-            properties={"style": _string_enum(list(COMBAT_STYLES)), "target": _zone_string(),
-                        "group": {"type": "string", "pattern": GROUP_PATTERN}},
-            required=("style", "target", "group"),
-        ),
-        _tool_call_object_schema(
-            "combat",
+            "attack_group",
             properties={
-                "style": _string_enum(list(COMBAT_STYLES)),
+                "group": {"type": "string", "pattern": ANY_GROUP_PATTERN},
                 "target": _zone_string(),
                 "units": {
                     "type": "object",
@@ -463,7 +541,43 @@ def decision_json_schema(*, race: str = "terran") -> Dict[str, Any]:
                     "additionalProperties": {"type": "integer", "minimum": 1},
                 },
             },
-            required=("style", "target", "units"),
+            required=("group", "target"),
+        ),
+        _tool_call_object_schema(
+            "defend_group",
+            properties={
+                "group": {"type": "string", "pattern": ANY_GROUP_PATTERN},
+                "target": _zone_string(),
+                "units": {
+                    "type": "object",
+                    "minProperties": 1,
+                    "additionalProperties": {"type": "integer", "minimum": 1},
+                },
+            },
+            required=("group", "target"),
+        ),
+        _tool_call_object_schema(
+            "reinforce_group",
+            properties={
+                "source": {"type": "string", "pattern": ANY_GROUP_PATTERN},
+                "destination": {"type": "string", "pattern": ANY_GROUP_PATTERN},
+                "units": {
+                    "type": "object", "minProperties": 1,
+                    "additionalProperties": {"type": "integer", "minimum": 1},
+                },
+            },
+            required=("source", "destination", "units"),
+        ),
+        _tool_call_object_schema(
+            "merge_groups",
+            properties={
+                "destination": {"type": "string", "pattern": GROUP_PATTERN},
+                "sources": {
+                    "type": "array", "minItems": 1, "uniqueItems": True,
+                    "items": {"type": "string", "pattern": GROUP_PATTERN},
+                },
+            },
+            required=("destination", "sources"),
         ),
         _tool_call_object_schema(
             "advance",

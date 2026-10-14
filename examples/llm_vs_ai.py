@@ -20,6 +20,7 @@ else:
 from sc2bench_env import Environment, EpisodeConfig
 from sc2bench_env.interface.agent import AgentInput, AgentStopped, AgentTurn
 from sc2bench_env.interface.observation_text import render_feedback_text
+from sc2bench_env.interface.observations import agent_observation_view
 from sc2bench_env.runtime.tool_turn import ToolTurnError
 
 
@@ -34,7 +35,8 @@ def run_episode(env: Environment, agent: agent_module.LLMAgent,
     for index in range(max_decisions):
         tool_turn = env.begin_tool_turn()
         request = AgentInput(
-            observation, feedback, tuple(env.tool_specs()), tool_turn.call,
+            agent_observation_view(observation), feedback,
+            tuple(env.tool_specs()), tool_turn.call,
         )
         try:
             turn = agent(request)

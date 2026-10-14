@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Dict, Iterable, List, Optional, Sequence, Set
+from uuid import uuid4
 
 from sc2bench_env.interface.actions import (
     ActionValidationError,
@@ -53,6 +54,7 @@ class DemandUpdate:
     waiting_for: Optional[str] = None
     failure_reason: Optional[str] = None
     end_reason: Optional[str] = None
+    details: Dict[str, object] = field(default_factory=dict)
     # Legacy aliases used by older backend code paths.
     completed_delta: int = 0
     in_progress: Optional[int] = None
@@ -133,6 +135,7 @@ class TaskManager:
         known_upgrades: Set[str] | None = None,
         researching: Set[str] | None = None,
         idle_army: Dict[str, int] | None = None,
+        group_army: Dict[str, Dict[str, int]] | None = None,
         bunker_garrison: Dict[str, int] | None = None,
     ) -> List[ActionReceipt]:
         """Apply one validated decision batch in array order."""
@@ -155,6 +158,7 @@ class TaskManager:
                     upgrades=upgrades,
                     researching=in_research,
                     idle_army=available_army,
+                    group_army=group_army or {},
                     bunker_garrison=bunker_garrison,
                 )
             )
@@ -169,11 +173,12 @@ class TaskManager:
         upgrades: Set[str],
         researching: Set[str],
         idle_army: Dict[str, int],
+        group_army: Dict[str, Dict[str, int]],
         bunker_garrison: Dict[str, int] | None = None,
     ) -> ActionReceipt:
         if action.action_id and action.action_id in self.seen_action_ids:
             return ActionReceipt(
-                action=action.action,
+                action=action.public_action or action.action,
                 target=action.target,
                 count=action.count,
                 result="ignored_duplicate_action_id",
@@ -184,9 +189,10 @@ class TaskManager:
             )
 
         if action.action == "cancel":
-            cleared = self._cancel_waiting(
+            outcome = self._cancel_waiting(
                 target_action=action.target_action or "",
                 target=action.target or "",
+                count=action.count,
                 game_time=game_time,
             )
             if action.action_id:
@@ -194,9 +200,11 @@ class TaskManager:
             return ActionReceipt(
                 action="cancel",
                 target=action.target,
+                count=action.count,
                 target_action=action.target_action,
                 result="accepted",
-                reason=f"cleared_waiting={cleared}",
+                reason=f"cleared_waiting={outcome['removed_unstarted']}",
+                details=outcome,
                 action_id=action.action_id,
             )
 
@@ -267,12 +275,187 @@ class TaskManager:
                         }
                     )
 
-        if action.action in {"combat", "retreat"} and action.group:
-            existing = next((d for d in self.active_demands()
-                             if d.action == "combat" and d.group == action.group), None)
+        if action.action == "merge_groups":
+            return self._merge_groups(action, game_time=game_time)
+
+        if action.action == "combat" and action.destination is not None:
+            source_name = action.source or ""
+            destination_name = action.destination
+            requested = {str(name): int(count) for name, count in sorted((action.units or {}).items())}
+            if source_name == destination_name:
+                return ActionReceipt(
+                    action=action.public_action or "combat", result="rejected",
+                    reason="source_equals_destination", destination=destination_name,
+                    details={"requested": requested},
+                )
+            if destination_name != "group_0":
+                destination = self._active_group(destination_name)
+                if destination is None:
+                    return ActionReceipt(
+                        action=action.public_action or "combat", result="rejected",
+                        reason="group_not_found", destination=destination_name,
+                        details={"missing": [destination_name]},
+                    )
+                if destination.withdrawing or destination.recall_status == "pending" or destination.merge_pending_into:
+                    return ActionReceipt(
+                        action=action.public_action or "combat", result="rejected",
+                        reason="group_not_reinforceable", destination=destination_name,
+                    )
+            else:
+                destination = None
+
+            if source_name == "group_0":
+                available = {name: int(idle_army.get(name, 0)) for name in requested}
+                source = None
+            else:
+                source = self._active_group(source_name)
+                if source is None:
+                    return ActionReceipt(
+                        action=action.public_action or "combat", result="rejected",
+                        reason="group_not_found", destination=destination_name,
+                        details={"missing": [source_name]},
+                    )
+                if source.withdrawing or source.recall_status == "pending" or source.merge_pending_into:
+                    return ActionReceipt(
+                        action=action.public_action or "combat", result="rejected",
+                        reason="group_not_transferable", destination=destination_name,
+                    )
+                observed = group_army.get(source_name) or dict(source.units or {})
+                available = {
+                    name: min(int(observed.get(name, 0)), int((source.units or {}).get(name, 0)))
+                    for name in requested
+                }
+            missing = {
+                name: need - available.get(name, 0)
+                for name, need in requested.items() if need > available.get(name, 0)
+            }
+            if missing:
+                return ActionReceipt(
+                    action=action.public_action or "combat", result="rejected",
+                    reason="insufficient_units", destination=destination_name,
+                    details={"requested": requested, "available": available, "missing": missing},
+                )
+            if source is None:
+                for name, count in requested.items():
+                    idle_army[name] = max(0, int(idle_army.get(name, 0)) - count)
+                assert destination is not None  # group_0 -> group_0 was rejected above
+                combined = dict(destination.units or {})
+                for name, count in requested.items():
+                    combined[name] = int(combined.get(name, 0)) + count
+                destination.units = combined
+                destination.membership_revision += 1
+                destination.reinforcement_history = (*destination.reinforcement_history, requested)
+                destination.updated_at = game_time
+                self._push_event({
+                    "type": "group_reinforced", "source": "group_0",
+                    "group": destination.group, "units": requested,
+                })
+                return ActionReceipt(
+                    action=action.public_action or "combat", result="accepted",
+                    group=destination.group, destination=destination.group,
+                    details={"source": "group_0", "reinforcement": requested},
+                )
+
+            if destination is not None:
+                # Remove the requested ownership from the source immediately
+                # in the task model; Sharpy moves exact tags next frame.
+                source_counts = dict(source.units or {})
+                for name, count in requested.items():
+                    left = max(0, int(source_counts.get(name, 0)) - count)
+                    if left:
+                        source_counts[name] = left
+                    else:
+                        source_counts.pop(name, None)
+                source.units = source_counts
+                source.membership_revision += 1
+                source.updated_at = game_time
+                combined = dict(destination.units or {})
+                for name, count in requested.items():
+                    combined[name] = int(combined.get(name, 0)) + count
+                destination.units = combined
+                destination.membership_revision += 1
+                destination.reinforcement_history = (*destination.reinforcement_history, requested)
+                destination.transfer_requests = (*destination.transfer_requests, {
+                    "transfer_id": uuid4().hex,
+                    "source_demand_id": source.demand_id,
+                    "source_group": source_name,
+                    "units": requested,
+                })
+                destination.updated_at = game_time
+                self._push_event({
+                    "type": "group_transfer_requested", "source": source_name,
+                    "destination": destination_name, "units": requested,
+                })
+                return ActionReceipt(
+                    action=action.public_action or "combat", result="accepted",
+                    group=destination.group, destination=destination.group,
+                    details={"source": source_name, "reinforcement": requested,
+                             "execution": "transfer_pending"},
+                )
+
+            # A partial return home is represented as a temporary withdrawing
+            # mission. Arrival, rather than submission, restores group_0 ownership.
+            action = GameAction(
+                action="combat", target=source.target, style="defend", units=requested,
+                source=source_name, destination="group_0",
+                public_action=action.public_action,
+            )
+
+        if action.action == "combat" and action.group and action.units:
+            existing = self._active_group(action.group)
             if existing is None:
-                return ActionReceipt(action=action.action, result="rejected", group=action.group,
+                return ActionReceipt(action=action.public_action or "combat", result="rejected", group=action.group,
+                                     reason="group_not_found", action_id=action.action_id)
+            if existing.withdrawing or existing.recall_status == "pending" or existing.merge_pending_into:
+                return ActionReceipt(action=action.public_action or "combat", result="rejected", group=action.group,
+                                     reason="group_not_reinforceable", action_id=action.action_id)
+            requested = {str(name): int(count) for name, count in sorted(action.units.items())}
+            available = {name: int(idle_army.get(name, 0)) for name in requested}
+            missing = {
+                name: need - available.get(name, 0)
+                for name, need in requested.items() if need > available.get(name, 0)
+            }
+            if missing:
+                if action.action_id:
+                    self.seen_action_ids.add(action.action_id)
+                return ActionReceipt(
+                    action=action.public_action or "combat", result="rejected", group=action.group,
+                    reason="insufficient_units", action_id=action.action_id,
+                    details={"requested": requested, "available": available, "missing": missing},
+                )
+            for name, count in requested.items():
+                idle_army[name] = max(0, int(idle_army.get(name, 0)) - count)
+            combined = dict(existing.units or {})
+            for name, count in requested.items():
+                combined[name] = int(combined.get(name, 0)) + count
+            existing.units = combined
+            existing.membership_revision += 1
+            existing.reinforcement_history = (
+                *existing.reinforcement_history, dict(requested),
+            )
+            existing.updated_at = game_time
+            if action.action_id:
+                self.seen_action_ids.add(action.action_id)
+            self._push_event({
+                "type": "group_reinforced", "group": existing.group,
+                "units": requested, "requested_total": combined,
+            })
+            return ActionReceipt(
+                action=action.public_action or "combat", result="accepted", group=existing.group,
+                action_id=action.action_id, details={"reinforcement": requested},
+            )
+
+        if action.action in {"combat", "retreat"} and action.group:
+            existing = self._active_group(action.group)
+            if existing is None:
+                return ActionReceipt(action=action.public_action or action.action, result="rejected", group=action.group,
                                      reason="group_not_found")
+            if existing.merge_pending_into:
+                return ActionReceipt(
+                    action=action.public_action or action.action, result="rejected", group=action.group,
+                    reason=f"group_merge_pending:{existing.merge_pending_into}",
+                    action_id=action.action_id,
+                )
             method = getattr(action, "method", None) or "move"
             if action.action == "retreat" and method == "recall":
                 unchanged = (
@@ -293,7 +476,7 @@ class TaskManager:
                                       "target": existing.target, "method": "recall"})
                 if action.action_id:
                     self.seen_action_ids.add(action.action_id)
-                return ActionReceipt(action=action.action, target=action.target, style=action.style,
+                return ActionReceipt(action=action.public_action or action.action, target=action.target, style=action.style,
                                      group=existing.group,
                                      result="idempotent_noop" if unchanged else "accepted")
             withdrawing = action.action == "retreat"
@@ -316,7 +499,7 @@ class TaskManager:
                                   "action": action.action, "style": existing.style, "target": existing.target})
             if action.action_id:
                 self.seen_action_ids.add(action.action_id)
-            return ActionReceipt(action=action.action, target=action.target, style=action.style,
+            return ActionReceipt(action=action.public_action or action.action, target=action.target, style=action.style,
                                  group=existing.group,
                                  result="idempotent_noop" if unchanged else "accepted")
 
@@ -345,7 +528,22 @@ class TaskManager:
                         details={"requested": requested},
                         group=demand.group,
                     )
-            available = {name: int(idle_army.get(name, 0)) for name in requested}
+            transfer_source = None
+            if action.source and action.source != "group_0":
+                transfer_source = self._active_group(action.source)
+                if transfer_source is None:
+                    return ActionReceipt(
+                        action=action.public_action or "combat", target=action.target,
+                        style=action.style, result="rejected", reason="group_not_found",
+                        details={"missing": [action.source], "requested": requested},
+                    )
+                observed = group_army.get(action.source) or dict(transfer_source.units or {})
+                available = {
+                    name: min(int(observed.get(name, 0)), int((transfer_source.units or {}).get(name, 0)))
+                    for name in requested
+                }
+            else:
+                available = {name: int(idle_army.get(name, 0)) for name in requested}
             missing = {
                 name: max(0, need - available.get(name, 0))
                 for name, need in requested.items()
@@ -367,7 +565,7 @@ class TaskManager:
                 if garrison:
                     details["bunker_garrison"] = garrison
                 return ActionReceipt(
-                    action="combat",
+                    action=action.public_action or "combat",
                     target=action.target,
                     style=action.style,
                     result="rejected",
@@ -376,8 +574,20 @@ class TaskManager:
                     details=details,
                 )
             # Reserve idle counts for later actions in the same batch.
-            for name, need in requested.items():
-                idle_army[name] = max(0, int(idle_army.get(name, 0)) - need)
+            if transfer_source is None:
+                for name, need in requested.items():
+                    idle_army[name] = max(0, int(idle_army.get(name, 0)) - need)
+            else:
+                remaining = dict(transfer_source.units or {})
+                for name, need in requested.items():
+                    left = max(0, int(remaining.get(name, 0)) - need)
+                    if left:
+                        remaining[name] = left
+                    else:
+                        remaining.pop(name, None)
+                transfer_source.units = remaining
+                transfer_source.membership_revision += 1
+                transfer_source.updated_at = game_time
 
         # build / train append; research creates one demand; one-shot abilities too.
         baseline = int(baselines.get(action.identity(), 0))
@@ -396,6 +606,18 @@ class TaskManager:
         if action.action == "combat":
             self.group_counter += 1
             demand.group = f"group_{self.group_counter}"
+            if action.source and action.source != "group_0":
+                source = self._active_group(action.source)
+                if source is not None:
+                    demand.transfer_requests = ({
+                        "transfer_id": uuid4().hex,
+                        "source_demand_id": source.demand_id,
+                        "source_group": action.source,
+                        "units": dict(action.units or {}),
+                    },)
+            if action.destination == "group_0":
+                demand.withdrawing = True
+                demand.return_to_group0 = True
             # Binding succeeds immediately; backend keeps the mission active.
             demand.state = DemandState.IN_PROGRESS
             demand.produced = 1
@@ -417,15 +639,83 @@ class TaskManager:
             **({"group": demand.group} if demand.group else {}),
         }
         self._push_event(event)
+        receipt_details = {"requested": dict(action.units)} if action.action == "combat" else None
+        if action.action == "combat" and action.source and action.source != "group_0":
+            receipt_details = {
+                **(receipt_details or {}),
+                "source": action.source,
+                "execution": "transfer_pending",
+            }
+            if action.destination is not None:
+                receipt_details["destination"] = action.destination
         return ActionReceipt(
-            action=action.action,
+            action=action.public_action or action.action,
             target=action.target,
             count=action.count,
             result="accepted",
             action_id=action.action_id,
             style=action.style,
-            details={"requested": dict(action.units)} if action.action == "combat" else None,
+            details=receipt_details,
             group=demand.group,
+            destination=action.destination,
+        )
+
+    def _active_group(self, group: str) -> Optional[Demand]:
+        return next((
+            demand for demand in self.active_demands()
+            if demand.action == "combat" and demand.group == group
+        ), None)
+
+    def _merge_groups(self, action: GameAction, *, game_time: float) -> ActionReceipt:
+        destination_name = action.destination or ""
+        source_names = tuple(action.sources or ())
+        groups = {name: self._active_group(name) for name in (destination_name, *source_names)}
+        missing = [name for name, demand in groups.items() if demand is None]
+        if missing:
+            return ActionReceipt(
+                action="merge_groups", result="rejected", reason="group_not_found",
+                action_id=action.action_id, destination=destination_name,
+                sources=source_names, details={"missing": missing},
+            )
+        demands = [groups[name] for name in (destination_name, *source_names)]
+        blocked = [
+            demand.group for demand in demands if demand is not None and (
+                demand.withdrawing or demand.recall_status == "pending"
+                or demand.merge_pending_into is not None
+            )
+        ]
+        if blocked:
+            return ActionReceipt(
+                action="merge_groups", result="rejected", reason="group_not_mergeable",
+                action_id=action.action_id, destination=destination_name,
+                sources=source_names, details={"blocked": blocked},
+            )
+        destination = groups[destination_name]
+        assert destination is not None
+        sources = [groups[name] for name in source_names]
+        assert all(source is not None for source in sources)
+        pending = list(destination.merge_source_ids)
+        for source in sources:
+            assert source is not None
+            if source.demand_id not in pending:
+                pending.append(source.demand_id)
+            source.merge_pending_into = destination_name
+            source.updated_at = game_time
+        destination.merge_source_ids = tuple(pending)
+        destination.pending_merge_batches = (
+            *destination.pending_merge_batches,
+            tuple(source.demand_id for source in sources if source is not None),
+        )
+        destination.updated_at = game_time
+        if action.action_id:
+            self.seen_action_ids.add(action.action_id)
+        self._push_event({
+            "type": "groups_merge_requested", "destination": destination_name,
+            "sources": list(source_names),
+        })
+        return ActionReceipt(
+            action="merge_groups", result="accepted", action_id=action.action_id,
+            destination=destination_name, sources=source_names,
         )
 
     def _cancel_waiting(
@@ -433,16 +723,21 @@ class TaskManager:
         *,
         target_action: str,
         target: str,
+        count: int | None,
         game_time: float,
-    ) -> int:
-        """Clear not-yet-started work for matching demands.
+    ) -> dict[str, int | str]:
+        """Remove matching not-yet-started work from the persistent queue.
 
-        Fully waiting demands are cancelled. Partially started train demands keep
-        already produced units and reported in-flight units; leftover count is
-        dropped without refunding or cancelling SC2 production.
+        The newest matching demand is reduced first so earlier queue priorities
+        survive a bounded revision. Paid or already started work is never removed.
+        Omitting count preserves the original clear-all behavior.
         """
-        cleared = 0
-        for demand in list(self.demands.values()):
+        removed = 0
+        remaining_budget = count
+        matching = sorted(
+            self.demands.values(), key=lambda item: item.order_index, reverse=True
+        )
+        for demand in matching:
             if demand.action != target_action:
                 continue
             if demand.action == "morph_townhall":
@@ -452,43 +747,101 @@ class TaskManager:
                 continue
             if not demand.is_active:
                 continue
-
-            in_flight = (demand.in_flight if demand.in_flight is not None
-                         else int(demand.state == DemandState.IN_PRODUCTION))
-            if demand.action == "train" and demand.remaining > 0 and (demand.produced > 0 or in_flight > 0):
-                keep = min(demand.count, demand.produced + in_flight)
-                if demand.count > keep:
-                    cleared += demand.count - keep
-                    demand.count = keep
-                    demand.updated_at = game_time
-                    self._push_event(
-                        {
-                            "type": "demand_trimmed",
-                            "action": demand.action,
-                            "target": demand.target,
-                            "kept": keep,
-                            "produced": demand.produced,
-                        }
-                    )
-                if demand.actual_produced >= train_birth_allowance(
-                    demand.count, demand.production_batch_size
-                ):
-                    demand.mark_completed(game_time)
-                    self._push_event(self._train_completed_event(demand))
+            cancellable, _inferred = self._cancel_capacity(demand)
+            if cancellable <= 0:
                 continue
+            take = cancellable
+            if remaining_budget is not None:
+                take = min(take, remaining_budget)
+            if take <= 0:
+                break
 
-            if demand.state == DemandState.WAITING_TO_START and demand.is_cancellable:
-                units = max(1, demand.remaining)
-                demand.mark_cancelled(game_time)
-                cleared += units
-                self._push_event(
-                    {
+            if demand.action == "train":
+                demand.count -= take
+                demand.updated_at = game_time
+                in_flight = (
+                    demand.in_flight
+                    if demand.in_flight is not None
+                    else int(demand.state == DemandState.IN_PRODUCTION)
+                )
+                if demand.count == 0 and demand.produced == 0 and in_flight == 0:
+                    demand.mark_cancelled(game_time)
+                    self._push_event({
                         "type": "demand_cancelled",
                         "action": demand.action,
                         "target": demand.target,
-                    }
-                )
-        return cleared
+                        "removed_unstarted": take,
+                    })
+                else:
+                    self._push_event({
+                        "type": "demand_trimmed",
+                        "action": demand.action,
+                        "target": demand.target,
+                        "removed_unstarted": take,
+                        "remaining_requested": demand.count,
+                        "produced": demand.produced,
+                        "in_flight": in_flight,
+                    })
+                    if (
+                        in_flight == 0
+                        and demand.remaining == 0
+                        and demand.produced > 0
+                    ):
+                        demand.mark_completed(game_time)
+            else:
+                demand.mark_cancelled(game_time)
+                self._push_event({
+                    "type": "demand_cancelled",
+                    "action": demand.action,
+                    "target": demand.target,
+                    "removed_unstarted": take,
+                })
+
+            removed += take
+            if remaining_budget is not None:
+                remaining_budget -= take
+                if remaining_budget <= 0:
+                    break
+
+        remaining_unstarted = 0
+        protected_started_or_paid = 0
+        inferred_paid_boundaries = 0
+        for demand in self.demands.values():
+            if demand.action != target_action or not demand.is_active:
+                continue
+            if demand.action == "morph_townhall":
+                if target not in {demand.target, demand.to}:
+                    continue
+            elif demand.target != target:
+                continue
+            cancellable, inferred = self._cancel_capacity(demand)
+            inferred_paid_boundaries += int(inferred)
+            remaining_unstarted += cancellable
+            protected_started_or_paid += max(0, demand.remaining - cancellable)
+
+        result: dict[str, int | str] = {
+            "removed_unstarted": removed,
+            "remaining_unstarted": remaining_unstarted,
+            "protected_started_or_paid": protected_started_or_paid,
+        }
+        if count is not None:
+            result["requested_count"] = count
+            result["unremoved_count"] = max(0, count - removed)
+        else:
+            result["requested_count"] = "all"
+        if inferred_paid_boundaries:
+            result["inferred_paid_boundaries"] = inferred_paid_boundaries
+        return result
+
+    @classmethod
+    def _cancel_capacity(cls, demand: Demand) -> tuple[int, bool]:
+        """Return removable work, conservatively preserving an unknown active slot."""
+        cancellable = cls._cancellable_count(demand)
+        if cancellable is not None:
+            return cancellable, False
+        if demand.action == "train" and demand.state == DemandState.IN_PRODUCTION:
+            return max(0, demand.remaining - 1), True
+        return 0, False
 
     def apply_updates(self, updates: Iterable[DemandUpdate], *, game_time: float) -> None:
         self._current_game_time = float(game_time)
@@ -510,6 +863,7 @@ class TaskManager:
                         completed_delta=update.completed_delta,
                         in_progress=update.in_progress,
                         status=update.status,
+                        details=dict(update.details),
                     )
                 else:
                     delta = update.produced_delta or update.completed_delta
@@ -524,6 +878,16 @@ class TaskManager:
                         existing.waiting_for = update.waiting_for
                     if update.in_progress is not None:
                         existing.in_progress = update.in_progress
+                    if update.details:
+                        merged_details = dict(existing.details)
+                        for key, value in update.details.items():
+                            if key == "applied_transfer_ids":
+                                merged_details[key] = list(dict.fromkeys([
+                                    *(merged_details.get(key) or []), *(value or []),
+                                ]))
+                            else:
+                                merged_details[key] = value
+                        existing.details = merged_details
                 continue
             if update.action and update.target is not None:
                 buckets.setdefault((update.action, update.target), []).append(update)
@@ -540,6 +904,21 @@ class TaskManager:
             self._apply_one(demand, update, game_time=game_time)
 
     def _apply_one(self, demand: Demand, update: DemandUpdate, *, game_time: float) -> None:
+        applied_transfers = set(update.details.get("applied_transfer_ids") or [])
+        if applied_transfers and demand.transfer_requests:
+            remaining = []
+            for transfer in demand.transfer_requests:
+                transfer_id = str(transfer.get("transfer_id") or "")
+                if transfer_id not in applied_transfers:
+                    remaining.append(transfer)
+                    continue
+                self._push_event({
+                    "type": "group_transfer_completed",
+                    "source": transfer.get("source_group"),
+                    "destination": demand.group,
+                    "units": dict(transfer.get("units") or {}),
+                })
+            demand.transfer_requests = tuple(remaining)
         failure = update.failure_reason
         state = update.state or update.status
         if failure or state == DemandState.FAILED:
@@ -576,6 +955,62 @@ class TaskManager:
                     "end_reason": update.end_reason,
                 }
             )
+            if str(update.end_reason).startswith("merged_into:"):
+                destination_group = str(update.end_reason).split(":", 1)[1]
+                destination = self._active_group(destination_group)
+                if destination is not None:
+                    combined = dict(destination.units or {})
+                    for name, count in dict(demand.units or {}).items():
+                        combined[name] = int(combined.get(name, 0)) + int(count)
+                    destination.units = combined
+                    destination.merge_source_ids = tuple(
+                        item for item in destination.merge_source_ids
+                        if item != demand.demand_id
+                    )
+                    transferred = update.details.get("transferred_units")
+                    if not isinstance(transferred, dict):
+                        transferred = dict(demand.units or {})
+                    destination.merge_transfer_counts[demand.demand_id] = {
+                        str(name): int(count)
+                        for name, count in transferred.items()
+                        if type(count) is int and count > 0
+                    }
+                    if demand.group and demand.group not in destination.merged_from:
+                        destination.merged_from = (*destination.merged_from, demand.group)
+                self._push_event({
+                    "type": "group_merged", "source": demand.group,
+                    "destination": destination_group,
+                    "members": dict(
+                        destination.merge_transfer_counts.get(demand.demand_id, {})
+                        if destination is not None else {}
+                    ),
+                })
+                if destination is not None:
+                    remaining_batches = []
+                    for batch in destination.pending_merge_batches:
+                        if any(item in destination.merge_source_ids for item in batch):
+                            remaining_batches.append(batch)
+                            continue
+                        sources = [
+                            self.demands[item].group for item in batch
+                            if item in self.demands and self.demands[item].group
+                        ]
+                        member_counts = {
+                            self.demands[item].group: dict(
+                                destination.merge_transfer_counts.get(item, {})
+                            )
+                            for item in batch
+                            if item in self.demands and self.demands[item].group
+                        }
+                        self._push_event({
+                            "type": "groups_merged",
+                            "destination": destination_group,
+                            "sources": sources,
+                            "members": member_counts,
+                        })
+                        for item in batch:
+                            destination.merge_transfer_counts.pop(item, None)
+                    destination.pending_merge_batches = tuple(remaining_batches)
             return
 
         produced_delta = update.produced_delta or update.completed_delta

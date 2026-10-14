@@ -8,12 +8,14 @@ Agent 是接收 `AgentInput` 的可调用对象，不必继承基类：
 
 | 输入 | 含义 |
 | --- | --- |
-| `request.observation` | 当前状态；`to_dict()` 取结构化数据。紧凑文本用 `observation_lines(observation)` |
+| `request.observation` | 当前结构化 Brief Observation；`to_dict()` 取公开核心状态，详细地图、生产和编队状态通过 Read Tool 查询 |
 | `request.feedback` | 上次提交回执，首轮为 `None` |
 | `request.tool_specs` | 当前这一局暴露的工具说明 |
 | `request.call_tool` | 调用一个工具并立刻得到 `ToolResult` |
 
-仓库附带 `agents.llm_agent.create_agent`。该 Agent 在实例内保持单局会话。Knowledge、Read、Action 和 `advance` 走同一个工具接口。平台不规定查询和动作的先后；示例 Harness 有自己的查询、动作和 `advance` 顺序，外部 Harness 可以换掉默认可替换指导。`staged` 只表示这一决策先记下，还没扣资源、没开工。调用 `advance` 后，平台才提交已暂存的动作并推进游戏时间。提示词分成平台合同和可替换的决策指导；工具参数写在 ToolSpec 里。需要保存实际模型输入输出时，返回 `AgentTurn(agent_context)`。其中的 `agent_calls` 记录每次模型调用的 token 和延迟；供应商没给 token 时填 `null`，不要估算。决策本身留在平台的 ToolTurn 上。当前任务进度看观测，不能把“已接受”当作完成。
+仓库附带 `agents.llm_agent.create_agent`。该 Agent 在实例内保持单局会话。Knowledge、Read、Action 和 `advance` 走同一个工具接口。一个环境决策可包含任意次查询和动作调用；外部 Harness 可以一次提交多项动作，也可以跨多次模型回复逐步调用。`advance` 必须且只能作为最后一次调用，用来提交已暂存动作并推进游戏时间。平台不规定查询和动作的先后；示例 Harness 有自己的调用顺序，外部 Harness 可以换掉默认可替换指导。`staged` 只表示这一决策先记下，还没扣资源、没开工。提示词分成平台合同和可替换的决策指导；工具参数写在 ToolSpec 里。需要保存实际模型输入输出时，返回 `AgentTurn(agent_context)`。其中的 `agent_calls` 记录每次模型调用的 token 和延迟；供应商没给 token 时填 `null`，不要估算。决策本身留在平台的 ToolTurn 上。当前任务进度看观测，不能把“已接受”当作完成。
+
+Runner 和 Versus 只把 Brief Observation 放入 `AgentInput`。平台内部仍保留 Full Observation，当前 ToolTurn 的 Read Tools 从同一冻结快照查询完整动态状态。常用查询包括地图概览、指定 Zone、路径、完整生产状态和完整编队状态；查询返回后游戏时间不变。`ToolTurn.call_many()` 只是按顺序调用同一个事务接口，语义与多次 `call()` 相同。
 
 ```python
 from sc2bench_env import AgentTurn, EpisodeConfig, ToolCall
@@ -122,7 +124,7 @@ print(batch["aggregate"])
 
 默认套件为 Easy/Medium 各两局，仅作流程检查。Suite 保存地图、种族、难度、风格、时限、重复数和决策上限，不含模型或打法。可选 `game_seeds` 的长度必须等于 `repetitions`；每个 case 的第 n 次重复使用第 n 个 seed，并写入现有的 `EpisodeConfig.seed`。这个 seed 只控制 SC2 模拟器，不控制模型、Harness、Python 随机数或外部服务。不配置时仍由 SC2 自己随机。按 case 顺序排定各自全部重复局。批量示例的 `--opponent` 筛选已有 case，不修改难度。
 
-`max_parallel` 是同时进行的对局上限，不是总局数；默认1，空出名额即启动下一局，不等待整组结束。并行每局使用独立 spawn 进程、新 Agent 和新环境，SC2 清理注册表、端口选择和模型上下文不共享。每次运行建立一个批次目录，里面是 `batch.json` 和 `episodes/` 下的各局记录。每完成一局就原子更新 `batch.json`，中断后已完成的结果还在。结果按计划顺序排列，单局失败不自动重跑。同一批次不能混用 blocking 和 realtime：blocking 在推理期间暂停游戏，用于比较模型和 Harness；realtime 让推理耗时进入游戏，用于比较完整部署系统。第一阶段的正式对比使用 blocking。
+`max_parallel` 是同时进行的对局上限，不是总局数；默认1，空出名额即启动下一局，不等待整组结束。并行每局使用独立 spawn 进程、新 Agent 和新环境，SC2 清理注册表、端口选择和模型上下文不共享。每次运行建立一个批次目录，里面是 `batch.json` 和 `episodes/` 下的各局记录。每完成一局就原子更新 `batch.json`，中断后已完成的结果还在。正常中断会立即写入终态；进程被强制终止时，下一次在同一记录目录启动 Runner 会根据失效的协调进程编号恢复旧批次。也可以显式调用 `recover_batch(path, force=True)`，把已存在但未索引的局加入批次；没有终局记录的局保持 `incomplete`，不会伪造胜负。结果按计划顺序排列，单局失败不自动重跑。同一批次不能混用 blocking 和 realtime：blocking 在推理期间暂停游戏，用于比较模型和 Harness；realtime 让推理耗时进入游戏，用于比较完整部署系统。第一阶段的正式对比使用 blocking。
 
 并行需安装 `.[parallel]`，LLM 示例的 `.[llm]` 已包含。脚本入口应放在 `if __name__ == "__main__":` 下；工厂可使用普通函数或可序列化闭包，在工厂内创建客户端、锁和环境，不捕获已启动的游戏、会话或不可序列化对象。工厂在子进程执行，对父进程变量的修改不会回传。
 
@@ -139,9 +141,9 @@ python -m sc2bench_env paths
 
 ## 记录和路径
 
-每局保存 `episode.txt`、`session.json`、`log.txt` 和可用的 `replay.SC2Replay`；Fake 没有回放。`episode.txt` 记录配置、平台合同和终局摘要，其中包括实际使用的 seed。`session.json` 包含 `episode_id`、`model`、`result`、这一局发给模型的 `tools`，以及模型实际看到的 `messages`（系统提示、观测、tool call 和 tool result）。`log.txt` 复制这一局写到终端的内容，环境关闭后不再追加。Runner 把完整批次写在 `records/<batch-directory>/batch.json`，不在记录根目录散落 `run_*.json`。
+每局保存 `episode.txt`、`session.json`、`log.txt` 和可用的 `replay.SC2Replay`；Fake 没有回放。`episode.txt` 记录配置、平台合同和终局摘要，其中包括实际使用的 seed。`session.json` 包含 `episode_id`、`model`、`result`、这一局发给模型的 `tools`，以及模型实际看到的 `messages`（系统提示、观测、tool call 和 tool result）。标准轨迹同时保存 Full Observation、渲染后的 Brief、Harness 实际提供的当前 Agent 输入，以及每个 Tool call 的结构化结果和文本化结果。`log.txt` 复制这一局写到终端的内容，环境关闭后不再追加。Runner 把完整批次写在 `records/<batch-directory>/batch.json`，不在记录根目录散落 `run_*.json`。
 
-源码/可编辑安装默认使用项目 `records/`，普通包使用用户 `~/.sc2bench/records/`。环境变量 `SC2BENCH_OUTPUT_DIR` 可设置绝对输出根；显式 `record_dir` 优先。默认路径不随工作目录改变。`Evaluator.evaluate_batch` 只读 `batch.json` 和各局记录，不调用游戏或模型，并重新计算胜负、工具次数、模型调用、token 和延迟。blocking 与 realtime 不会合成一个胜率。供应商没返回的 token 保持空值。
+源码/可编辑安装默认使用项目 `records/`，普通包使用用户 `~/.sc2bench/records/`。环境变量 `SC2BENCH_OUTPUT_DIR` 可设置绝对输出根；显式 `record_dir` 优先。默认路径不随工作目录改变。`Evaluator.evaluate_batch` 只读 `batch.json` 和各局记录，不调用游戏或模型，并重新计算胜负、工具次数、工具拒绝、模型调用、token 和延迟。`rejected_decisions` 表示整个决策未通过协议校验，`tool_rejections` 单独统计被拒绝的工具及原因；工具被拒绝时仍保留原来的 action、read 或 knowledge 类别。token 指标同时记录单次调用的最大输入长度。blocking 与 realtime 不会合成一个胜率。供应商没返回的 token 保持空值。
 
 ```python
 from sc2bench_env.recording.reader import read_episode

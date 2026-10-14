@@ -11,13 +11,30 @@ def _display_value(value: Any) -> str:
         return "yes" if value else "no"
     if isinstance(value, float) and value.is_integer():
         return str(int(value))
+    if isinstance(value, Mapping):
+        if not value:
+            return "none"
+        return "; ".join(
+            f"{name}={_display_value(item)}" for name, item in value.items()
+        )
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+        if not value:
+            return "none"
+        return ", ".join(_display_value(item) for item in value)
     return str(value)
+
+
+def _display_distance(value: Any) -> str:
+    """Render map distances compactly without changing stored precision."""
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return f"{float(value):.2f}"
+    return _display_value(value)
 
 
 def _display_list(value: Any) -> str:
     if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
         return "none"
-    items = [str(item) for item in value]
+    items = [_display_value(item) for item in value]
     return ", ".join(items) if items else "none"
 
 
@@ -139,7 +156,7 @@ def _render_map_overview(result: Mapping[str, Any]) -> str:
     topology = result.get("map_topology")
     if not isinstance(topology, Mapping):
         return "Map overview\nNo map topology is available."
-    lines = ["Map overview"]
+    lines = [f"Map overview at game time {_display_value(result.get('as_of_game_time'))}"]
     lines.append(
         f"Distance basis: {_display_value(topology.get('distance_basis'))}; "
         f"neighbor basis: {_display_value(topology.get('neighbor_basis'))}"
@@ -162,12 +179,12 @@ def _render_map_overview(result: Mapping[str, Any]) -> str:
             if isinstance(neighbor, Mapping):
                 neighbors.append(
                     f"{_display_value(neighbor.get('zone_id'))} "
-                    f"({_display_value(neighbor.get('path_distance'))})"
+                    f"({_display_distance(neighbor.get('path_distance'))})"
                 )
         lines.append(
             f"- {_display_value(zone.get('zone_id'))}: "
-            f"own-main distance={_display_value(zone.get('path_distance_from_own_main'))}; "
-            f"enemy-main distance={_display_value(zone.get('path_distance_to_enemy_main'))}; "
+            f"own-main distance={_display_distance(zone.get('path_distance_from_own_main'))}; "
+            f"enemy-main distance={_display_distance(zone.get('path_distance_to_enemy_main'))}; "
             f"ramp={_display_value(zone.get('has_ramp'))}; "
             f"neighbors={', '.join(neighbors) if neighbors else 'none'}"
         )
@@ -180,7 +197,7 @@ def _render_zone_state(result: Mapping[str, Any]) -> str:
         for row in result.get("base_resources") or []
         if isinstance(row, Mapping)
     }
-    lines = ["Zone state"]
+    lines = [f"Zone state at game time {_display_value(result.get('as_of_game_time'))}"]
     zones = result.get("zones")
     if not isinstance(zones, Sequence) or isinstance(zones, (str, bytes)) or not zones:
         lines.append("No matching zones were returned.")
@@ -231,6 +248,103 @@ def _render_zone_state(result: Mapping[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _render_production_state(result: Mapping[str, Any]) -> str:
+    lines = [f"Production state at game time {_display_value(result.get('as_of_game_time'))}"]
+    work = result.get("persistent_work") or []
+    lines.append("Persistent work in execution order:")
+    if not work:
+        lines.append("- none")
+    for index, row in enumerate(work, 1):
+        if isinstance(row, Mapping):
+            lines.append(f"{index}. " + "; ".join(
+                f"{key}={_display_value(value)}" for key, value in row.items()
+            ))
+    if result.get("larva_available") is not None:
+        lines.append(f"Larva available: {_display_value(result.get('larva_available'))}")
+    infrastructure = result.get("infrastructure")
+    if isinstance(infrastructure, Mapping) and infrastructure:
+        lines.append("Infrastructure:")
+        for target, row in infrastructure.items():
+            detail = "; ".join(
+                f"{name}={_display_value(value)}" for name, value in row.items()
+            ) if isinstance(row, Mapping) else _display_value(row)
+            lines.append(f"- {target}: {detail}")
+    return "\n".join(lines)
+
+
+def _render_army_state(result: Mapping[str, Any]) -> str:
+    lines = [f"Army state at game time {_display_value(result.get('as_of_game_time'))}"]
+    own = result.get("own_forces") if isinstance(result.get("own_forces"), Mapping) else {}
+    lines.extend((
+        f"Total army: {_display_counts(own.get('army'))}",
+        f"Available from group_0: {_display_counts(own.get('free'))}",
+        f"Assigned outbound: {_display_counts(own.get('assigned'))}",
+        f"Bunker garrison: {_display_counts(own.get('bunker_garrison'))}",
+        "Groups:",
+    ))
+    groups = result.get("groups") if isinstance(result.get("groups"), Mapping) else {}
+    if not groups:
+        lines.append("- none")
+    for name, row in groups.items():
+        if not isinstance(row, Mapping):
+            lines.append(f"- {name}: {_display_value(row)}")
+            continue
+        transition = row.get("order_transition")
+        holding_after_attack = (
+            isinstance(transition, Mapping)
+            and transition.get("from") == "attack"
+            and transition.get("to") == "defend"
+            and transition.get("reason") == "target_confirmed_clear"
+        )
+        lines.append(f"- {name}: {_display_counts(row.get('alive'))}")
+        location = row.get("nearest_zone") or row.get("target")
+        lines.append(f"  Location: {_display_value(location)}")
+        if holding_after_attack:
+            lines.append(
+                f"  Current activity: holding at {_display_value(row.get('target'))}"
+            )
+            if "holding_seconds" in row:
+                lines.append(
+                    f"  Holding duration: {_display_value(row.get('holding_seconds'))} s"
+                )
+            lines.append(
+                f"  Previous order: attack {_display_value(row.get('target'))} — completed"
+            )
+        else:
+            lines.append(
+                f"  Current order: {_display_value(row.get('style'))} "
+                f"{_display_value(row.get('target'))} — {_display_value(row.get('status'))}"
+            )
+        if "requested" in row:
+            lines.append(f"  Requested total: {_display_counts(row.get('requested'))}")
+        reinforcements = row.get("reinforcements")
+        if isinstance(reinforcements, Sequence) and not isinstance(reinforcements, (str, bytes)):
+            for index, reinforcement in enumerate(reinforcements, 1):
+                lines.append(f"  Reinforcement {index}: {_display_counts(reinforcement)}")
+        for key in (
+            "visible_enemy_nearby", "merged_from",
+            "merge_pending_into", "pending_merge_sources",
+            "pending_transfers", "member_tags", "transport",
+        ):
+            if key in row:
+                labels = {
+                    "visible_enemy_nearby": "Visible enemies nearby",
+                    "merged_from": "Merged from",
+                    "merge_pending_into": "Pending merge into",
+                    "pending_merge_sources": "Pending merge sources",
+                    "pending_transfers": "Pending transfers",
+                    "member_tags": "Member tags",
+                    "transport": "Transport",
+                }
+                lines.append(f"  {labels[key]}: {_display_value(row.get(key))}")
+        if isinstance(transition, Mapping) and not holding_after_attack:
+            lines.append(f"  Order transition: {_display_value(transition)}")
+    unknown = result.get("unknown_groups")
+    if unknown:
+        lines.append(f"Unknown groups: {_display_list(unknown)}")
+    return "\n".join(lines)
+
+
 def render_tool_result(name: str, result: Any) -> str:
     """Render provider-facing tool output as compact, labeled text."""
     if not isinstance(result, Mapping):
@@ -251,14 +365,19 @@ def render_tool_result(name: str, result: Any) -> str:
                 segments.append(
                     f"{_display_value(segment.get('from'))} -> "
                     f"{_display_value(segment.get('to'))} "
-                    f"({_display_value(segment.get('distance'))})"
+                    f"({_display_distance(segment.get('distance'))})"
                 )
         return "\n".join((
-            f"Route from {_display_value(result.get('from_zone'))} to {_display_value(result.get('to_zone'))}",
+            f"Route at game time {_display_value(result.get('as_of_game_time'))}",
+            f"From {_display_value(result.get('from_zone'))} to {_display_value(result.get('to_zone'))}",
             f"Path: {' -> '.join(str(item) for item in result.get('path') or []) or 'none'}",
             f"Segments: {'; '.join(segments) if segments else 'none'}",
-            f"Total path distance: {_display_value(result.get('total_distance'))}",
+            f"Total path distance: {_display_distance(result.get('total_distance'))}",
         ))
+    if name == "query_production_state":
+        return _render_production_state(result)
+    if name == "query_army_state":
+        return _render_army_state(result)
     if name == "query_unit_data":
         return _render_catalog_results(result, kind="unit")
     if name == "query_building_data":

@@ -83,11 +83,11 @@ python examples/llm_vs_llm.py --race protoss --enemy-race zerg --skill none --op
 
 `llm_vs_ai.py` 自己写 `reset` / `step` / `close`，己方种族固定为人族。`agent_integration.py` 把同一局交给 Runner。`run_llm_benchmark.py` 按 Suite 批量开局，`--max-parallel` 大于 1 时并行。`llm_vs_llm.py` 是两个 Agent 对战：一边的 `advance` 到点才询问那一边，另一边还停在自己的决策上时，游戏时间不往前走。两边都可以换模型、地址和 Skill；Skill 的种族前缀必须和该侧种族相同，不用策略时写 `--skill none` 和 `--opponent-skill none`。
 
-直接接入先看 [llm_vs_ai.py](examples/llm_vs_ai.py) 的 `run_episode()`：`reset` 之后开始一轮工具调用，把观测、`tool_specs()` 和 `call_tool` 交给 Agent。查询和动作都立刻返回结果，`advance` 之后环境才 `step`。逐步说明见 [示例说明](examples/README.md)。
+直接接入先看 [llm_vs_ai.py](examples/llm_vs_ai.py) 的 `run_episode()`：`reset` 之后开始一轮工具调用，把 Brief Observation、`tool_specs()` 和 `call_tool` 交给 Agent。查询立即读取本轮冻结快照，动作先暂存；`advance` 作为最后一次调用提交动作，之后环境才 `step`。逐步说明见 [示例说明](examples/README.md)。
 
 ## 范围与记录
 
-当前支持我方人族、神族和虫族、内置 AI 对手，以及这些种族之间的 Agent 对战。Runner 可配置串行或多局并行。默认阻塞决策，保留连续模式；超时未分胜负记平局。平台不内置策略、Skill、Memory 或训练算法，不自动建补给站、水晶塔或领主，也不选择下一进攻目标，也不会因为局部战力偏低就撤回进攻编队。撤回由 Agent 发出 `retreat`。RL 适配尚未实现。神族 `chrono_boost`、虫族 `inject_larva` 和 `spawn_creep_tumor` 由 Agent 显式发出，底层选择施放目标，不会自动施放。
+当前支持我方人族、神族和虫族、内置 AI 对手，以及这些种族之间的 Agent 对战。Runner 可配置串行或多局并行。默认阻塞决策，保留连续模式；超时未分胜负记平局。平台不内置策略、Skill、Memory 或训练算法，不自动建补给站、水晶塔或领主，也不选择下一进攻目标，也不会因为局部战力偏低就撤回进攻编队。撤回由 Agent 发出 `retreat_group`。RL 适配尚未实现。神族 `chrono_boost`、虫族 `inject_larva` 和 `spawn_creep_tumor` 由 Agent 显式发出，底层选择施放目标，不会自动施放。
 
 并行使用独立进程，`max_parallel` 设置同时进行的对局上限。仅使用核心包时需加装 `.[parallel]`，`.[llm]` 已包含并行依赖；详见 [Agent 接入](docs/agent_integration.md)。
 

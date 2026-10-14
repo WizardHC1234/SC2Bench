@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import json
 import hashlib
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, Mapping, Optional, Sequence
 from uuid import uuid4
 
-from sc2bench_env.benchmark.evaluator import Evaluator
+from sc2bench_env.benchmark.evaluator import Evaluator, decision_mode as recorded_decision_mode
 from sc2bench_env.benchmark.suite import BenchmarkSuite
 from sc2bench_env.env import Environment
 from sc2bench_env.interface.agent import AgentInput, AgentStopped, AgentTurn
@@ -94,6 +95,145 @@ def _batch_status(error: BaseException) -> str:
     return "failed"
 
 
+def _pid_is_alive(pid: Any) -> bool:
+    if type(pid) is not int or pid < 1:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+    return True
+
+
+def _refresh_saved_batch(batch: Dict[str, Any], batch_file: Path) -> None:
+    episodes = batch.get("episodes") if isinstance(batch.get("episodes"), list) else []
+    batch["aggregate"] = Evaluator.summarize(episodes)
+    batch["metrics"] = Evaluator.measure(episodes)
+    batch["termination_counts"] = Evaluator.termination_counts(episodes)
+    batch["game_versions"] = _game_versions(episodes)
+    suite_data = batch.get("suite")
+    specification = suite_data.get("specification") if isinstance(suite_data, Mapping) else None
+    cases = specification.get("cases") if isinstance(specification, Mapping) else None
+    if isinstance(cases, list):
+        batch["case_results"] = {
+            case["case_id"]: {
+                "aggregate": Evaluator.summarize(
+                    row for row in episodes if row.get("case_id") == case["case_id"]),
+                "metrics": Evaluator.measure(
+                    row for row in episodes if row.get("case_id") == case["case_id"]),
+                "termination_counts": Evaluator.termination_counts(
+                    row for row in episodes if row.get("case_id") == case["case_id"]),
+            }
+            for case in cases if isinstance(case, Mapping) and case.get("case_id")
+        }
+    TrajectoryRecorder._write_atomic(batch_file, batch)
+
+
+def recover_batch(summary_path: str | Path, *, force: bool = False) -> Dict[str, Any]:
+    """Close a batch whose coordinator exited without writing a terminal state.
+
+    Episode artifacts without a terminal record remain ``incomplete``. Recovery
+    indexes them and reports the lost coordinator; it never fabricates a game
+    result or edits the episode trajectory.
+    """
+    batch_file = Path(summary_path).resolve()
+    batch = json.loads(batch_file.read_text(encoding="utf-8-sig"))
+    if not isinstance(batch, dict) or batch.get("schema_version") not in {"0.1", "0.2", "0.3", "0.4"}:
+        raise ValueError("Unsupported batch schema")
+    if batch.get("status") != "running":
+        return batch
+    coordinator_pid = batch.get("coordinator_pid")
+    if not force and (coordinator_pid is None or _pid_is_alive(coordinator_pid)):
+        return batch
+
+    episodes = batch.get("episodes")
+    if not isinstance(episodes, list):
+        raise ValueError("Missing episode index")
+    indexed = {
+        Path(row["record_directory"]).resolve()
+        for row in episodes
+        if isinstance(row, Mapping) and isinstance(row.get("record_directory"), str)
+    }
+    planned = batch.get("planned_configs") if isinstance(batch.get("planned_configs"), list) else []
+    used_indices = {
+        row.get("index") for row in episodes
+        if isinstance(row, Mapping) and type(row.get("index")) is int
+    }
+    available_indices = [
+        index for index in range(1, len(planned) + 1) if index not in used_indices
+    ]
+    episode_root = batch_file.parent / "episodes"
+    for directory in sorted(
+        (path for path in episode_root.iterdir() if path.is_dir()),
+        # Episode directory names begin with their creation timestamp and use a
+        # numeric suffix for games launched in the same second. Filesystem
+        # mtimes change as records are written and cannot recover launch order.
+        key=lambda path: path.name,
+    ) if episode_root.is_dir() else ():
+        resolved = directory.resolve()
+        if resolved in indexed:
+            continue
+        try:
+            row = Evaluator.evaluate_episode(resolved)
+        except (OSError, ValueError, TypeError, KeyError) as error:
+            row = {
+                "episode_id": None, "config": None, "status": "incomplete",
+                "outcome": "unfinished", "result": None,
+                "end_reason": "unclean_coordinator_exit",
+                "game_time_seconds": None, "wall_time_seconds": None,
+                "decision_count": None, "rejected_count": None,
+                "error_type": type(error).__name__,
+            }
+        if row.get("status") == "incomplete":
+            row["end_reason"] = "unclean_coordinator_exit"
+            row["error_type"] = "UncleanCoordinatorExit"
+        row["record_directory"] = str(resolved)
+        index = available_indices.pop(0) if available_indices else len(episodes) + 1
+        row["index"] = index
+        row["decision_mode"] = recorded_decision_mode(row.get("config"))
+        suite_data = batch.get("suite")
+        specification = suite_data.get("specification") if isinstance(suite_data, Mapping) else None
+        if isinstance(specification, Mapping):
+            try:
+                plan = BenchmarkSuite.from_dict(dict(specification)).episode_plan()
+            except (ValueError, TypeError, KeyError):
+                plan = []
+            if 0 < index <= len(plan):
+                row["case_id"] = plan[index - 1]["case_id"]
+                row["repetition"] = plan[index - 1]["repetition"]
+        episodes.append(row)
+    episodes.sort(key=lambda item: item.get("index", 0))
+    planned_count = len(planned)
+    all_completed = bool(planned_count) and len(episodes) == planned_count and all(
+        row.get("status") == "completed" for row in episodes
+    )
+    batch["status"] = "completed" if all_completed else "interrupted"
+    now = datetime.now(timezone.utc).isoformat()
+    batch["ended_at"] = now
+    batch["recovered_at"] = now
+    if not all_completed:
+        batch["error_type"] = "UncleanCoordinatorExit"
+    _refresh_saved_batch(batch, batch_file)
+    return batch
+
+
+def _recover_abandoned_batches(record_dir: Path) -> None:
+    if not record_dir.is_dir():
+        return
+    for batch_file in record_dir.glob("batch_*/batch.json"):
+        try:
+            payload = json.loads(batch_file.read_text(encoding="utf-8-sig"))
+            pid = payload.get("coordinator_pid") if isinstance(payload, dict) else None
+            if payload.get("status") == "running" and type(pid) is int and not _pid_is_alive(pid):
+                recover_batch(batch_file)
+        except (OSError, ValueError, TypeError, KeyError):
+            continue
+
+
 class BenchmarkRunner:
     """Run isolated episodes, serial by default or in fresh spawn processes."""
 
@@ -139,6 +279,7 @@ class BenchmarkRunner:
         frozen_agent_metadata = _snapshot_agent_metadata(
             agent_metadata, require_identity=require_identity,
         )
+        _recover_abandoned_batches(self.record_dir)
         payload = None
         if max_parallel > 1:
             from sc2bench_env.benchmark.parallel import serialize_factories
@@ -154,6 +295,7 @@ class BenchmarkRunner:
         batch: Dict[str, Any] = {
             "schema_version": "0.4", "batch_id": batch_id,
             "started_at": started.isoformat(),
+            "coordinator_pid": os.getpid(),
             "status": "running", "max_decisions": max_decisions,
             "agent_metadata": frozen_agent_metadata,
             "suite": ({"specification": suite.to_dict(), "sha256": suite.sha256,
@@ -187,23 +329,7 @@ class BenchmarkRunner:
         }
 
         def refresh() -> None:
-            batch["aggregate"] = Evaluator.summarize(batch["episodes"])
-            batch["metrics"] = Evaluator.measure(batch["episodes"])
-            batch["termination_counts"] = Evaluator.termination_counts(batch["episodes"])
-            batch["game_versions"] = _game_versions(batch["episodes"])
-            if suite is not None:
-                batch["case_results"] = {
-                    case["case_id"]: {
-                        "aggregate": Evaluator.summarize(
-                            row for row in batch["episodes"] if row.get("case_id") == case["case_id"]),
-                        "metrics": Evaluator.measure(
-                            row for row in batch["episodes"] if row.get("case_id") == case["case_id"]),
-                        "termination_counts": Evaluator.termination_counts(
-                            row for row in batch["episodes"] if row.get("case_id") == case["case_id"]),
-                    }
-                    for case in suite.to_dict()["cases"]
-                }
-            TrajectoryRecorder._write_atomic(self.batch_file, batch)
+            _refresh_saved_batch(batch, self.batch_file)
 
         def save_result(index: int, row: Dict[str, Any]) -> None:
             row["index"] = index
@@ -261,8 +387,10 @@ class BenchmarkRunner:
                     env.close(end_reason="caller_interrupted")
                     break
                 tool_turn = env.begin_tool_turn()
+                from sc2bench_env.interface.observations import agent_observation_view
                 response = agent(AgentInput(
-                    observation, feedback, tuple(env.tool_specs()), tool_turn.call,
+                    agent_observation_view(observation), feedback,
+                    tuple(env.tool_specs()), tool_turn.call,
                 ))
                 if cancel_event is not None and cancel_event.is_set():
                     tool_turn.abort()

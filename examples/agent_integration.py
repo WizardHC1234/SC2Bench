@@ -28,6 +28,7 @@ from agents.llm_agent import (
     llm_api_key,
     make_llm_call,
 )
+from agents.llm_agent.agent import CONVERSATION_MODES
 from agents.llm_agent.config import positive_float, positive_int
 from sc2bench_env.benchmark import BenchmarkRunner
 from sc2bench_env.interface.config import EpisodeConfig
@@ -92,6 +93,8 @@ def main(argv=None) -> int:
     parser.add_argument("--game-time-limit", type=positive_float, default=1800)
     parser.add_argument("--max-decisions", type=positive_int, default=500)
     parser.add_argument("--max-rejections", type=positive_int, default=3)
+    parser.add_argument(
+        "--conversation-mode", choices=CONVERSATION_MODES, default="full_session")
     parser.add_argument("--api-timeout", type=positive_float, default=120)
     parser.add_argument("--api-attempts", type=positive_int, default=3)
     parser.add_argument("--api-retry-delay", type=nonnegative_float, default=1)
@@ -112,6 +115,7 @@ def main(argv=None) -> int:
             "episode": config.to_dict(), "model": args.model,
             "temperature": args.temperature, "thinking": args.thinking,
             "max_decisions": args.max_decisions,
+            "conversation_mode": args.conversation_mode,
             "max_rejections": args.max_rejections, "api_timeout": args.api_timeout,
             "api_attempts": args.api_attempts, "api_retry_delay": args.api_retry_delay,
             "record_dir": str(resolve_record_dir(args.record_dir)),
@@ -131,6 +135,7 @@ def main(argv=None) -> int:
             max_api_attempts=args.api_attempts,
             api_retry_delay_seconds=args.api_retry_delay,
             max_consecutive_rejections=args.max_rejections,
+            conversation_mode=args.conversation_mode,
         )
 
     runner = BenchmarkRunner(backend_factory=lambda: "sharpy", record_dir=args.record_dir)
@@ -144,6 +149,7 @@ def main(argv=None) -> int:
             "max_api_attempts": args.api_attempts,
             "api_retry_delay_seconds": args.api_retry_delay,
             "max_consecutive_rejections": args.max_rejections,
+            "conversation_mode": args.conversation_mode,
         },
     }
     print("Runner is starting one episode with agents.llm_agent.", flush=True)

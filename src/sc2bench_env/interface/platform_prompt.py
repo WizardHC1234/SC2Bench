@@ -8,7 +8,6 @@ from sc2bench_env.interface.platform_rules import (
     AGENT_GUIDANCE,
     ARMY_RULES,
     CONTROL_RULES,
-    DECISION_REQUEST,
     EXECUTION_RULES,
     GAME_RULES,
     INTERACTION_RULES,
@@ -70,7 +69,7 @@ def default_prompt_parts(race: str = "terran") -> PromptParts:
         observation_rules=render_observation_guide().strip(),
         tool_interaction=INTERACTION_RULES.strip(),
         execution_rules=execution.strip(),
-        decision_guidance=(DECISION_REQUEST.strip() + "\n\n" + AGENT_GUIDANCE.strip()),
+        decision_guidance=AGENT_GUIDANCE.strip(),
     )
 
 

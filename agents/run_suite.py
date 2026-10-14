@@ -19,6 +19,7 @@ if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
 from agents.llm_agent import LLMAgent, make_llm_call
+from agents.llm_agent.agent import CONVERSATION_MODES
 from agents.llm_agent.config import positive_float, positive_int
 from sc2bench_env.benchmark import BenchmarkRunner, BenchmarkSuite, Evaluator
 from sc2bench_env.paths import resolve_record_dir
@@ -108,6 +109,10 @@ def main(argv=None) -> int:
     parser.add_argument("--api-attempts", type=positive_int, default=3)
     parser.add_argument("--api-retry-delay", type=nonnegative_float, default=1)
     parser.add_argument("--max-rejections", type=positive_int, default=3)
+    parser.add_argument(
+        "--conversation-mode", choices=CONVERSATION_MODES, default="full_session",
+        help="retain the whole episode dialogue or start fresh at each decision",
+    )
     parser.add_argument("--backend", choices=("sharpy", "fake"), default="sharpy")
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
@@ -137,6 +142,7 @@ def main(argv=None) -> int:
             "temperature": temperature,
             "thinking": thinking,
             "skill": SKILL,
+            "conversation_mode": args.conversation_mode,
             "record_dir": str(root),
             "cells": {
                 case["case_id"]: str(root / case["case_id"])
@@ -165,6 +171,7 @@ def main(argv=None) -> int:
             max_consecutive_rejections=args.max_rejections,
             verbose=not args.quiet,
             skill_name=SKILL,
+            conversation_mode=args.conversation_mode,
         )
 
     metadata = {
@@ -174,7 +181,10 @@ def main(argv=None) -> int:
         "kind": "llm",
         "implementation": "agents.llm_agent.LLMAgent",
         "model_requested": model["model_name"],
-        "settings": {"skill": SKILL, "thinking": thinking, "temperature": temperature},
+        "settings": {
+            "skill": SKILL, "thinking": thinking, "temperature": temperature,
+            "conversation_mode": args.conversation_mode,
+        },
     }
     print(f"Calling {args.model_key} with skill={SKILL}.", flush=True)
     episodes = []

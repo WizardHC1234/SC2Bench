@@ -150,12 +150,31 @@ def read_production_capacity(ai, adapter):
 
 def read_ability_facts(ai, buildings, adapter):
     """Nexus energy is observed. This does not choose a Chrono Boost target."""
+    from sc2.ids.unit_typeid import UnitTypeId
+    from sc2bench_env.backends.sharpy.protoss_recall import (
+        recall_energy_cost,
+        select_main_nexus,
+    )
+
     energies = [float(getattr(structure, "energy", 0.0) or 0.0)
                 for structure in ai.structures.ready
                 if adapter.normalize_unit_name(structure.type_id.name) == "nexus"]
     ready = sum(1 for energy in energies if energy >= 50.0)
+    main_nexus, _ = select_main_nexus(
+        [
+            structure for structure in ai.structures
+            if getattr(structure, "type_id", None) == UnitTypeId.NEXUS
+        ],
+        ai.start_location,
+    )
+    recall_ready = int(
+        main_nexus is not None
+        and float(getattr(main_nexus, "energy", 0.0) or 0.0)
+        >= recall_energy_cost(getattr(ai, "_game_data", None))
+    )
     return {
         "nexus_count": int(buildings.get("nexus", 0)),
         "nexus_energies": [round(energy, 1) for energy in energies],
         "chrono_ready": ready,
+        "recall_ready": recall_ready,
     }

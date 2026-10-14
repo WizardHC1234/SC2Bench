@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Literal, Mapping, Optional, Sequence, Tuple
 from sc2bench_env.interface.platform_rules import ACTION_RULES
 
 ToolKind = Literal["knowledge", "read", "action"]
-ToolStatus = Literal["ok", "staged", "decision_ready", "rejected"]
+ToolStatus = Literal["ok", "staged", "no_op", "decision_ready", "rejected"]
 
 LEGACY_ACTION_FORMAT_ERROR = (
     'legacy {"action": ...} format is not accepted; '
@@ -111,6 +111,10 @@ def validate_tool_arguments(spec: ToolSpec, arguments: Mapping[str, Any]) -> Opt
         enum = schema.get("enum")
         if isinstance(enum, list) and value not in enum:
             return f"{key} must be one of {enum}"
+        if expected in {"integer", "number"}:
+            minimum = schema.get("minimum")
+            if isinstance(minimum, (int, float)) and value < minimum:
+                return f"{key} must be at least {minimum}"
         if expected == "array":
             minimum = schema.get("minItems")
             if isinstance(minimum, int) and isinstance(value, list) and len(value) < minimum:
@@ -121,6 +125,15 @@ def validate_tool_arguments(spec: ToolSpec, arguments: Mapping[str, Any]) -> Opt
                 for entry in value:
                     if not _schema_type_ok(entry, item_type):
                         return f"{key} items must be {item_type}"
+            item_enum = item.get("enum")
+            if isinstance(item_enum, list) and any(entry not in item_enum for entry in value):
+                return f"{key} items must be one of {item_enum}"
+            if schema.get("uniqueItems") is True and len({str(entry) for entry in value}) != len(value):
+                return f"{key} must not contain duplicates"
+        if expected == "object" and isinstance(value, Mapping):
+            minimum = schema.get("minProperties")
+            if isinstance(minimum, int) and len(value) < minimum:
+                return f"{key} must contain at least {minimum} property"
     return None
 
 
@@ -163,14 +176,18 @@ class ToolSpec:
 _KNOWLEDGE_RACES = ("terran", "protoss", "zerg")
 _RACE_PROPERTY = {"type": "string", "enum": list(_KNOWLEDGE_RACES)}
 
-READ_TOOLS = ("query_map_overview", "query_zone_state", "query_route")
+READ_TOOLS = (
+    "query_map_overview", "query_zone_state", "query_route",
+    "query_production_state", "query_army_state",
+)
 KNOWLEDGE_TOOLS = (
     "query_unit_data", "query_building_data", "query_research_data",
     "query_prerequisite_path", "query_race_data",
 )
 ACTION_TOOLS = (
     "build", "train", "research", "cancel", "morph_townhall", "scout", "scan",
-    "call_mule", "supply_drop", "combat", "retreat", "advance",
+    "call_mule", "supply_drop", "attack_group", "defend_group",
+    "reinforce_group", "merge_groups", "retreat_group", "advance",
 )
 
 
@@ -206,7 +223,7 @@ def action_tool_names(race: str = "terran") -> Tuple[str, ...]:
         if name in {"morph_townhall", "scan", "call_mule", "supply_drop"} and name not in present:
             continue
         names.append(name)
-    combat_at = names.index("combat")
+    combat_at = names.index("attack_group")
     for extra in ("chrono_boost", "inject_larva", "spawn_creep_tumor"):
         if extra in present:
             names.insert(combat_at, extra)
@@ -217,27 +234,32 @@ def action_tool_names(race: str = "terran") -> Tuple[str, ...]:
 def _action_description(name: str, race: str) -> str:
     if race == "terran" and name == "build":
         return (
-            "Request one additional Terran building or add-on. The platform chooses a legal "
-            "placement or compatible source building. A Command Center is placed as an expansion, "
-            "and a Refinery requires a free geyser at a ready owned town hall. Command Center "
-            "upgrades use morph_townhall. Completes when construction or add-on construction starts."
+            "Request one additional building or add-on. After advance, the request remains active "
+            "until construction starts. The platform chooses a legal placement or add-on host; "
+            "Command Centers use expansion sites and Refineries require a free geyser at a ready "
+            "owned town hall; Command Center upgrades use morph_townhall. Missing resources, "
+            "prerequisites, a host, a free geyser or a legal "
+            "placement leaves the request waiting and is reported in Changes."
         )
     if race == "protoss" and name == "build":
         return (
-            "Request one additional structure or structure form. The platform chooses a legal "
-            "placement or a valid source building. A Nexus is placed as an expansion. "
-            "Assimilators require a free geyser at a ready owned town hall. build warpgate "
-            "converts one completed Gateway. Completes when construction or the structure morph starts."
+            "Request one additional structure or form. After advance, the request remains active "
+            "until construction or conversion starts. The platform chooses a legal placement or "
+            "source; Nexus uses an expansion site, Assimilator requires a free geyser at a ready "
+            "owned town hall, and warpgate converts a completed Gateway after research. Missing "
+            "resources, prerequisites, a source, a free geyser or a legal placement leaves the "
+            "request waiting and is reported in Changes."
         )
     if race == "protoss" and name == "scout":
         return ACTION_RULES["scout"].replace("one SCV", "one Probe")
     if race == "zerg" and name == "build":
         return (
-            "Request one additional structure or structure form. The platform chooses a legal "
-            "placement or a valid source building. A Hatchery is placed as an expansion. "
-            "Extractors require a free geyser at a ready owned town hall. Overlords are trained, "
-            "not built automatically. Lurker Den morphs a Hydralisk Den, and Greater Spire morphs "
-            "a Spire. Completes when construction or the structure morph starts."
+            "Request one additional structure or form. After advance, the request remains active "
+            "until construction or morphing starts. The platform chooses a legal placement or "
+            "source; Hatchery uses an expansion site, Extractor requires a free geyser at a ready "
+            "owned town hall, and structure morphs consume their source. Missing resources, "
+            "prerequisites, a Drone, a source, a free geyser or a legal placement leaves the "
+            "request waiting and is reported in Changes. Overlords use train."
         )
     if name == "train":
         mechanism = {
@@ -245,33 +267,43 @@ def _action_description(name: str, race: str) -> str:
             "protoss": "The platform trains, warps in or merges them as required by the target.",
             "zerg": "The platform trains, hatches or morphs them as required by the target.",
         }[race]
+        blockers = {
+            "terran": "resources, supply, prerequisites or production capacity",
+            "protoss": "resources, supply, prerequisites, source units or production capacity",
+            "zerg": "resources, supply, prerequisites, source units or larva",
+        }[race]
         return (
-            "Count is the minimum number of additional target units. " + mechanism + " "
-            "A game batch may finish more than requested; Feedback then reports the requested "
-            "and actual counts. The request stays active until that minimum is met. Later losses "
-            "do not reopen completed production."
+            "Request at least count additional target units. After advance, the request remains "
+            "active until that minimum has been produced. " + mechanism + f" Missing {blockers} "
+            "may leave part of the request waiting; Changes reports the observed blocker. Batch or "
+            "morph mechanics may complete "
+            "more than requested; later losses do not reopen completed production."
         )
     if name == "cancel":
         kinds = "build, train and research"
         if "morph_townhall" in action_tool_names(race):
             kinds = "build, train, research and morph_townhall"
         return (
-            f"Cancel all matching unstarted {kinds} work using target_action and target. "
-            "Started or paid work remains "
-            "without a refund. For train, finished and paid in-flight units stay; only the unstarted "
-            "remainder is cleared."
+            f"Remove matching unstarted {kinds} work from the persistent task queue. Optional "
+            "count removes up to that quantity from the newest matching requests first; omit "
+            "count to remove all matching unstarted work. Started or paid work remains."
         )
     if race == "zerg" and name == "scout":
         return ACTION_RULES["scout"].replace("one SCV", "one Drone")
-    if race == "protoss" and name == "retreat":
+    if race == "protoss" and name == "retreat_group":
         return (
-            "Order an outbound group to return home immediately. Acceptance is not arrival; "
-            "survivors merge into group_0 and the old group ends only after they arrive. "
-            "Optional method recall uses only the current main Nexus. "
-            "Members near the group center are recalled and join group_0 after they arrive. "
-            "Members outside that radius walk home. If that Nexus is dead, incomplete, low on energy, "
-            "or the ability is unavailable, the order fails and the group keeps its current order."
+            "Return an outbound group home. Survivors join group_0 only after arrival. Optional "
+            "recall uses the main Nexus for nearby members; others walk. If recall is unavailable, "
+            "the order fails and the current mission continues."
         )
+    if name in {"attack_group", "defend_group"}:
+        return ACTION_RULES[name]
+    if name == "reinforce_group":
+        return ACTION_RULES[name]
+    if name == "merge_groups":
+        return ACTION_RULES[name]
+    if name == "retreat_group":
+        return ACTION_RULES[name]
     if race == "terran" and name == "morph_townhall":
         return (
             "Morph the selected Command Center, identified by a townhall ID from Structures, into "
@@ -293,29 +325,48 @@ def _action_specs(race: str = "terran") -> Tuple[ToolSpec, ...]:
     schemas = []
     available_actions = action_tool_names(race)
     for name in available_actions:
-        properties, required = action_tool_argument_schema(name)
-        if name == "combat":
-            units = dict(properties)
-            units.pop("group", None)
-            units["units"] = dict(units["units"], minProperties=1)
-            group = dict(properties)
-            group.pop("units", None)
+        if name in {"attack_group", "defend_group"}:
+            group = {"type": "string", "description": "group_0 or an active outbound group ID"}
+            units = {
+                "type": "object", "minProperties": 1,
+                "description": "dispatchable unit name to positive count",
+                "additionalProperties": {"type": "integer", "minimum": 1},
+            }
             schemas.append(ToolSpec(
-                name=name,
-                kind=_kind(name),
-                description=_action_description(name, race),
+                name=name, kind="action", description=_action_description(name, race),
                 parameters={
-                    "type": "object",
-                    "additionalProperties": False,
-                    "oneOf": [
-                        {"type": "object", "properties": units, "required": ["style", "target", "units"],
-                         "additionalProperties": False},
-                        {"type": "object", "properties": group, "required": ["style", "target", "group"],
-                         "additionalProperties": False},
-                    ],
+                    "type": "object", "additionalProperties": False,
+                    "properties": {"group": group, "target": {"type": "string"}, "units": units},
+                    "required": ["group", "target"],
                 },
             ))
             continue
+        if name == "reinforce_group":
+            schemas.append(_spec(name, _action_description(name, race), {
+                "source": {"type": "string", "description": "group_0 or an active outbound group ID"},
+                "destination": {"type": "string", "description": "group_0 or an active outbound group ID"},
+                "units": {
+                    "type": "object", "minProperties": 1,
+                    "description": "dispatchable unit name to positive count",
+                    "additionalProperties": {"type": "integer", "minimum": 1},
+                },
+            }, ("source", "destination", "units")))
+            continue
+        if name == "retreat_group":
+            properties = {
+                "group": {"type": "string", "description": "existing outbound group ID"},
+                "method": {
+                    "type": "string", "enum": ["move", "recall"],
+                    "description": "move, or recall on Protoss",
+                },
+            }
+            if race != "protoss":
+                properties.pop("method")
+            schemas.append(_spec(
+                name, _action_description(name, race), properties, ("group",),
+            ))
+            continue
+        properties, required = action_tool_argument_schema(name)
         if name == "cancel":
             target_action = dict(properties["target_action"])
             target_action["enum"] = [
@@ -331,15 +382,13 @@ def _action_specs(race: str = "terran") -> Tuple[ToolSpec, ...]:
                     "properties": {
                         "target_action": target_action,
                         "target": properties["target"],
+                        "count": properties["count"],
                     },
                     "required": ["target_action", "target"],
                     "additionalProperties": False,
                 },
             ))
             continue
-        if name == "retreat" and race != "protoss":
-            properties = dict(properties)
-            properties.pop("method", None)
         schemas.append(_spec(name, _action_description(name, race), properties, required))
     return tuple(schemas)
 
@@ -349,50 +398,61 @@ def tool_specs(race: str = "terran") -> Tuple[ToolSpec, ...]:
     return (
         _spec(
             "query_map_overview",
-            "Read static zone topology from the current Observation when selecting zones, targets "
-            "or routes. Does not scout or reveal hidden enemies.",
+            "Read known zone topology and corridor distances. Does not scout or reveal enemies.",
             {},
         ),
         _spec(
             "query_zone_state",
-            "Read the current or last-seen state and known base resources of specific zones from "
-            "the current Observation. Does not scout or reveal hidden information.",
+            "Read current or last-seen state and known resources for named zones. Does not scout.",
             {"zone_ids": {"type": "array", "minItems": 1, "items": {"type": "string"}}},
             ("zone_ids",),
         ),
         _spec(
             "query_route",
-            "Use when movement or target selection depends on the shortest known walkable path between two zones. Does not reveal hidden enemies.",
+            "Read the shortest known walkable zone path. Does not reveal enemies.",
             {"from_zone": {"type": "string"}, "to_zone": {"type": "string"}},
             ("from_zone", "to_zone"),
         ),
         _spec(
+            "query_production_state",
+            "Read persistent production work, execution blockers and infrastructure, optionally filtered.",
+            {
+                "actions": {"type": "array", "minItems": 1, "items": {"type": "string", "enum": ["build", "train", "research", "morph_townhall"]}},
+                "targets": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+            },
+        ),
+        _spec(
+            "query_army_state",
+            "Read detailed membership, activity and transport state for selected or all groups.",
+            {"groups": {"type": "array", "minItems": 1, "items": {"type": "string"}}},
+        ),
+        _spec(
             "query_unit_data",
-            "Get cost, supply, production, prerequisites, roles, movement and available durability and weapon data for the named units.",
+            "Get costs, supply, production, prerequisites, roles, movement, durability and weapons for units.",
             {"race": _RACE_PROPERTY, "names": {"type": "array", "minItems": 1, "items": {"type": "string"}}},
             ("race", "names"),
         ),
         _spec(
             "query_building_data",
-            "Get cost, build time, builder, prerequisites, supply provided, roles and available weapon data for the named buildings.",
+            "Get costs, time, builder, prerequisites, supply, roles and weapons for buildings.",
             {"race": _RACE_PROPERTY, "names": {"type": "array", "minItems": 1, "items": {"type": "string"}}},
             ("race", "names"),
         ),
         _spec(
             "query_research_data",
-            "Get cost, duration, facility, prerequisites and recorded effects for the named research items.",
+            "Get cost, duration, facility, prerequisites and effects for research.",
             {"race": _RACE_PROPERTY, "names": {"type": "array", "minItems": 1, "items": {"type": "string"}}},
             ("race", "names"),
         ),
         _spec(
             "query_prerequisite_path",
-            "Get the static technology dependency path for one target. This is not a match build order.",
+            "Get one target's static technology dependency path, not a match build order.",
             {"race": _RACE_PROPERTY, "target": {"type": "string"}},
             ("race", "target"),
         ),
         _spec(
             "query_race_data",
-            "List the canonical controllable and observable units, buildings, research items, structure morphs and platform abilities for one race.",
+            "List a race's units, buildings, research, structure morphs and platform abilities.",
             {"race": _RACE_PROPERTY},
             ("race",),
         ),

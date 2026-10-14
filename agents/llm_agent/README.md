@@ -1,6 +1,6 @@
 # llm_agent
 
-仓库附带的 LLM Agent。它实现 `AgentInput → AgentTurn`，在一个实例内保存单局消息历史，调用 OpenAI 兼容 Chat Completions。它只转换这一轮 `request.tool_specs`，不按种族重新取全量工具。查询、动作和 `advance` 走同一个循环，可以交错。`advance` 才结束这一决策。示例 Agent 自己要求工具回复先写一句依据；这不是平台合同。模型正文不会被解析成动作。
+仓库附带的 LLM Agent。它实现 `AgentInput → AgentTurn`，调用 OpenAI 兼容 Chat Completions。默认的 `full_session` 模式在一个实例内保留整局消息历史；`per_decision` 模式只保留当前决策中的查询、动作与工具结果，下一次决策从当前 Observation 和 Feedback 重新开始。它只转换这一轮 `request.tool_specs`，不按种族重新取全量工具。查询、动作和 `advance` 走同一个工具接口；这个示例 Agent 先进行零次或多次查询，再提交本轮 Action，最后单独调用 `advance`。该顺序是示例 Agent 自己的流程，不是平台合同。模型正文不会被解析成动作，合法工具调用也不要求同时输出正文。
 
 ## 目录结构
 
@@ -34,6 +34,7 @@ Agent 默认不加载 Skill。选择 Skill 时使用 `race/strategy` 名称，`-
 python -m agents.llm_agent --help
 python -m agents.llm_agent --dry-run --opponent mediumhard
 python -m agents.llm_agent --opponent mediumhard
+python -m agents.llm_agent --conversation-mode per_decision --opponent mediumhard
 python -m agents.llm_agent --skill terran/two-base-tanks --opponent mediumhard
 python -m agents.llm_agent --race protoss --skill protoss/macro-stalkers --opponent mediumhard
 python -m agents.llm_agent --race zerg --skill zerg/roach-hydra --opponent mediumhard
@@ -59,3 +60,4 @@ BenchmarkRunner().run(
 `create_agent()` 默认运行无 Skill 基线。加载策略时传入完整名称，例如 `create_agent(skill_name="terran/two-base-tanks")`。
 
 每调用一次 `create_agent()` 得到一个新实例；一局不要复用上一局的实例。
+批量评测时应把 `conversation_mode` 写进 `agent_metadata.settings`，以便区分整局多轮上下文和逐决策上下文的结果。

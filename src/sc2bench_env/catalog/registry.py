@@ -1,5 +1,4 @@
 """Single-source Action Catalog for SC2Bench.
-
 Defines legal targets, costs, prerequisites, success boundaries, and
 cross-round semantics. Downstream consumers:
 
@@ -211,14 +210,14 @@ def decision_examples(*, race: str = "terran") -> Tuple[List[Dict[str, Any]], ..
             ],
             [
                 {"name": "cancel", "arguments": {"target_action": "train", "target": "roach"}},
-                {"name": "combat", "arguments": {"style": "attack", "target": "zone_3",
+                {"name": "attack_group", "arguments": {"group": "group_0", "target": "zone_3",
                  "units": {"zergling": 8, "roach": 4}}},
                 {"name": "advance", "arguments": {"seconds": 15}},
             ],
             [
                 {"name": "train", "arguments": {"target": "hydralisk", "count": 2}},
-                {"name": "combat", "arguments": {"group": "group_1", "style": "attack", "target": "zone_10"}},
-                {"name": "retreat", "arguments": {"group": "group_2"}},
+                {"name": "attack_group", "arguments": {"group": "group_1", "target": "zone_10"}},
+                {"name": "retreat_group", "arguments": {"group": "group_2"}},
                 {"name": "advance", "arguments": {"seconds": 5}},
             ],
         )
@@ -238,14 +237,19 @@ def decision_examples(*, race: str = "terran") -> Tuple[List[Dict[str, Any]], ..
             ],
             [
                 {"name": "cancel", "arguments": {"target_action": "train", "target": "zealot"}},
-                {"name": "combat", "arguments": {"style": "attack", "target": "zone_3",
+                {"name": "attack_group", "arguments": {"group": "group_0", "target": "zone_3",
                  "units": {"zealot": 8, "stalker": 4}}},
                 {"name": "advance", "arguments": {"seconds": 15}},
             ],
             [
                 {"name": "train", "arguments": {"target": "immortal", "count": 2}},
-                {"name": "combat", "arguments": {"group": "group_1", "style": "attack", "target": "zone_10"}},
-                {"name": "retreat", "arguments": {"group": "group_2", "method": "recall"}},
+                {"name": "attack_group", "arguments": {"group": "group_1", "target": "zone_10"}},
+                {"name": "retreat_group", "arguments": {"group": "group_2", "method": "recall"}},
+                {"name": "advance", "arguments": {"seconds": 5}},
+            ],
+            [
+                {"name": "defend_group", "arguments": {"group": "group_0", "target": "zone_1",
+                 "units": {"zealot": 4}}},
                 {"name": "advance", "arguments": {"seconds": 5}},
             ],
         )
@@ -267,14 +271,16 @@ def decision_examples(*, race: str = "terran") -> Tuple[List[Dict[str, Any]], ..
         ],
         [
             {"name": "cancel", "arguments": {"target_action": "train", "target": "marine"}},
-            {"name": "combat", "arguments": {"style": "attack", "target": "zone_3",
+            {"name": "attack_group", "arguments": {"group": "group_0", "target": "zone_3",
              "units": {"marine": 16, "marauder": 4, "medivac": 2}}},
             {"name": "advance", "arguments": {"seconds": 15}},
         ],
         [
             {"name": "train", "arguments": {"target": "siege_tank", "count": 2}},
-            {"name": "combat", "arguments": {"group": "group_1", "style": "attack", "target": "zone_10"}},
-            {"name": "retreat", "arguments": {"group": "group_2"}},
+            {"name": "attack_group", "arguments": {"group": "group_1", "target": "zone_10"}},
+            {"name": "reinforce_group", "arguments": {"source": "group_0", "destination": "group_1", "units": {"marine": 4}}},
+            {"name": "merge_groups", "arguments": {"destination": "group_1", "sources": ["group_2"]}},
+            {"name": "retreat_group", "arguments": {"group": "group_2"}},
             {"name": "advance", "arguments": {"seconds": 5}},
         ],
     )
@@ -298,56 +304,34 @@ def action_syntax_examples() -> Tuple[Dict[str, Any], ...]:
 def render_decision_guide(*, race: str = "terran") -> str:
     """Standalone compatibility guide for army and combat semantics."""
     require_supported_own_race(race)
-    from sc2bench_env.interface.decision_rules import VERB_FIELD_RULES
     import json
-    import re
-    from sc2bench_env.interface.prompt_fields import ACTION_FIELDS, COMMAND_TEMPLATES
-
-    if set(ACTION_RULES) != set(VERB_FIELD_RULES) or set(ACTION_FIELDS) != set(VERB_FIELD_RULES):
-        raise RuntimeError("Prompt descriptions must cover the actual actions")
-    for verb, rule in VERB_FIELD_RULES.items():
-        if set(ACTION_FIELDS[verb]) != rule.allowed - {"action"}:
-            raise RuntimeError("Prompt descriptions must cover the allowed action fields")
-
-    expected_forms = (
-        (set(VERB_FIELD_RULES) - {"combat", "cancel"})
-        | {"combat_units", "combat_group", "cancel"}
+    from sc2bench_env.interface.prompt_fields import (
+        ACTION_FIELDS, COMMAND_TEMPLATES, NUMERIC_PLACEHOLDER_RE,
     )
-    if set(COMMAND_TEMPLATES) != expected_forms:
+    from sc2bench_env.interface.tools import ACTION_TOOLS
+
+    public_actions = set(ACTION_TOOLS) | {"chrono_boost", "inject_larva", "spawn_creep_tumor"}
+    if set(ACTION_FIELDS) != public_actions:
+        raise RuntimeError("Prompt descriptions must cover the actual actions")
+    if set(COMMAND_TEMPLATES) != public_actions:
         raise RuntimeError("Prompt templates must cover the actual action forms")
-    rendered_fields = {}
     for form, template in COMMAND_TEMPLATES.items():
-        entry = json.loads(re.sub(r"(?<!\")<(?:positive_integer|positive_number)>", "1", template))
+        entry = json.loads(NUMERIC_PLACEHOLDER_RE.sub("1", template))
         verb = entry["name"]
         arguments = dict(entry.get("arguments") or {})
-        internal = {"action": verb, **arguments}
-        rule = VERB_FIELD_RULES[verb]
-        required = set(rule.required) | {"action"}
-        if not required <= set(internal) <= rule.allowed:
-            raise RuntimeError("Prompt templates must use the allowed action fields")
-        if verb == "combat" and ("units" in arguments) == ("group" in arguments):
-            raise RuntimeError("Prompt combat templates must select units or group")
-        expected_verb = (
-            "combat" if form.startswith("combat_") else
-            form
-        )
-        if verb != expected_verb:
+        if verb != form:
             raise RuntimeError("Prompt templates must match their action form")
-        if form in {"combat_units", "combat_group"} and form.split("_", 1)[1] not in arguments:
-            raise RuntimeError("Prompt combat templates must match their action form")
-        rendered_fields.setdefault(verb, set()).update(internal)
-    for verb, rule in VERB_FIELD_RULES.items():
-        if rendered_fields.get(verb) != rule.allowed:
+        if not set(arguments) <= set(ACTION_FIELDS[verb]):
             raise RuntimeError("Prompt templates must cover the allowed action fields")
 
     return "\n".join([
         "Army:",
         ARMY_RULES.rstrip(),
         "",
-        "Dispatch:",
+        "Create or redirect a group:",
         COMBAT_DISPATCH_RULES,
         "",
-        "Retarget:",
+        "Transfer or return members:",
         COMBAT_RETARGET_RULES,
         "",
         "Styles:",
@@ -357,14 +341,11 @@ def render_decision_guide(*, race: str = "terran") -> str:
 
 def render_observation_guide() -> str:
     return "\n".join([
-        "Observation conventions:",
-        "- The latest Current Observation is authoritative for changing game state and replaces older values; earlier observations are history.",
+        "Observation contract:",
+        "- The latest Brief Observation is the self-contained snapshot for this decision. It replaces older changing values; earlier observations are history.",
+        "- Brief Observation covers ordinary economy, production, army, threats and feedback. Use Read tools for omitted match-state detail and Knowledge tools for static game data when needed.",
+        "- Queries inspect one frozen snapshot and do not advance time. Action calls are validated and staged; only advance submits them and continues the game.",
         "- unknown means that information is unavailable, while none means that the observed value is empty.",
-        "- Visible enemies are current sightings; last-seen enemies are history under fog.",
-        "- Waiting work, paid queues and living units are different quantities.",
-        "- Tech-Available Targets means that technology and producer requirements are met; current resources, supply and free production slots are not considered.",
-        "- In Combat, Originally requested is the group's initial membership and Living members is its current surviving membership. Own Forces free, not phase alone, determines what can be newly dispatched.",
-        "- Group phase reports progress only. holding_after_attack means the prior attack target was confirmed clear and the same active group is now defending that zone. Other phase, nearest-zone and nearby-enemy values do not prove arrival or mission completion; use the current group list and recent events to determine whether a mission ended. combat_ended refers to the group mission, not the match result.",
         "- Names and IDs keep their exact platform spelling. Copy zone_id and group_id from Observation.",
     ]) + "\n"
 

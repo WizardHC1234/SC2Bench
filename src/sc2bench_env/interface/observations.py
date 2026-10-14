@@ -3,6 +3,7 @@ from __future__ import annotations
 
 
 from dataclasses import asdict, dataclass, field
+from copy import deepcopy
 from typing import Any, Dict, List, Optional
 
 WORKER_UNIT_NAMES = frozenset({"scv", "probe", "drone", "mule"})
@@ -24,6 +25,19 @@ BRIEFING_SECTIONS = tuple(
 )
 
 
+def _observed_larva_available(rows: Any) -> Any:
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        if row.get("resource") == "larva" and row.get("available") is not None:
+            return row.get("available")
+        if row.get("facility") == "larva":
+            return row.get("available", row.get("free_slots", row.get("ready_grounded")))
+        if row.get("larva") is not None:
+            return row.get("larva")
+    return None
+
+
 def render_observation_text(observation: Dict[str, Any], *, previous: Optional[Dict[str, Any]] = None) -> str:
     """Compact turn briefing for agent context.
 
@@ -41,6 +55,123 @@ def render_observation_text(observation: Dict[str, Any], *, previous: Optional[D
         BRIEFING_SECTIONS,
         race=race,
     )
+
+
+def render_brief_observation_text(
+    observation: Dict[str, Any], *, previous: Optional[Dict[str, Any]] = None,
+) -> str:
+    """Agent-facing projection grouped by decision purpose.
+
+    Full structured Observation remains available to the platform and Read
+    tools. This renderer omits empty optional blocks and low-frequency group
+    diagnostics while retaining the current economy, macro, army and threats.
+    """
+    from sc2bench_env.runtime.observation_builder import compact_observation
+    from sc2bench_env.interface.observation_text import (
+        brief_available_target_lines,
+        brief_building_lines,
+        brief_combat_lines,
+        brief_economy_lines,
+        brief_forces_lines,
+        brief_priority_lines,
+        brief_zone_lines,
+        section,
+    )
+
+    data = compact_observation(observation, previous)
+    game = data.get("game") if isinstance(data.get("game"), dict) else {}
+    race = game.get("race") or "terran"
+    blocks: List[str] = []
+
+    def useful(lines: List[str]) -> bool:
+        return bool(lines and lines != ["none"] and lines != ["unknown"])
+
+    def add(title: str, lines: List[str]) -> None:
+        if useful(lines):
+            blocks.append(f"[{title}]\n" + "\n".join(lines))
+
+    add("Game", section("game", data.get("game"), race=race))
+    add(
+        "Economy",
+        brief_economy_lines(data.get("economy"), data.get("map_control"), race=race),
+    )
+
+    # The Agent submits persistent work rather than assigning individual
+    # producer slots. Keep the Brief view centered on that task list; detailed
+    # queue/capacity facts remain internal to execution.
+    work = brief_priority_lines(data.get("production_priority") or [])
+    production_lines: List[str] = ["Ongoing work:", *work]
+    if race == "zerg":
+        larva_available = _observed_larva_available(data.get("production"))
+        if larva_available is not None:
+            production_lines.extend(["", f"Larva available: {larva_available}"])
+    blocks.append("[Production]\n" + "\n".join(production_lines))
+
+    infrastructure: List[str] = [
+        "Buildings:", *brief_building_lines(data.get("building") or {}),
+    ]
+    for label_text, lines in (
+        ("Research", section("research", data.get("research"), race=race)),
+        ("Targetable structures", section("structures", data.get("structures"), race=race)),
+    ):
+        if useful(lines):
+            infrastructure.extend(["", f"{label_text}:", *lines])
+    blocks.append("[Infrastructure]\n" + "\n".join(infrastructure))
+
+    targets = brief_available_target_lines(data.get("available_targets"))
+    blocks.append("[Available Targets]\n" + "\n".join(targets))
+
+    army: List[str] = []
+    forces_data = data.get("own_forces") or {}
+    forces = brief_forces_lines(forces_data)
+    if useful(forces):
+        army.extend(forces)
+    combat = dict(data.get("combat") or {})
+    home = combat.get("group_0")
+    free = forces_data.get("free") if isinstance(forces_data, dict) else None
+    if isinstance(home, dict) and isinstance(free, dict) and "alive" not in home and free:
+        home = dict(home)
+        home["alive"] = dict(free)
+        combat["group_0"] = home
+    groups = brief_combat_lines(combat)
+    if useful(groups):
+        if army:
+            army.append("")
+        army.extend(groups)
+    scouting = section(
+        "scouting", data.get("scouting"), race=race,
+        production_priority=data.get("production_priority"),
+        buildings=data.get("building"), training=data.get("training"),
+    )
+    if useful(scouting):
+        if army:
+            army.append("")
+        army.extend(["Scouting:", *scouting])
+    add("Army", army)
+
+    zone_lines = brief_zone_lines(data.get("zone_state") or [])
+    map_control_data = data.get("map_control") or {}
+    if useful(zone_lines) and isinstance(map_control_data, dict):
+        zone_total_parts = [
+            map_control_data.get("own_base_count"),
+            map_control_data.get("known_enemy_base_count"),
+            map_control_data.get("unconfirmed_expansion_count"),
+        ]
+        if all(type(item) is int for item in zone_total_parts):
+            omitted = max(0, sum(zone_total_parts) - len(data.get("zone_state") or []))
+            if omitted:
+                zone_lines.append(f"Other map zones not shown: {omitted}")
+    add("Relevant Zones", zone_lines)
+    add(
+        "Abilities",
+        section("abilities", data.get("abilities"), race=race),
+    )
+    add(
+        "Changes",
+        section("recent_events", data.get("recent_events"), race=race),
+    )
+    blocks.append("[Decision]\nStaged actions: none")
+    return "\n\n".join(blocks)
 
 @dataclass
 class ResourcesView:
@@ -60,17 +191,25 @@ class GameView:
     seconds_remaining: Optional[float] = None
     race: str = "terran"
     enemy_race: str = "terran"
+    status: str = "ongoing"
+    result: Optional[str] = None
+    end_reason: Optional[str] = None
 
     def to_dict(self) -> dict[str, Any]:
         payload: dict[str, Any] = {
             "game_time_seconds": self.game_time_seconds,
             "race": self.race,
             "enemy_race": self.enemy_race,
+            "status": self.status,
         }
         if self.game_time_limit_seconds is not None:
             payload["game_time_limit_seconds"] = self.game_time_limit_seconds
         if self.seconds_remaining is not None:
             payload["seconds_remaining"] = self.seconds_remaining
+        if self.result is not None:
+            payload["result"] = self.result
+        if self.end_reason is not None:
+            payload["end_reason"] = self.end_reason
         return payload
 
 
@@ -199,6 +338,48 @@ class Observation:
 def observation_lines(observation: "Observation") -> List[str]:
     """Complete semantic view, identical to the platform context renderer."""
     return render_observation_text(observation.to_dict()).splitlines()
+
+
+def agent_observation_view(observation: "Observation") -> "Observation":
+    """Return the public structured Brief Observation for an AgentInput.
+
+    The Environment and ToolTurn retain the original full Observation. This
+    copy removes the full map topology and low-frequency group diagnostics so
+    agents obtain those details through Read tools.
+    """
+    from sc2bench_env.runtime.observation_builder import compact_observation
+
+    previous = getattr(observation, "text_previous", None)
+    compact = compact_observation(observation.to_dict(), previous)
+    view = deepcopy(observation)
+    view.map_topology = {}
+    view.zone_state = list(compact.get("zone_state") or [])
+    view.relevant_zone_ids = list(compact.get("relevant_zone_ids") or [])
+    # Legacy attributes stay usable without exposing the full map or the prior
+    # Full Observation through the public AgentInput object.
+    view.zones = list(view.relevant_zone_ids)
+    view.text_previous = (
+        compact_observation(previous) if isinstance(previous, dict) else None
+    )
+    map_control = compact.get("map_control")
+    if isinstance(map_control, dict):
+        view.map_control = MapControlView(**{
+            key: map_control.get(key, getattr(view.map_control, key))
+            for key in ("own_base_count", "known_enemy_base_count", "unconfirmed_expansion_count", "base_resources")
+        })
+    # Public structured Brief Observation mirrors the text projection: queue
+    # and slot diagnostics stay in the full platform snapshot. Zerg keeps only
+    # the immediately relevant larva resource count.
+    larva_available = _observed_larva_available(compact.get("production"))
+    view.production = (
+        [{"resource": "larva", "available": larva_available}]
+        if view.game.race == "zerg" and larva_available is not None else []
+    )
+    if "production_priority" in compact:
+        view.production_priority = list(compact.get("production_priority") or [])
+    if isinstance(compact.get("combat"), dict):
+        view.combat = dict(compact["combat"])
+    return view
 
 
 def split_own_forces(

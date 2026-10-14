@@ -172,12 +172,30 @@ def read_production_capacity(ai, adapter):
 
 def read_ability_facts(ai, buildings, adapter):
     """Queen energy is observed. This does not cast Inject."""
+    from sc2.ids.buff_id import BuffId
     from sc2.ids.unit_typeid import UnitTypeId
+    from sc2bench_env.backends.sharpy.combat_styles import unit_available_for_background
 
     queens = list(ai.units(UnitTypeId.QUEEN).ready)
     energies = [float(getattr(queen, "energy", 0.0) or 0.0) for queen in queens]
+    ready_queens = [
+        queen for queen in queens
+        if float(getattr(queen, "energy", 0.0) or 0.0) >= 25.0
+        and unit_available_for_background(queen, ai, require_group0=False)
+    ]
+    inject_targets = sum(
+        1 for hall in ai.townhalls.ready
+        if BuffId.QUEENSPAWNLARVATIMER not in (getattr(hall, "buffs", ()) or ())
+    )
+    ready_tumors = sum(
+        1 for structure in ai.structures
+        if getattr(structure, "type_id", None) == UnitTypeId.CREEPTUMORBURROWED
+        and getattr(structure, "is_ready", False)
+    )
     return {
         "queen_count": len(queens),
         "queen_energies": [round(energy, 1) for energy in energies],
-        "inject_ready": sum(1 for energy in energies if energy >= 25.0),
+        "inject_ready": min(len(ready_queens), inject_targets),
+        "inject_targets": inject_targets,
+        "spawn_creep_tumor_ready": ready_tumors + len(ready_queens),
     }

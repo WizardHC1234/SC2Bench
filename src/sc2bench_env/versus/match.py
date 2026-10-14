@@ -114,8 +114,9 @@ class VersusMatch:
         if turn is None:
             turn = environment.begin_tool_turn()
             self._tool_turns[player] = turn
+        from sc2bench_env.interface.observations import agent_observation_view
         return AgentInput(
-            environment.latest_observation, environment.latest_feedback,
+            agent_observation_view(environment.latest_observation), environment.latest_feedback,
             tuple(environment.tool_specs()), turn.call,
         )
 

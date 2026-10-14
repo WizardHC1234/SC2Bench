@@ -12,6 +12,7 @@ from uuid import uuid4
 
 from sc2bench_env.adapters.llm import LLMAdapter
 from sc2bench_env.interface.agent import AgentInput, AgentStopped, AgentTurn
+from sc2bench_env.interface.feedback import Feedback
 from sc2bench_env.interface.tools import (
     ACTION_TOOLS,
     KNOWLEDGE_TOOLS,
@@ -32,7 +33,6 @@ from .prompts import (
     NO_TOOL_HINT,
     QUERY_AFTER_ACTIONS_HINT,
     READY_TEXT_HINT,
-    TOOL_NOTE_HINT,
     example_prompt_parts,
 )
 from .skills import DEFAULT_SKILL, load_skill, skill_race
@@ -42,6 +42,9 @@ from .tools import tool_schemas
 class InvalidDecisionLimit(AgentStopped):
     def __init__(self, message: str = "consecutive invalid decisions") -> None:
         super().__init__("invalid_decision_limit")
+
+
+CONVERSATION_MODES = ("full_session", "per_decision")
 
 
 def _print_block(title: str, content: str) -> None:
@@ -97,18 +100,23 @@ class LLMAgent:
         *, max_api_attempts: int = 3, api_retry_delay_seconds: float = 1.0,
         max_consecutive_rejections: int = 3, thinking_requested: bool = False,
         verbose: bool = True, skill_name: Optional[str] = DEFAULT_SKILL,
+        conversation_mode: str = "full_session",
     ) -> None:
         if (type(max_api_attempts) is not int or max_api_attempts < 1
                 or not math.isfinite(api_retry_delay_seconds) or api_retry_delay_seconds < 0
                 or type(max_consecutive_rejections) is not int or max_consecutive_rejections < 1):
             raise ValueError(
                 "invalid external Agent retry or rejection limits")
+        if conversation_mode not in CONVERSATION_MODES:
+            raise ValueError(
+                f"conversation_mode must be one of {CONVERSATION_MODES}")
         self.call_llm = _require_tools(call_llm)
         self.max_api_attempts = max_api_attempts
         self.api_retry_delay_seconds = api_retry_delay_seconds
         self.max_consecutive_rejections = max_consecutive_rejections
         self.thinking_requested = thinking_requested
         self.verbose = verbose
+        self.conversation_mode = conversation_mode
         loaded_skill = load_skill(skill_name)
         self.skill_name = loaded_skill[0] if loaded_skill else None
         self.skill_text = loaded_skill[1] if loaded_skill else ""
@@ -166,13 +174,6 @@ class LLMAgent:
                     _print_block("Model reply (raw)", raw or "(empty)")
                     _print_block("Tool reminder", hint)
                 self.messages.append({"role": "user", "content": hint})
-                continue
-            if not str(content).strip():
-                self.messages.append(
-                    self._assistant_tool_message(content, raw, tool_calls))
-                if self.verbose:
-                    _print_block("Tool reminder", TOOL_NOTE_HINT)
-                self._reject_tool_reply(tool_calls, TOOL_NOTE_HINT)
                 continue
             kind, problem = _classify_reply(phase, tool_calls, query_names, action_names)
             self.messages.append(
@@ -345,7 +346,27 @@ class LLMAgent:
                     f"but the episode race is {race!r}"
                 )
         adapter = LLMAdapter(example_prompt_parts(race), race=race)
-        user = {"role": "user", "content": adapter.render_input(request)}
+        rendered_request = request
+        if (
+            self.conversation_mode == "per_decision"
+            and request.feedback is not None
+            and request.feedback.receipts_delivered
+        ):
+            feedback = Feedback(
+                receipts=list(request.feedback.receipts),
+                events=list(request.feedback.events),
+                name_normalizations=list(request.feedback.name_normalizations),
+                receipts_delivered=False,
+            )
+            rendered_request = AgentInput(
+                request.observation, feedback, request.tool_specs, request.call_tool,
+            )
+        user = {"role": "user", "content": adapter.render_input(rendered_request)}
+        if self.conversation_mode == "per_decision":
+            # Query/action rounds inside this decision still share context. The
+            # next game decision starts from the platform prompt and its current
+            # observation/feedback instead of replaying the entire match.
+            self.messages = []
         if not self.messages:
             content = adapter.system_prompt().rstrip()
             if self.skill_text:

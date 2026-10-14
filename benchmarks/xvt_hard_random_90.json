@@ -1,0 +1,42 @@
+{
+  "schema_version": "1",
+  "suite_id": "xvt_hard_random_90",
+  "suite_version": "1",
+  "purpose": "evaluation",
+  "repetitions": 30,
+  "max_decisions": 500,
+  "episode_defaults": {
+    "enemy_style": "random",
+    "blocking_decisions": true,
+    "game_time_limit_seconds": 1800.0
+  },
+  "cases": [
+    {
+      "case_id": "kairos_t_vs_t_hard",
+      "episode": {
+        "race": "terran",
+        "enemy_race": "terran",
+        "map_name": "KairosJunctionLE",
+        "opponent": "hard"
+      }
+    },
+    {
+      "case_id": "kairos_p_vs_t_hard",
+      "episode": {
+        "race": "protoss",
+        "enemy_race": "terran",
+        "map_name": "KairosJunctionLE",
+        "opponent": "hard"
+      }
+    },
+    {
+      "case_id": "kairos_z_vs_t_hard",
+      "episode": {
+        "race": "zerg",
+        "enemy_race": "terran",
+        "map_name": "KairosJunctionLE",
+        "opponent": "hard"
+      }
+    }
+  ]
+}

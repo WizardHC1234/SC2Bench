@@ -94,6 +94,7 @@ class FakeBackend(Backend):
     _queue: List[_WorkItem] = field(default_factory=list)
     _updates: List[DemandUpdate] = field(default_factory=list)
     _known: Dict[str, Demand] = field(default_factory=dict)
+    _applied_transfers: Set[str] = field(default_factory=set)
     _config: Optional[EpisodeConfig] = None
     _race: str = field(default="terran", init=False)
     _worker_name: str = field(default="scv", init=False)
@@ -167,6 +168,7 @@ class FakeBackend(Backend):
         self._queue.clear()
         self._updates.clear()
         self._known.clear()
+        self._applied_transfers.clear()
         self._producer_addons.clear()
         return self.snapshot()
 
@@ -198,13 +200,38 @@ class FakeBackend(Backend):
             existing = len(producing) + len(waiting)
             needed = max(0, demand.count - demand.produced - existing)
             if demand.action == "combat":
+                pending_external: Dict[str, int] = {}
+                for transfer in demand.transfer_requests:
+                    if str(transfer.get("transfer_id")) in self._applied_transfers:
+                        continue
+                    for name, count in dict(transfer.get("units") or {}).items():
+                        pending_external[str(name)] = (
+                            int(pending_external.get(str(name), 0)) + int(count)
+                        )
                 for item in existing_items:
                     item.style, item.target = demand.style, demand.target
+                    previous_requested = dict(item.units or {})
+                    desired = dict(demand.units or {})
+                    for name, total in desired.items():
+                        added = max(
+                            0,
+                            int(total) - int(previous_requested.get(name, 0))
+                            - int(pending_external.get(name, 0)),
+                        )
+                        if added:
+                            current_alive = dict(item.alive_units or {})
+                            current_alive[name] = int(current_alive.get(name, 0)) + added
+                            item.alive_units = current_alive
+                    item.units = desired
                     if item.withdrawing != demand.withdrawing:
                         item.withdrawing = demand.withdrawing
                         item.remaining_seconds = 3.0 if item.withdrawing else 1e9
                 # Combat binds immediately at accept; keep one long-lived work item.
                 if not existing_items:
+                    initial_alive = {
+                        name: max(0, int(count) - int(pending_external.get(name, 0)))
+                        for name, count in dict(demand.units or {}).items()
+                    }
                     self._queue.append(
                         _WorkItem(
                             demand_id=demand.demand_id,
@@ -216,7 +243,7 @@ class FakeBackend(Backend):
                             route=demand.route,
                             style=demand.style,
                             units=dict(demand.units or {}),
-                            alive_units=dict(demand.units or {}),
+                            alive_units={name: count for name, count in initial_alive.items() if count > 0},
                             order_index=int(demand.order_index),
                             action_reported=True,
                             withdrawing=demand.withdrawing,
@@ -243,6 +270,82 @@ class FakeBackend(Backend):
                 )
         # Keep spend priority aligned with demand order_index.
         self._queue.sort(key=lambda item: (item.order_index, item.demand_id))
+        by_id = {item.demand_id: item for item in self._queue if item.action == "combat"}
+        for demand in tasks:
+            if demand.action != "combat":
+                continue
+            destination = by_id.get(demand.demand_id)
+            if destination is None:
+                continue
+            for transfer in demand.transfer_requests:
+                transfer_id = str(transfer.get("transfer_id") or "")
+                if not transfer_id or transfer_id in self._applied_transfers:
+                    continue
+                source = by_id.get(str(transfer.get("source_demand_id") or ""))
+                requested = {
+                    str(name): int(count)
+                    for name, count in dict(transfer.get("units") or {}).items()
+                }
+                if source is None or any(
+                    int((source.alive_units or {}).get(name, 0)) < count
+                    for name, count in requested.items()
+                ):
+                    continue
+                source_alive = dict(source.alive_units or {})
+                destination_alive = dict(destination.alive_units or {})
+                for name, count in requested.items():
+                    source_alive[name] = max(0, int(source_alive.get(name, 0)) - count)
+                    destination_alive[name] = int(destination_alive.get(name, 0)) + count
+                source.alive_units = {name: count for name, count in source_alive.items() if count > 0}
+                destination.alive_units = destination_alive
+                self._applied_transfers.add(transfer_id)
+                self._updates.append(DemandUpdate(
+                    demand_id=destination.demand_id, action="combat",
+                    target=destination.target, state=DemandState.IN_PROGRESS,
+                    details={"applied_transfer_ids": [transfer_id]},
+                ))
+                if not source.alive_units:
+                    self._updates.append(DemandUpdate(
+                        demand_id=source.demand_id, action="combat", target=source.target,
+                        state=DemandState.COMPLETED,
+                        end_reason=f"transferred_into:{demand.group}",
+                    ))
+        merged_ids: Set[str] = set()
+        for demand in tasks:
+            if demand.action != "combat" or not demand.merge_source_ids:
+                continue
+            destination = by_id.get(demand.demand_id)
+            if destination is None:
+                continue
+            source_ids = [
+                source_id for source_id in demand.merge_source_ids
+                if source_id not in merged_ids
+            ]
+            sources = [by_id.get(source_id) for source_id in source_ids]
+            # Match the live backend: ownership transfer is all-or-nothing for
+            # one merge request. A source that disappeared before execution
+            # leaves every group unchanged for this refresh.
+            if any(source is None for source in sources):
+                continue
+            for source_id, source in zip(source_ids, sources):
+                assert source is not None
+                destination_alive = dict(destination.alive_units or {})
+                for name, count in dict(source.alive_units or {}).items():
+                    destination_alive[name] = int(destination_alive.get(name, 0)) + int(count)
+                destination.alive_units = destination_alive
+                destination_requested = dict(destination.units or {})
+                for name, count in dict(source.units or {}).items():
+                    destination_requested[name] = int(destination_requested.get(name, 0)) + int(count)
+                destination.units = destination_requested
+                merged_ids.add(source_id)
+                self._updates.append(DemandUpdate(
+                    demand_id=source_id, action="combat", target=source.target,
+                    state=DemandState.COMPLETED,
+                    end_reason=f"merged_into:{demand.group}",
+                    details={"transferred_units": dict(source.alive_units or {})},
+                ))
+        if merged_ids:
+            self._queue = [item for item in self._queue if item.demand_id not in merged_ids]
 
     def run_until(self, trigger: DecisionTrigger) -> bool:
         if self.terminated:
@@ -307,6 +410,7 @@ class FakeBackend(Backend):
         orbital_count = int(self.buildings.get("orbital_command", 0))
         scan_cost = self._costs.get("scan")
         scan_ready = 1 if scan_cost and orbital_count > 0 and self.orbital_energy >= float(scan_cost["energy"]) else 0
+        supply_drop_targets = self._supply_drop_slots()
         structures = [
             {"id": object_id, "type": type_name}
             for object_id, type_name in sorted(self.structure_types.items())
@@ -404,15 +508,20 @@ class FakeBackend(Backend):
             "orbital_energies": [round(self.orbital_energy, 1)] if orbital_count else [],
             "scan_ready": scan_ready,
             "mule_ready": scan_ready,
+            "supply_drop_ready": min(scan_ready, supply_drop_targets),
+            "supply_drop_targets": supply_drop_targets,
             **({
                 "nexus_count": int(self.buildings.get("nexus", 0)),
                 "nexus_energies": [round(self.orbital_energy, 1)] if int(self.buildings.get("nexus", 0)) else [],
                 "chrono_ready": 1 if int(self.buildings.get("nexus", 0)) and self.orbital_energy >= 50 else 0,
+                "recall_ready": 1 if int(self.buildings.get("nexus", 0)) and self.orbital_energy >= 50 else 0,
             } if self._race == "protoss" else {}),
             **({
                 "queen_count": int(self.units.get("queen", 0)),
                 "queen_energies": [round(self.orbital_energy, 1)] if int(self.units.get("queen", 0)) else [],
                 "inject_ready": 1 if int(self.units.get("queen", 0)) and self.orbital_energy >= 25 else 0,
+                "inject_targets": base_count,
+                "spawn_creep_tumor_ready": 1 if int(self.units.get("queen", 0)) and self.orbital_energy >= 25 else 0,
             } if self._race == "zerg" else {}),
             "under_construction": dict(self.under_construction),
             "in_production_units": {key: value for key, value in in_production.items() if value},

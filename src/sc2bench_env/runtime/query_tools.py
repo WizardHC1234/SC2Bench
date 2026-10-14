@@ -352,6 +352,89 @@ def query_route(observation: Mapping[str, Any], from_zone: str, to_zone: str) ->
     return {"from_zone": from_zone, "to_zone": to_zone, "error": "no_corridor_path"}
 
 
+def query_production_state(
+    observation: Mapping[str, Any],
+    *,
+    actions: Sequence[str] = (),
+    targets: Sequence[str] = (),
+    race: str = "terran",
+) -> Dict[str, Any]:
+    """Return current production detail from the frozen Observation."""
+    action_filter = {str(item) for item in actions}
+    target_filter = {str(item) for item in targets}
+
+    def wanted(action: str, target: str) -> bool:
+        return (not action_filter or action in action_filter) and (
+            not target_filter or target in target_filter
+        )
+
+    priority = [
+        dict(row) for row in observation.get("production_priority") or []
+        if isinstance(row, Mapping)
+        and wanted(str(row.get("action") or ""), str(row.get("target") or ""))
+    ]
+    related_facilities = set(target_filter)
+    if target_filter:
+        from sc2bench_env.catalog.registry import get_target
+        for target in target_filter:
+            spec = get_target(target, race=race)
+            if spec is not None and spec.produced_at:
+                related_facilities.add(str(spec.produced_at))
+    larva_available = None
+    for row in observation.get("production") or []:
+        if not isinstance(row, Mapping):
+            continue
+        if row.get("resource") == "larva" and row.get("available") is not None:
+            larva_available = row.get("available")
+            break
+        if row.get("facility") == "larva":
+            larva_available = row.get("available", row.get("free_slots", row.get("ready_grounded")))
+            break
+        if row.get("larva") is not None:
+            larva_available = row.get("larva")
+            break
+    buildings = observation.get("building") or {}
+    infrastructure = {
+        str(name): dict(row) if isinstance(row, Mapping) else row
+        for name, row in buildings.items()
+        if not target_filter or str(name) in related_facilities
+    } if isinstance(buildings, Mapping) else {}
+    return {
+        "filters": {"actions": sorted(action_filter), "targets": sorted(target_filter)},
+        "persistent_work": priority,
+        "infrastructure": infrastructure,
+        "larva_available": larva_available,
+    }
+
+
+def query_army_state(
+    observation: Mapping[str, Any], *, groups: Sequence[str] = (),
+) -> Dict[str, Any]:
+    """Return group detail and ownership counts from the frozen Observation."""
+    wanted = [str(item) for item in groups]
+    all_groups = observation.get("combat") or {}
+    if not isinstance(all_groups, Mapping):
+        all_groups = {}
+    selected = {
+        str(name): dict(row) if isinstance(row, Mapping) else row
+        for name, row in all_groups.items()
+        if not wanted or str(name) in set(wanted)
+    }
+    missing = [name for name in wanted if name not in all_groups]
+    return {
+        "own_forces": dict(observation.get("own_forces") or {}),
+        "groups": selected,
+        "unknown_groups": missing,
+    }
+
+
+def _with_snapshot_time(payload: Dict[str, Any], observation: Mapping[str, Any]) -> Dict[str, Any]:
+    game = observation.get("game") or {}
+    if isinstance(game, Mapping):
+        payload.setdefault("as_of_game_time", game.get("game_time_seconds"))
+    return payload
+
+
 def run_query(
     name: str,
     arguments: Optional[Mapping[str, Any]] = None,
@@ -363,14 +446,25 @@ def run_query(
     observation = observation or {}
     try:
         if name == "query_map_overview":
-            return query_map_overview(observation)
+            return _with_snapshot_time(query_map_overview(observation), observation)
         if name == "query_zone_state":
             ids = arguments.get("zone_ids")
             if not isinstance(ids, list):
                 return {"error": "zone_ids must be an array of strings"}
-            return query_zone_state(observation, ids)
+            return _with_snapshot_time(query_zone_state(observation, ids), observation)
         if name == "query_route":
-            return query_route(observation, str(arguments.get("from_zone") or ""), str(arguments.get("to_zone") or ""))
+            return _with_snapshot_time(query_route(observation, str(arguments.get("from_zone") or ""), str(arguments.get("to_zone") or "")), observation)
+        if name == "query_production_state":
+            return _with_snapshot_time(query_production_state(
+                observation,
+                actions=list(arguments.get("actions") or []),
+                targets=list(arguments.get("targets") or []),
+                race=race,
+            ), observation)
+        if name == "query_army_state":
+            return _with_snapshot_time(query_army_state(
+                observation, groups=list(arguments.get("groups") or []),
+            ), observation)
         if name in KNOWLEDGE_TOOLS:
             selected = _require_knowledge_race(arguments.get("race"))
             if name == "query_unit_data":

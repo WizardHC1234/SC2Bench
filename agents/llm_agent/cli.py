@@ -20,6 +20,7 @@ from sc2bench_env.interface.races import ENEMY_RACES, SUPPORTED_OWN_RACES
 from sc2bench_env.runtime.tool_turn import ToolTurnError
 
 from .agent import LLMAgent
+from .agent import CONVERSATION_MODES
 from .client import make_llm_call
 from .config import (
     DEFAULT_TEMPERATURE,
@@ -44,8 +45,10 @@ def run_episode(
     for _ in range(max_decisions):
         tool_turn = env.begin_tool_turn()
         try:
+            from sc2bench_env.interface.observations import agent_observation_view
             turn = agent(AgentInput(
-                observation, feedback, tuple(env.tool_specs()), tool_turn.call,
+                agent_observation_view(observation), feedback,
+                tuple(env.tool_specs()), tool_turn.call,
             ))
         except AgentStopped as stop:
             tool_turn.abort()
@@ -107,6 +110,10 @@ def main(argv=None) -> int:
         "--skill", choices=(*AVAILABLE_SKILLS, "none"), default=DEFAULT_SKILL,
         help="whole-match strategy skill; use 'none' for the no-skill baseline",
     )
+    parser.add_argument(
+        "--conversation-mode", choices=CONVERSATION_MODES, default="full_session",
+        help="retain the whole episode dialogue or start fresh at each decision",
+    )
     parser.add_argument("--realtime", action="store_true",
                         help="run 1x while the model thinks; advance fast-forwards")
     parser.add_argument("--quiet", action="store_true")
@@ -130,6 +137,7 @@ def main(argv=None) -> int:
             "model": llm_model(),
             "base_url": llm_base_url(),
             "skill": args.skill,
+            "conversation_mode": args.conversation_mode,
             "max_decisions": args.max_decisions,
             "record_dir": str(resolve_record_dir(args.record_dir)),
             "execution": "direct_environment",
@@ -149,6 +157,7 @@ def main(argv=None) -> int:
             max_consecutive_rejections=args.max_rejections,
             thinking_requested=args.thinking, verbose=not args.quiet,
             skill_name=args.skill,
+            conversation_mode=args.conversation_mode,
     )
     env = Environment("sharpy", record_dir=args.record_dir)
     try:

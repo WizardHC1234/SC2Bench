@@ -122,6 +122,9 @@ def read_production_capacity(ai, adapter):
 
 def read_ability_facts(ai, buildings, adapter):
     """Preserve Terran ready-structure energy sampling and cast thresholds."""
+    from sc2.ids.buff_id import BuffId
+    from sc2.ids.unit_typeid import UnitTypeId
+
     energies = [float(getattr(structure, "energy", 0.0) or 0.0)
                 for structure in ai.structures.ready
                 if adapter.normalize_unit_name(structure.type_id.name) == "orbital_command"]
@@ -129,6 +132,17 @@ def read_ability_facts(ai, buildings, adapter):
 
     threshold = float(get_target("supply_drop", race="terran").energy)
     ready = sum(1 for energy in energies if energy >= threshold)
+    supply_drop_targets = sum(
+        1
+        for depot in ai.structures.ready
+        if getattr(depot, "type_id", None) in (
+            UnitTypeId.SUPPLYDEPOT, UnitTypeId.SUPPLYDEPOTLOWERED,
+        )
+        if float(getattr(depot, "health", 0.0) or 0.0) > 0
+        and BuffId.SUPPLYDROP not in (getattr(depot, "buffs", ()) or ())
+    )
     return {"orbital_count": int(buildings.get("orbital_command", 0)),
             "orbital_energies": [round(energy, 1) for energy in energies],
-            "scan_ready": ready, "mule_ready": ready}
+            "scan_ready": ready, "mule_ready": ready,
+            "supply_drop_ready": min(ready, supply_drop_targets),
+            "supply_drop_targets": supply_drop_targets}

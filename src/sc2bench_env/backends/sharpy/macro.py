@@ -212,6 +212,21 @@ class ActOngoingMacroTasks(ActBase):
 
             cost = _estimate_cost(task, race=self.race)
             if task.get("action") == "combat":
+                if hasattr(act, "sync_membership"):
+                    pending_external: Dict[str, int] = {}
+                    applied_transfers = task.setdefault("_applied_transfer_ids", set())
+                    for transfer in task.get("transfer_requests") or []:
+                        if str(transfer.get("transfer_id")) in applied_transfers:
+                            continue
+                        for name, count in dict(transfer.get("units") or {}).items():
+                            pending_external[str(name)] = (
+                                int(pending_external.get(str(name), 0)) + int(count)
+                            )
+                    act.sync_membership(
+                        dict(task.get("units") or {}),
+                        int(task.get("membership_revision", 0)),
+                        pending_external,
+                    )
                 act.update_order(str(task["style"]), str(task["target"]),
                                  bool(task.get("withdrawing")), int(task.get("command_revision", 0)),
                                  str(task.get("retreat_method") or "move"), task.get("recall_status"))
@@ -308,4 +323,57 @@ class ActOngoingMacroTasks(ActBase):
                 task["_act_done"] = False
                 task["_execution_error"] = repr(exc)
 
+        self._apply_group_transfers()
+        self._apply_group_merges()
         return True
+
+    def _apply_group_transfers(self) -> None:
+        """Move requested members directly between already-bound missions."""
+        by_id = {str(task.get("task_id")): task for task in self.active_tasks}
+        for destination in self.active_tasks:
+            if destination.get("action") != "combat":
+                continue
+            destination_act = destination.get("_act")
+            if destination_act is None:
+                continue
+            applied = destination.setdefault("_applied_transfer_ids", set())
+            for transfer in destination.get("transfer_requests") or []:
+                transfer_id = str(transfer.get("transfer_id") or "")
+                if not transfer_id or transfer_id in applied:
+                    continue
+                source = by_id.get(str(transfer.get("source_demand_id") or ""))
+                source_act = source.get("_act") if source is not None else None
+                if source_act is None or not getattr(source_act, "_bound", False):
+                    continue
+                if destination_act.absorb_units(
+                    source_act,
+                    dict(transfer.get("units") or {}),
+                    destination_group=str(destination.get("group") or ""),
+                ):
+                    applied.add(transfer_id)
+
+    def _apply_group_merges(self) -> None:
+        """Transfer mission-owned tags after all active combat acts exist."""
+        by_id = {str(task.get("task_id")): task for task in self.active_tasks}
+        for destination in self.active_tasks:
+            source_ids = [str(item) for item in destination.get("merge_source_ids") or []]
+            if destination.get("action") != "combat" or not source_ids:
+                continue
+            destination_act = destination.get("_act")
+            if destination_act is None or not getattr(destination_act, "_bound", False):
+                continue
+            applied = destination.setdefault("_merged_source_ids", set())
+            pending = [source_id for source_id in source_ids if source_id not in applied]
+            sources = [by_id.get(source_id) for source_id in pending]
+            source_acts = [source.get("_act") if source is not None else None for source in sources]
+            if any(
+                act is None or not getattr(act, "_bound", False) or getattr(act, "end_reason", None)
+                for act in source_acts
+            ):
+                continue
+            for source_id, source_act in zip(pending, source_acts):
+                destination_act.absorb_group(
+                    source_act,
+                    destination_group=str(destination.get("group") or ""),
+                )
+                applied.add(source_id)

@@ -74,11 +74,18 @@ def table(rows, columns):
     return lines
 
 
-def time_value(seconds):
+def time_clock(seconds):
+    """mm:ss clock used by the Brief Game line."""
     if seconds is None:
         return "unknown"
     total = max(0, int(seconds))
-    return f"{total // 60:02d}:{total % 60:02d} ({value(seconds)} s)"
+    return f"{total // 60:02d}:{total % 60:02d}"
+
+
+def time_value(seconds):
+    if seconds is None:
+        return "unknown"
+    return f"{time_clock(seconds)} ({value(seconds)} s)"
 
 
 def resource_lines(rows):
@@ -89,13 +96,15 @@ def resource_lines(rows):
         for row in rows
     )
     if compact:
-        lines = ["Owned-base resources:",
-                 "Zone | Minerals remaining | Vespene remaining | Owned gas structures | Available geyser slots"]
+        lines = ["Base resources:"]
         for row in rows:
-            lines.append(" | ".join(value(row.get(key)) for key in (
-                "zone_id", "minerals_remaining", "vespene_remaining",
-                "owned_gas_structure_count", "available_geyser_slots",
-            )))
+            lines.append(
+                f"- {value(row.get('zone_id'))}: "
+                f"minerals {value(row.get('minerals_remaining'))}; "
+                f"vespene {value(row.get('vespene_remaining'))}; "
+                f"gas structures {value(row.get('owned_gas_structure_count'))}; "
+                f"free geysers {value(row.get('available_geyser_slots'))}"
+            )
             lines.extend(extras(row, {
                 "zone_id", "minerals_remaining", "vespene_remaining",
                 "owned_gas_structure_count", "available_geyser_slots",
@@ -117,33 +126,46 @@ def resource_lines(rows):
     return lines
 
 
+def _group_sort_key(item):
+    name = item[0]
+    suffix = name.removeprefix("group_")
+    return (int(suffix) if suffix.isdigit() else float("inf"), name)
+
+
 def combat_lines(groups):
     if not groups:
         return ["none"]
     lines = []
-    def group_order(item):
-        name = item[0]
-        suffix = name.removeprefix("group_")
-        return (int(suffix) if suffix.isdigit() else float("inf"), name)
-    for group, row in sorted(groups.items(), key=group_order):
-        lines.append(f"{group}: {value(row.get('style'))}; target {value(row.get('target'))}; "
-                     f"status {value(row.get('status'))}; phase {value(row.get('phase'))}")
-        member_label = "Available home members" if group == "group_0" else "Living members"
-        if "alive" in row:
-            lines.append(f"  {member_label}: {counts(row.get('alive'))}")
+    for group, row in sorted(groups.items(), key=_group_sort_key):
+        transition = row.get("order_transition")
+        holding_after_attack = (
+            isinstance(transition, dict)
+            and transition.get("from") == "attack"
+            and transition.get("to") == "defend"
+            and transition.get("reason") == "target_confirmed_clear"
+        )
+        members = counts(row.get("alive")) if "alive" in row else None
+        lines.append(f"{group}: {members}" if members is not None else f"{group}:")
+        location = row.get("nearest_zone") or row.get("target")
+        lines.append(f"  Location: {value(location)}")
+        if holding_after_attack:
+            lines.append(f"  Current activity: holding at {value(row.get('target'))}")
+            if "holding_seconds" in row:
+                lines.append(f"  Holding duration: {value(row.get('holding_seconds'))} s")
+            lines.append(
+                f"  Previous order: attack {value(row.get('target'))} — completed"
+            )
+        else:
+            lines.append(
+                f"  Current order: {value(row.get('style'))} "
+                f"{value(row.get('target'))} — {value(row.get('status'))}"
+            )
         if "requested" in row:
             lines.append(f"  Originally requested: {counts(row['requested'])}")
-        if "nearest_zone" in row:
-            lines.append(f"  Nearest zone to group center: {value(row['nearest_zone'])}")
         if "assigned" in row:
             lines.append(f"  Assigned to outbound order: {value(row['assigned'])}")
-        transition = row.get("order_transition")
         if isinstance(transition, dict):
-            if (transition.get("from") == "attack" and transition.get("to") == "defend"
-                    and transition.get("reason") == "target_confirmed_clear"):
-                lines.append("  Previous attack completed: target confirmed clear")
-                lines.append(f"  Current task: holding and defending {value(row.get('target'))}")
-            else:
+            if not holding_after_attack:
                 lines.append(
                     f"  Order transition: {value(transition.get('from'))} -> "
                     f"{value(transition.get('to'))}; reason {value(transition.get('reason'))}"
@@ -166,7 +188,285 @@ def combat_lines(groups):
         lines.extend(extras(row, {"status", "style", "target", "phase", "alive", "requested",
                                  "nearest_zone", "assigned", "visible_enemy_nearby",
                                  "weapon_cooldown_active_count", "cloaked", "forms", "skill_evidence",
-                                 "transport", "order_transition", "attack_result"}))
+                                 "transport", "order_transition", "attack_result", "holding_seconds"}))
+    return lines
+
+
+def brief_economy_lines(economy, map_control=None, *, race="terran"):
+    """Compact Bank / Supply / Workers / Base resources block for Brief OBS."""
+    if not isinstance(economy, dict):
+        return ["unknown"]
+    worker_name = {
+        "terran": "SCVs", "protoss": "Probes", "zerg": "Drones",
+    }.get(race, "workers")
+    supply_blocked = type(economy.get("supply_left")) is int and economy.get("supply_left") <= 0
+    lines = [
+        f"Bank: minerals {value(economy.get('minerals'))}; "
+        f"vespene {value(economy.get('vespene'))} | "
+        f"Income/min: minerals {value(economy.get('mineral_income_per_minute'))}; "
+        f"vespene {value(economy.get('vespene_income_per_minute'))}",
+        f"Supply: {value(economy.get('supply_used'))}/{value(economy.get('supply_cap'))}; "
+        f"free {value(economy.get('supply_left'))}; army {value(economy.get('army_supply'))}"
+        + ("; SUPPLY BLOCKED" if supply_blocked else ""),
+        f"Workers ({worker_name}): {value(economy.get('worker_count'))}; "
+        f"minerals {value(economy.get('workers_on_minerals'))}/"
+        f"{value(economy.get('mineral_worker_saturation'))}; "
+        f"vespene {value(economy.get('workers_on_vespene'))}/"
+        f"{value(economy.get('vespene_worker_saturation'))}; "
+        f"other {value(economy.get('workers_other'))}",
+    ]
+    if isinstance(map_control, dict):
+        resources = resource_lines(map_control.get("base_resources") or [])
+        if resources != ["none"]:
+            lines.extend(resources)
+    return lines
+
+
+def brief_combat_lines(groups):
+    """Group core summary used by Brief OBS (plan section 4.5)."""
+    if not groups:
+        return ["none"]
+    lines = []
+    for group, row in sorted(groups.items(), key=_group_sort_key):
+        if not isinstance(row, dict):
+            lines.append(f"{group}: {value(row)}")
+            continue
+        transition = row.get("order_transition")
+        holding_after_attack = (
+            isinstance(transition, dict)
+            and transition.get("from") == "attack"
+            and transition.get("to") == "defend"
+            and transition.get("reason") == "target_confirmed_clear"
+        )
+        style = value(row.get("style"))
+        target = value(row.get("target"))
+        phase = value(row.get("phase") or row.get("status"))
+        header = f"{group}: {style} {target}; {phase}"
+        nearest = row.get("nearest_zone")
+        if nearest and nearest != row.get("target"):
+            header += f"; near {value(nearest)}"
+        if holding_after_attack:
+            header = f"{group}: defend {target}; holding_after_attack"
+            if nearest and nearest != row.get("target"):
+                header += f"; near {value(nearest)}"
+        lines.append(header)
+        if group == "group_0":
+            free = row.get("alive") if "alive" in row else row.get("free")
+            if free:
+                lines.append(f"  Free: {counts(free)}")
+            if row.get("unavailable"):
+                lines.append(f"  Unavailable: {counts(row.get('unavailable'))}")
+        elif "alive" in row:
+            lines.append(f"  Living: {counts(row.get('alive'))}")
+        if row.get("pending_transfers"):
+            for transfer in row["pending_transfers"]:
+                lines.append(
+                    f"  Transfer pending from {value(transfer.get('source'))}: "
+                    f"{counts(transfer.get('units'))}"
+                )
+        nearby = row.get("visible_enemy_nearby")
+        if group != "group_0" and "visible_enemy_nearby" in row:
+            if nearby is None:
+                lines.append("  Nearby enemies: unknown")
+            elif not nearby or (
+                int(nearby.get("units") or 0) == 0 and int(nearby.get("buildings") or 0) == 0
+            ):
+                lines.append("  Nearby enemies: none")
+            else:
+                lines.append(
+                    f"  Nearby enemies: units {value(nearby.get('units'))}, "
+                    f"buildings {value(nearby.get('buildings'))}"
+                )
+    return lines
+
+
+def brief_zone_lines(zones):
+    """Bullet Relevant Zones for Brief OBS (plan section 4.6)."""
+    if not zones:
+        return ["none"]
+    lines = []
+    for row in zones:
+        if not isinstance(row, dict):
+            continue
+        zone_id = value(row.get("zone_id"))
+        role = value(row.get("zone_role"))
+        owner = value(row.get("known_owner"))
+        vision = value(row.get("vision_state"))
+        threat = row.get("visible_enemy_weapon_in_range") is True
+        ownership = {
+            "self": "owned by self",
+            "enemy": "owned by enemy",
+            "unconfirmed": "owner unconfirmed",
+        }.get(str(row.get("known_owner")), f"owner {owner}")
+        if vision == "visible":
+            vision_text = f"{ownership} and visible"
+        elif vision == "fogged":
+            age = row.get("enemy_information_age_seconds")
+            vision_text = f"{ownership} and fogged"
+            if type(age) in (int, float):
+                vision_text += f" for {int(age)}s"
+        else:
+            vision_text = f"{ownership}; vision {vision}"
+        head = f"- {zone_id} ({role}): {vision_text}"
+        if threat:
+            head = f"- IMMEDIATE WEAPON THREAT - {zone_id} ({role}): {vision_text}"
+        parts = [head]
+        own = content(row.get("own_contents"))
+        if own != "none":
+            parts.append(f"own {own}")
+        visible = content(row.get("visible_enemy_contents"))
+        if visible != "none":
+            parts.append(f"visible enemy {visible}")
+        last_seen = content(row.get("last_seen_enemy_contents"))
+        if last_seen != "none" and vision != "visible":
+            parts.append(f"last seen {last_seen}")
+        if threat:
+            parts.append(
+                "At least one visible enemy weapon is currently in range of an own "
+                "unit or building; this does not confirm that damage was dealt"
+            )
+        lines.append("; ".join(parts))
+    return lines
+
+
+def brief_facility_lines(data, *, race="terran"):
+    """Compact facility capacity lines without unknown placeholder columns."""
+    if not data:
+        return ["none"]
+    lines = []
+    for row in data:
+        if not isinstance(row, dict):
+            continue
+        facility = value(row.get("facility"))
+        ready = row.get("ready_grounded")
+        capacity = row.get("capacity")
+        free = row.get("free_slots")
+        bits = [facility]
+        if ready is not None:
+            bits[0] = f"{facility} {value(ready)}"
+        detail = []
+        if free is not None and capacity is not None:
+            detail.append(f"free slots {value(free)}/{value(capacity)}")
+        elif free is not None:
+            detail.append(f"free slots {value(free)}")
+        elif capacity is not None:
+            detail.append(f"capacity {value(capacity)}")
+        for key, label_text in (
+            ("techlab_hosts", "techlab hosts"),
+            ("reactor_hosts", "reactor hosts"),
+            ("ready_to_warp", "warp ready"),
+            ("warp_ready", "warp ready"),
+            ("cooling", "cooling down"),
+            ("cooling_down", "cooling down"),
+            ("free_queue_positions", "free queue positions"),
+            ("larva", "larva"),
+        ):
+            if key in row and row.get(key) is not None:
+                detail.append(f"{label_text} {value(row.get(key))}")
+        lines.append(f"{bits[0]}" + (f" ({', '.join(detail)})" if detail else ""))
+    return lines
+
+
+def brief_building_lines(data):
+    if not data:
+        return ["none"]
+    parts = []
+    for name, row in data.items():
+        if not isinstance(row, dict):
+            continue
+        ready = int(row.get("completed") or 0)
+        building = int(row.get("under_construction") or 0)
+        if ready <= 0 and building <= 0:
+            continue
+        text = f"{name} {ready}"
+        if building > 0:
+            text += f" (+{building} building)"
+        parts.append(text)
+    return ["; ".join(parts)] if parts else ["none"]
+
+
+def brief_training_lines(data):
+    if not data:
+        return ["none"]
+    parts = []
+    for name, row in data.items():
+        if not isinstance(row, dict):
+            continue
+        paid = int(row.get("in_production") or 0)
+        if paid > 0:
+            parts.append(f"{name} {paid}")
+    return ["; ".join(parts)] if parts else ["none"]
+
+
+def brief_available_target_lines(data):
+    if not isinstance(data, dict):
+        return ["none"]
+    labels = {
+        "build": "Available build",
+        "train": "Available train",
+        "research": "Available research",
+        "morph_townhall": "Available morph",
+    }
+    lines = []
+    for key, title in labels.items():
+        names = data.get(key) or []
+        if not names and key == "morph_townhall":
+            continue
+        lines.append(f"{title}: {', '.join(value(name) for name in names) or 'none'}")
+    return lines or ["none"]
+
+
+def brief_forces_lines(data):
+    if not isinstance(data, dict) or not data:
+        return ["none"]
+    lines = []
+    army = data.get("army")
+    if army:
+        lines.append(f"Total: {counts(army)}")
+    assigned = data.get("assigned")
+    if assigned:
+        lines.append(f"Unavailable: {counts(assigned)}")
+    garrison = data.get("bunker_garrison")
+    if garrison:
+        lines.append(f"Bunker garrison: {counts(garrison)}")
+    return lines or ["none"]
+
+
+def brief_priority_lines(data):
+    if not data:
+        return ["none"]
+    request_count = sum(int(row.get("request_count", 1)) for row in data if isinstance(row, dict))
+    remaining_values = [
+        row.get("remaining") for row in data
+        if isinstance(row, dict) and type(row.get("remaining")) is int
+    ]
+    lines = [
+        f"{request_count} requests"
+        + (f" grouped into {len(data)} lines" if request_count != len(data) else "")
+        + (f"; {sum(remaining_values)} items remaining" if remaining_values else ""),
+    ]
+    for index, row in enumerate(data, 1):
+        target = value(row.get("target"))
+        if row.get("to"):
+            target += " -> " + value(row.get("to"))
+        remaining = row.get("remaining")
+        qty = f" x{remaining}" if type(remaining) is int else ""
+        summary = []
+        if row.get("action") == "train":
+            summary.append(f"paid {value(row.get('in_production'))}")
+            summary.append(f"unstarted {value(row.get('waiting_to_produce'))}")
+        waiting_for = row.get("waiting_for")
+        blocker = blocker_text(waiting_for)
+        state = row.get("state")
+        if state == "failed":
+            summary.append(f"FAILED; reason: {blocker}")
+        elif waiting_for not in {None, "", "unknown"}:
+            summary.append(f"waiting for {blocker}")
+        elif state not in {None, "", "unknown"}:
+            summary.append(execution_state_text(state))
+        lines.append(
+            f"{index}. {value(row.get('action'))} {target}{qty}: " + "; ".join(summary)
+        )
     return lines
 
 
@@ -228,6 +528,7 @@ def blocker_text(reason):
         "supply": "insufficient available supply",
         "energy": "insufficient available energy",
         "producer_busy": "compatible in-game production queues full",
+        "production_slot": "compatible production is currently busy",
         "producer_unavailable": "no ready grounded producer",
         "producer_techlab_unavailable": "no compatible producer with a ready attached Tech Lab",
         "addon_host_unavailable": "no ready grounded parent without an add-on",
@@ -269,28 +570,51 @@ def priority_lines(data):
     """Compact text for persistent macro work; structured rows keep full detail."""
     if not data:
         return ["none"]
+    request_count = sum(
+        int(row.get("request_count", 1))
+        for row in data if isinstance(row, dict)
+    )
+    remaining_values = [
+        row.get("remaining") for row in data
+        if isinstance(row, dict) and type(row.get("remaining")) is int
+    ]
+    remaining_total = sum(remaining_values)
     lines = [
-        f"Active macro requests: {len(data)}",
-        "Accepted work continues automatically; repeating a request adds more work.",
+        f"Active macro requests: {request_count}"
+        + (f" grouped into {len(data)} lines" if request_count != len(data) else "")
+        + (f"; total remaining items: {remaining_total}" if remaining_values else ""),
     ]
     for index, row in enumerate(data, 1):
         target = value(row.get("target"))
         if row.get("to"):
             target += " -> " + value(row.get("to"))
-        summary = [f"remaining {value(row.get('remaining'))}"]
+        summary = []
+        if int(row.get("request_count", 1)) > 1:
+            summary.append(f"requests {row['request_count']}")
+        summary.append(f"remaining {value(row.get('remaining'))}")
         if row.get("action") == "train":
             summary.extend((
                 f"paid {value(row.get('in_production'))}",
                 f"unqueued {value(row.get('waiting_to_produce'))}",
             ))
+        cancellable = row.get("cancellable_count")
+        if type(cancellable) is int and cancellable > 0:
+            summary.append(f"cancellable {cancellable}")
         lines.append(
             f"{index}. {value(row.get('action'))} {target}; "
             + "; ".join(summary)
         )
-        lines.append(
-            f"   Status: {execution_state_text(row.get('state'))}; "
-            f"waiting: {blocker_text(row.get('waiting_for'))}"
-        )
+        state = row.get("state")
+        waiting_for = row.get("waiting_for")
+        blocker = blocker_text(waiting_for)
+        if state == "failed":
+            status = f"FAILED; reason: {blocker}"
+        elif waiting_for not in {None, "", "unknown"}:
+            qualifier = "BLOCKED remainder" if state in {"in_production", "in_progress"} else "BLOCKED"
+            status = f"{execution_state_text(state)}; {qualifier}: {blocker}"
+        else:
+            status = f"{execution_state_text(state)}; waiting: {blocker}"
+        lines.append(f"   Status: {status}")
     return lines
 
 
@@ -450,20 +774,46 @@ def section(key, data, *, production_priority=None, buildings=None, training=Non
     if not data:
         return ["unknown" if key == "map_topology" else "none"]
     if key == "game":
-        names = {"game_time_seconds": "Game time", "race": "Own race", "enemy_race": "Enemy race",
-                 "game_time_limit_seconds": "Time limit", "seconds_remaining": "Time remaining"}
-        return [f"{names.get(name, label(name))}: " + (time_value(item) if name in
-                {"game_time_seconds", "game_time_limit_seconds", "seconds_remaining"} else value(item))
-                for name, item in data.items()]
+        # One self-contained line so each decision remains readable without
+        # relying on earlier chat history for race or time-limit identity.
+        current = time_clock(data.get("game_time_seconds"))
+        limit = time_clock(data.get("game_time_limit_seconds"))
+        remaining = time_clock(data.get("seconds_remaining"))
+        if limit != "unknown":
+            timing = f"Time {current}/{limit}"
+            if remaining != "unknown":
+                timing += f" ({remaining} remaining)"
+        else:
+            timing = f"Time {current}"
+            if remaining != "unknown":
+                timing += f" ({remaining} remaining)"
+        parts = [timing]
+        if data.get("race") is not None:
+            parts.append(f"own race {value(data.get('race'))}")
+        if data.get("enemy_race") is not None:
+            parts.append(f"enemy race {value(data.get('enemy_race'))}")
+        if data.get("status") is not None:
+            parts.append(f"status {value(data.get('status'))}")
+        if data.get("result") is not None:
+            parts.append(f"result {value(data.get('result'))}")
+        if data.get("end_reason") is not None:
+            parts.append(f"end_reason {value(data.get('end_reason'))}")
+        extras_keys = {
+            "game_time_seconds", "game_time_limit_seconds", "seconds_remaining",
+            "race", "enemy_race", "status", "result", "end_reason",
+        }
+        return ["; ".join(parts), *extras(data, extras_keys, "")]
     if key == "economy":
         worker_name = {
             "terran": "SCVs",
             "protoss": "Probes",
             "zerg": "Drones",
         }.get(race, "workers")
+        supply_blocked = type(data.get("supply_left")) is int and data.get("supply_left") <= 0
         return [f"Minerals: {value(data.get('minerals'))}; Vespene gas: {value(data.get('vespene'))}",
                 f"Supply: {value(data.get('supply_used'))}/{value(data.get('supply_cap'))}; "
-                f"Available supply: {value(data.get('supply_left'))}; Army supply: {value(data.get('army_supply'))}",
+                f"Available supply: {value(data.get('supply_left'))}; Army supply: {value(data.get('army_supply'))}"
+                + ("; SUPPLY BLOCKED" if supply_blocked else ""),
                 f"Workers ({worker_name}): {value(data.get('worker_count'))}",
                 f"Mineral workers: {value(data.get('workers_on_minerals'))} / saturation "
                 f"{value(data.get('mineral_worker_saturation'))}",
@@ -505,9 +855,7 @@ def section(key, data, *, production_priority=None, buildings=None, training=Non
     if key == "available_targets":
         if not isinstance(data, dict):
             return ["none"]
-        lines = [
-            "Technology and producer requirements are met; resources, supply and free slots are not considered."
-        ]
+        lines = []
         for group in ("build", "train", "research", "morph_townhall"):
             names = data.get(group) or []
             lines.append(f"{group.capitalize()}: {', '.join(value(name) for name in names) or 'none'}")
@@ -520,7 +868,7 @@ def section(key, data, *, production_priority=None, buildings=None, training=Non
         if not data:
             return ["none"]
         return [
-            f"Relevant zones: {len(data)}. Query query_zone_state or query_map_overview for the rest.",
+            f"Relevant zones shown: {len(data)}.",
             *table(data, [
             ("Zone", "zone_id"), ("Role", "zone_role"), ("Known owner", "known_owner"),
             ("Center vision", "vision_state"),
@@ -528,7 +876,11 @@ def section(key, data, *, production_priority=None, buildings=None, training=Non
             ("Visible enemy", "visible_enemy_contents", lambda items: "ENEMY visible: " + content(items)),
             ("Enemy history", "last_seen_enemy_contents", lambda items: "ENEMY last seen: " + content(items)),
             ("History age (s)", "enemy_information_age_seconds"),
-            ("Visible enemy weapon in range", "visible_enemy_weapon_in_range"),
+            ("Immediate weapon threat", "visible_enemy_weapon_in_range", lambda active: (
+                "IMMEDIATE WEAPON THREAT - a visible armed enemy can currently reach an own unit or building; "
+                "this does not confirm damage" if active is True else
+                "no" if active is False else "unknown"
+            )),
         ])]
     if key in {"building", "training"}:
         action = "build" if key == "building" else "train"
@@ -592,9 +944,7 @@ def section(key, data, *, production_priority=None, buildings=None, training=Non
             lines.extend(extras(row, {"route"}))
         return lines
     if key == "recent_events":
-        # New events for this turn live in Previous Feedback. This block is
-        # only earlier history, labeled so old failures are not re-read as new.
-        return event_lines(data, omit_types={"demand_accepted"}, historical=True)
+        return event_lines(data, omit_types={"demand_accepted", "decision_rejected"})
     return fields(data) if isinstance(data, dict) else fields({"items": data})
 
 
@@ -615,32 +965,37 @@ def render_text(observation, sections, *, race=None):
     return "\n".join(lines).rstrip()
 
 
-def render_feedback_text(feedback, *, shown_events=None):
-    lines = ["Action receipts:"]
+def render_feedback_text(feedback, *, shown_events=None, include_receipts=True):
+    lines = []
     if any(event.get("type") == "decision_rejected" for event in feedback.get("events", [])):
         lines.append("Batch rejected: no entries from this array applied; previously accepted work continues.")
     receipts = feedback.get("receipts", [])
-    if not receipts:
-        lines.append("none")
-    for index, row in enumerate(compact_counted(receipts), 1):
-        meaning = receipt_meaning(row)
-        lines.append(f"{index}. {value(row.get('name') or row.get('action'))}: {value(row.get('result'))}"
-                     + (f" ({meaning})" if meaning else ""))
-        display = dict(row)
-        arguments = display.get("arguments")
-        if isinstance(arguments, dict):
-            for key, item in arguments.items():
-                display.setdefault(key, item)
-        name = row.get("name") or row.get("action")
-        if name == "cancel" and row.get("result") == "accepted":
-            reason = row.get("reason")
-            prefix = "cleared_waiting="
-            if isinstance(reason, str) and reason.startswith(prefix) and reason[len(prefix):].isdigit():
-                display["reason"] = "unstarted work quantity removed: " + reason[len(prefix):]
-        lines.extend(extras(display, {"action", "name", "arguments", "result"}))
+    if include_receipts:
+        lines.append("Action receipts:")
+        if not receipts:
+            lines.append("none")
+        for index, row in enumerate(compact_counted(receipts), 1):
+            meaning = receipt_meaning(row)
+            lines.append(f"{index}. {value(row.get('name') or row.get('action'))}: {value(row.get('result'))}"
+                         + (f" ({meaning})" if meaning else ""))
+            display = dict(row)
+            arguments = display.get("arguments")
+            if isinstance(arguments, dict):
+                for key, item in arguments.items():
+                    display.setdefault(key, item)
+            name = row.get("name") or row.get("action")
+            if name == "cancel" and row.get("result") == "accepted":
+                reason = row.get("reason")
+                prefix = "cleared_waiting="
+                if isinstance(reason, str) and reason.startswith(prefix) and reason[len(prefix):].isdigit():
+                    display["reason"] = "unstarted work quantity removed: " + reason[len(prefix):]
+            lines.extend(extras(display, {"action", "name", "arguments", "result"}))
     events = feedback.get("events", [])
     if shown_events is None:
-        lines.extend(["", "Execution events:", *event_lines(events)])
+        if events:
+            if lines:
+                lines.append("")
+            lines.extend(["Execution events:", *event_lines(events)])
     else:
         # Prefer event_id when present so the same logical event is never shown
         # twice under two unrecognizable copies.
@@ -658,17 +1013,25 @@ def render_feedback_text(feedback, *, shown_events=None):
                 remaining_shown.remove(event)
                 continue
             additional.append(event)
-        lines.extend(["", "Execution events:",
-                      *(event_lines(additional) if additional else ["none"])])
-    if feedback.get("name_normalizations"):
-        lines.extend(["", "Name normalizations (use canonical names next time):"])
+        if additional:
+            if lines:
+                lines.append("")
+            lines.extend(["Execution events:", *event_lines(additional)])
+    if include_receipts and feedback.get("name_normalizations"):
+        if lines:
+            lines.append("")
+        lines.append("Name normalizations (use canonical names next time):")
         for row in feedback["name_normalizations"]:
             verb = row.get("name") or row.get("action")
             if verb == "cancel":
                 verb = f"cancel {value(row.get('target_action'))}"
             lines.append(f"entry {value(row.get('entry_index'))} ({value(verb)}): "
                          f"{value(row.get('original'))} -> {value(row.get('canonical'))}")
-    lines.extend(extras(feedback, {"receipts", "events", "name_normalizations"}, ""))
+    lines.extend(extras(
+        feedback,
+        {"receipts", "events", "name_normalizations", "receipts_delivered"},
+        "",
+    ))
     return "\n".join(lines)
 
 
@@ -682,6 +1045,7 @@ def receipt_meaning(row):
             "research": "research request registered",
             "cancel": "cancellation processed",
             "combat": "army order registered",
+            "merge_groups": "group merge registered",
             "retreat": "return order registered, not arrival",
             "scan": "cast request registered",
             "call_mule": "cast request registered",

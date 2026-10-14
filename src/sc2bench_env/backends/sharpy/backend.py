@@ -389,6 +389,10 @@ class SharpyBackend(Backend):
                     "group": task.group,
                     "withdrawing": task.withdrawing,
                     "command_revision": task.command_revision,
+                    "membership_revision": task.membership_revision,
+                    "merge_source_ids": list(task.merge_source_ids),
+                    "transfer_requests": [dict(item) for item in task.transfer_requests],
+                    "merge_pending_into": task.merge_pending_into,
                     "retreat_method": task.retreat_method,
                     "recall_status": task.recall_status,
                     "units": dict(task.units or {}),
@@ -506,6 +510,7 @@ class SharpyBackend(Backend):
                 state: Optional[DemandState] = None
                 waiting_for: Optional[str] = self._bridge.waiting_reasons.get(task_id)
                 assigned_in_prod: Optional[int] = None
+                transfer_ids = []
                 if failure:
                     state = DemandState.FAILED
                 elif action == "build":
@@ -573,6 +578,11 @@ class SharpyBackend(Backend):
                                 produced_delta=0,
                                 state=state,
                                 end_reason=str(end_reason),
+                                details={
+                                    "transferred_units": dict(
+                                        row.get("merge_transferred_units") or {}
+                                    )
+                                },
                             )
                         )
                         self._bridge.last_reported_completed[task_id] = peak
@@ -582,6 +592,7 @@ class SharpyBackend(Backend):
                         state = DemandState.FAILED
                     else:
                         state = DemandState.IN_PROGRESS
+                    transfer_ids = row.get("applied_transfer_ids") or []
                 else:
                     state = DemandState.WAITING_TO_START
 
@@ -595,6 +606,10 @@ class SharpyBackend(Backend):
                         waiting_for=waiting_for,
                         failure_reason=failure,
                         in_progress=assigned_in_prod,
+                        details=(
+                            {"applied_transfer_ids": list(transfer_ids)}
+                            if action == "combat" and transfer_ids else {}
+                        ),
                     )
                 )
         return updates

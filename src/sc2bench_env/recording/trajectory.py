@@ -20,10 +20,11 @@ from typing import Any, Dict, List, Optional, Set
 from uuid import uuid4
 
 TRAJECTORY_SCHEMA_VERSION = "0.7"
-TOOL_PROTOCOL_VERSION = "tool_turn_v1"
+TOOL_PROTOCOL_VERSION = "tool_turn_v3"
 _EXECUTION_STATE = {
     "ok": "completed",
     "staged": "staged",
+    "no_op": "no_op",
     "decision_ready": "decision_ready",
     "rejected": "rejected",
 }
@@ -204,6 +205,22 @@ def _knowledge_fields() -> Dict[str, Any]:
     return record_fields()
 
 
+def _latest_agent_input(agent_context: Optional[Dict[str, Any]]) -> Optional[str]:
+    """Return the last actual Observation message supplied by a harness."""
+    if not isinstance(agent_context, dict):
+        return None
+    messages = agent_context.get("messages")
+    if not isinstance(messages, list):
+        return None
+    for message in reversed(messages):
+        if not isinstance(message, dict) or message.get("role") != "user":
+            continue
+        content = message.get("content")
+        if isinstance(content, str) and content.startswith("[Current Observation]"):
+            return content
+    return None
+
+
 @dataclass
 class TrajectoryRecorder:
     """Collects reset/step/close events into a fixed JSON structure."""
@@ -307,6 +324,15 @@ class TrajectoryRecorder:
         messages = supplied.get("messages") if "messages" in supplied else None
         if isinstance(messages, list):
             self._session_messages = deepcopy(_json_safe(messages))
+            system = next((
+                message.get("content") for message in messages
+                if isinstance(message, dict) and message.get("role") == "system"
+                and isinstance(message.get("content"), str)
+            ), None)
+            if system is not None and system != self._header_prompt:
+                self._header_prompt = system
+                self._header_metadata["platform_prompt_char_count"] = len(system)
+                self._write_episode_header()
         tools = supplied.get("tools") if "tools" in supplied else None
         if isinstance(tools, list):
             self._session_tools = deepcopy(_json_safe(tools))
@@ -423,6 +449,20 @@ class TrajectoryRecorder:
     ) -> None:
         payload = result.to_dict() if hasattr(result, "to_dict") else result
         status = payload.get("status") if isinstance(payload, dict) else None
+        rendered_result = None
+        try:
+            from sc2bench_env.adapters.llm import LLMAdapter
+            from sc2bench_env.interface.tools import ToolCall
+
+            rendered_result = LLMAdapter(
+                race=str(self.config.get("race") or "terran")
+            ).render_tool_result(
+                ToolCall(str(call.get("name") or ""), dict(call.get("arguments") or {})),
+                result,
+            )
+        except (TypeError, ValueError):
+            # Structured data remains authoritative if a custom call cannot be rendered.
+            rendered_result = None
         self._append({
             "type": "tool_call",
             "kind": kind,
@@ -432,6 +472,7 @@ class TrajectoryRecorder:
             "arguments": dict(call.get("arguments") or {}),
             "call": call,
             "result": payload,
+            "rendered_result": rendered_result,
             "data": payload.get("data") if isinstance(payload, dict) else None,
             "game_time_seconds": game_time_seconds,
             "decision_index": decision_index,
@@ -473,10 +514,14 @@ class TrajectoryRecorder:
 
     def record_reset(self, observation: Dict[str, Any]) -> None:
         self._game_time = float((observation.get("game") or {}).get("game_time_seconds", 0))
+        from sc2bench_env.interface.observations import render_brief_observation_text
+        brief = render_brief_observation_text(observation)
         self._append(
             {
                 "type": "reset",
                 "observation": observation,
+                "brief_observation": brief,
+                "brief_observation_char_count": len(brief),
                 "recorded_at": _utc_now(),
             }
         )
@@ -495,6 +540,7 @@ class TrajectoryRecorder:
         game_time_before_seconds: Optional[float] = None,
         wall_time_seconds: float = 0.0,
         agent_context: Optional[Dict[str, Any]] = None,
+        previous_observation: Optional[Dict[str, Any]] = None,
     ) -> None:
         self._decision_count += 1
         self._rejected_count += int(not accepted)
@@ -502,6 +548,11 @@ class TrajectoryRecorder:
         self._game_time = float((observation.get("game") or {}).get("game_time_seconds", before))
         submitted = actions if submitted_decision is _UNSET else submitted_decision
         recorded_at = _utc_now()
+        from sc2bench_env.interface.observations import render_brief_observation_text
+        brief = render_brief_observation_text(
+            observation, previous=previous_observation,
+        )
+        agent_input = _latest_agent_input(agent_context)
         trajectory_entry = {
                 "type": "step",
                 "step_index": self._decision_count,
@@ -517,6 +568,10 @@ class TrajectoryRecorder:
                 "wall_time_seconds": wall_time_seconds,
                 "observation_char_count": len(json.dumps(observation, ensure_ascii=False, separators=(",", ":"))),
                 "observation": observation,
+                "brief_observation": brief,
+                "brief_observation_char_count": len(brief),
+                "agent_input": agent_input,
+                "agent_input_char_count": len(agent_input) if agent_input is not None else None,
                 "feedback": feedback,
                 "terminated": terminated,
                 "info": info,
@@ -676,7 +731,16 @@ class TrajectoryRecorder:
                     errors.append(f"turn {turn_id} does not end on advance")
             ready = [call for call in calls if call.get("execution_state") == "decision_ready"]
             if ready:
-                staged = ((ready[-1].get("data") or {}).get("staged_calls") or [])
+                # Action results do not repeat the complete staged call list.
+                # Reconstruct it from the ordered action events in this turn.
+                staged = [
+                    {
+                        "name": call.get("name"),
+                        "arguments": dict(call.get("arguments") or {}),
+                    }
+                    for call in calls
+                    if call.get("execution_state") == "staged"
+                ]
                 advance_call = {"name": "advance", "arguments": ready[-1].get("arguments") or {}}
                 expected = list(staged) + [advance_call]
                 step = next((

@@ -659,8 +659,12 @@ class ActCombatMission(ActBase):
         self._transport_attempted = False
         self._unload_here = False
         self._target_clear_since: Optional[float] = None
+        self._holding_since: Optional[float] = None
         self._return_reason = "withdrawn"
         self._command_revision = -1
+        self._membership_revision = 0
+        self.merge_transferred_counts: Dict[str, int] = {}
+        self.membership_error: Optional[str] = None
         self.retreat_method = "move"
         self.recall_status = None
         self.recall_failure = None
@@ -670,6 +674,7 @@ class ActCombatMission(ActBase):
         self._recall_cast_at = None
         self.creep_generating = 0
         self._creep_locked = set()
+        self._external_pending_counts: Dict[str, int] = {}
 
     def update_order(self, style: str, zone_id: str, withdrawing: bool, revision: int,
                      retreat_method: str = "move", recall_status: Optional[str] = None) -> None:
@@ -691,6 +696,7 @@ class ActCombatMission(ActBase):
         self._load_started_at = None
         self._unload_started_at = None
         self._target_clear_since = None
+        self._holding_since = None
         self._return_reason = "withdrawn"
         self.transport_activity = "withdrawal" if withdrawing else "support"
         if withdrawing:
@@ -1083,6 +1089,8 @@ class ActCombatMission(ActBase):
 
     def _hold_cleared_objective(self) -> None:
         """Stay on the cleared zone as defend until a new order or retreat."""
+        if self._holding_since is None:
+            self._holding_since = float(getattr(self.ai, "time", 0) or 0)
         self.style = "defend"
         self.phase = "fight"
         self._target_clear_since = None
@@ -1108,49 +1116,155 @@ class ActCombatMission(ActBase):
     def _platform_name(self, unit_type: UnitTypeId) -> Optional[str]:
         return self._own_adapter().normalize_unit_name(unit_type.name)
 
-    def _bind_units(self) -> bool:
+    def _select_group0_units(self, requested: Mapping[str, int]) -> tuple[List[int], Optional[str]]:
+        """Select a complete reinforcement set without changing ownership."""
         from sc2bench_env.backends.sharpy.combat_styles import available_for_mission
 
-        type_map = self._unit_type_map()
+        adapter = self._own_adapter()
         reserved = self._reserved_tags()
         blocked = set(reserved)
         blocked.update(getattr(self.ai, "bench_morph_tags", set()) or ())
         selected: List[int] = []
-        for name, need in self.units.items():
-            unit_type = type_map.get(name)
+        for name, need in requested.items():
+            unit_type = adapter.train_unit_type(name)
             if unit_type is None:
-                self.failure_reason = f"unsupported_unit:{name}"
-                return False
-            types = self._own_adapter().combat_forms(name)
+                return [], f"unsupported_unit:{name}"
             candidates = []
-            for type_id in types:
+            for type_id in adapter.combat_forms(name):
                 for unit in self.ai.units(type_id).ready:
                     if unit.tag in blocked or unit.is_structure:
                         continue
                     candidates.append(unit)
             group0 = getattr(self.ai, "bench_group0_tags", None)
             excluded = set(self._own_adapter().home_gather_excluded())
-            idle = [
-                unit
-                for unit in candidates
+            pool = [
+                unit for unit in candidates
                 if available_for_mission(unit, self.roles, blocked)
-                and (
-                    group0 is None
-                    or unit.tag in group0
-                    or name in excluded
-                )
+                and (group0 is None or unit.tag in group0 or name in excluded)
             ]
-            # Never fall back to stealing auto-defense / attack-owned units.
-            pool = idle
-            if len(pool) < need:
-                available = len(pool)
-                self.failure_reason = (
-                    f"insufficient_units:{name}"
-                    f":requested={int(need)}:available={available}:missing={int(need) - available}"
+            if len(pool) < int(need):
+                return [], (
+                    f"insufficient_units:{name}:requested={int(need)}:"
+                    f"available={len(pool)}:missing={int(need) - len(pool)}"
                 )
-                return False
             pool.sort(key=lambda unit: unit.tag)
-            selected.extend(unit.tag for unit in pool[:need])
+            chosen = [unit.tag for unit in pool[:int(need)]]
+            selected.extend(chosen)
+            blocked.update(chosen)
+        return selected, None
+
+    def sync_membership(
+        self, desired: Mapping[str, int], revision: int,
+        external_pending: Optional[Mapping[str, int]] = None,
+    ) -> None:
+        """Bind only newly requested group_0 units; never replace casualties."""
+        self._external_pending_counts = {
+            str(name): max(0, int(count))
+            for name, count in dict(external_pending or {}).items()
+            if int(count) > 0
+        }
+        if revision == self._membership_revision:
+            return
+        desired_counts = {str(name): int(count) for name, count in desired.items()}
+        if not self._bound:
+            self.units = desired_counts
+            self._membership_revision = revision
+            return
+        additions = {
+            name: max(
+                0,
+                count - int(self.units.get(name, 0))
+                - int(self._external_pending_counts.get(name, 0)),
+            )
+            for name, count in desired_counts.items()
+            if count > int(self.units.get(name, 0))
+        }
+        additions = {name: count for name, count in additions.items() if count > 0}
+        selected, error = self._select_group0_units(additions)
+        if error:
+            self.membership_error = error
+            return
+        self._tags.extend(tag for tag in selected if tag not in self._tags)
+        self._reserved_tags().update(selected)
+        getattr(self.ai, "bench_group0_tags", set()).difference_update(selected)
+        self.units = desired_counts
+        self.alive_counts.update({name: self.alive_counts.get(name, 0) for name in desired_counts})
+        self.membership_error = None
+        self._membership_revision = revision
+
+    def absorb_units(
+        self, source: "ActCombatMission", requested: Mapping[str, int], *,
+        destination_group: str,
+    ) -> bool:
+        """Transfer a complete requested subset without passing through group_0."""
+        if source is self or source.end_reason:
+            return False
+        free_units, cargo_tags = source._collect_mission_units()
+        source._refresh_alive_counts(free_units, cargo_tags)
+        selected: List[int] = []
+        for name, need in requested.items():
+            candidates = sorted(
+                (
+                    unit for unit in free_units
+                    if self._platform_name(unit.type_id) == str(name)
+                    and unit.tag not in selected
+                ),
+                key=lambda unit: unit.tag,
+            )
+            if len(candidates) < int(need):
+                return False
+            selected.extend(unit.tag for unit in candidates[:int(need)])
+        if not selected:
+            return False
+        selected_set = set(selected)
+        source._tags = [tag for tag in source._tags if tag not in selected_set]
+        self._tags.extend(tag for tag in selected if tag not in self._tags)
+        self._reserved_tags().update(selected)
+        self._bound = True
+        for name, count in requested.items():
+            self._external_pending_counts[name] = max(
+                0, int(self._external_pending_counts.get(name, 0)) - int(count)
+            )
+        if not source._tags:
+            source._bound = False
+            source.end_reason = f"transferred_into:{destination_group}"
+        return True
+
+    def absorb_group(self, source: "ActCombatMission", *, destination_group: str) -> None:
+        """Move source ownership into this mission without releasing through group_0."""
+        if source is self or source.end_reason:
+            return
+        free_units, cargo_tags = source._collect_mission_units()
+        source._refresh_alive_counts(free_units, cargo_tags)
+        source.merge_transferred_counts = {
+            str(name): int(count)
+            for name, count in source.alive_counts.items()
+            if int(count) > 0
+        }
+        transferred = [tag for tag in source._tags if tag not in self._tags]
+        self._tags.extend(transferred)
+        self._reserved_tags().update(transferred)
+        for name, count in source.units.items():
+            self.units[name] = int(self.units.get(name, 0)) + int(count)
+        self.peak_loaded_units = max(self.peak_loaded_units, source.peak_loaded_units)
+        self.drop_unloaded = self.drop_unloaded or source.drop_unloaded
+        source._tags = []
+        source._bound = False
+        source.end_reason = f"merged_into:{destination_group}"
+
+    def _bind_units(self) -> bool:
+        if self._external_pending_counts and all(
+            int(self._external_pending_counts.get(name, 0)) >= int(count)
+            for name, count in self.units.items()
+        ):
+            # The ownership transfer at the end of this macro frame will bind
+            # the mission. Do not accidentally select equivalent group_0 units.
+            return False
+        selected, error = self._select_group0_units(self.units)
+        if error:
+            self.failure_reason = error
+            return False
+        reserved = self._reserved_tags()
         self._tags = selected
         reserved.update(selected)
         getattr(self.ai, "bench_group0_tags", set()).difference_update(selected)
