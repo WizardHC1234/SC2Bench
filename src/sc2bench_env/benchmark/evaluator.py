@@ -18,7 +18,7 @@ _OUTCOMES = {
     "Result.Tie": "tie",
 }
 _BATCH_SCHEMAS = {"0.1", "0.2", "0.3", "0.4"}
-_KNOWN_TOOL_NAMES = known_tool_names()
+_KNOWN_TOOL_NAMES = known_tool_names() | {"combat", "retreat"}
 
 
 def decision_mode(config: Any) -> str:
@@ -30,6 +30,26 @@ def decision_mode(config: Any) -> str:
     if config.get("blocking_decisions", True):
         return "blocking"
     return "asynchronous"
+
+
+def _conversation_scope(record_directory: Path) -> str:
+    """Read the transcript scope without inferring an Agent's harness."""
+    try:
+        payload = json.loads((record_directory / "session.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return "unknown"
+    scope = payload.get("scope") if isinstance(payload, dict) else None
+    return str(scope) if scope in {"episode", "decision"} else "unknown"
+
+
+def _indexed_conversation_scope(batch: Any) -> Optional[str]:
+    """Fallback for batches recorded before session.json stored its scope."""
+    if not isinstance(batch, dict):
+        return None
+    metadata = batch.get("agent_metadata")
+    settings = metadata.get("settings") if isinstance(metadata, dict) else None
+    mode = settings.get("conversation_mode") if isinstance(settings, dict) else None
+    return {"full_session": "episode", "per_decision": "decision"}.get(mode)
 
 
 def _mean(values: list[float]) -> Optional[float]:
@@ -74,7 +94,9 @@ def _consume_trajectory(usage: dict[str, Any], record_directory: Any) -> None:
             # tool_turn_v3 records written before this fix replaced the family
             # with kind="rejected". Infer the original family so old batches
             # remain measurable.
-            if kind == "rejected":
+            if payload.get("status") == "rejected" and kind not in {
+                "knowledge", "read", "action",
+            }:
                 if name in KNOWLEDGE_TOOLS:
                     kind = "knowledge"
                 elif name in READ_TOOLS:
@@ -132,6 +154,7 @@ class Evaluator:
             raise ValueError("Unsupported batch schema")
         if not isinstance(batch.get("episodes"), list):
             raise ValueError("Missing episode index")
+        indexed_scope = _indexed_conversation_scope(batch)
         episodes = []
         for saved in batch["episodes"]:
             if not isinstance(saved, dict):
@@ -173,6 +196,8 @@ class Evaluator:
                 # Runtime version was supplied by Runner, not stored in episode.txt.
                 if "runtime_versions" in saved:
                     row["indexed_runtime_versions"] = saved["runtime_versions"]
+            if row.get("conversation_scope") in {None, "unknown"} and indexed_scope:
+                row["conversation_scope"] = indexed_scope
             episodes.append(row)
         case_ids = list(dict.fromkeys(row["case_id"] for row in episodes if "case_id" in row))
         metrics = Evaluator.measure(episodes)
@@ -219,6 +244,7 @@ class Evaluator:
             "config": start["config"],
             "versions": start.get("versions"),
             "platform_prompt_sha256": hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
+            "conversation_scope": _conversation_scope(directory),
             "status": status,
             "outcome": _OUTCOMES.get(result, "unfinished") if status == "completed" else "unfinished",
             "result": result if status == "completed" else None,
@@ -232,6 +258,9 @@ class Evaluator:
     @staticmethod
     def summarize(episodes: Iterable[Dict[str, Any]]) -> Dict[str, int]:
         rows = list(episodes)
+        rejected_decisions = sum(
+            int(row.get("rejected_count") or 0) for row in rows
+        )
         return {
             "episodes": len(rows),
             "completed": sum(row.get("status") == "completed" for row in rows),
@@ -242,7 +271,10 @@ class Evaluator:
             "defeat": sum(row.get("outcome") == "defeat" for row in rows),
             "tie": sum(row.get("outcome") == "tie" for row in rows),
             "total_decisions": sum(int(row.get("decision_count") or 0) for row in rows),
-            "total_rejected": sum(int(row.get("rejected_count") or 0) for row in rows),
+            # Keep the pre-0.5 key readable for existing batch consumers. It
+            # has always counted rejected decisions, not rejected tool calls.
+            "total_rejected": rejected_decisions,
+            "total_rejected_decisions": rejected_decisions,
         }
 
     @staticmethod
@@ -263,11 +295,15 @@ class Evaluator:
         rows = list(episodes)
         summary = Evaluator.summarize(rows)
         modes = []
+        conversation_scopes = []
         for row in rows:
             mode = decision_mode(row.get("config") if isinstance(row.get("config"), dict) else {})
             if mode not in modes:
                 modes.append(mode)
-        comparable = len(modes) <= 1
+            scope = str(row.get("conversation_scope") or "unknown")
+            if scope not in conversation_scopes:
+                conversation_scopes.append(scope)
+        comparable = len(modes) <= 1 and len(conversation_scopes) <= 1
         decided = summary["victory"] + summary["defeat"] + summary["tie"]
         usage = _empty_usage()
         decision_values = []
@@ -319,6 +355,10 @@ class Evaluator:
         metrics: Dict[str, Any] = {
             "decision_mode": modes[0] if len(modes) == 1 else None,
             "decision_modes": modes,
+            "conversation_scope": (
+                conversation_scopes[0] if len(conversation_scopes) == 1 else None
+            ),
+            "conversation_scopes": conversation_scopes,
             "comparable": comparable,
             "episodes": summary["episodes"],
             "victory": summary["victory"],
@@ -326,8 +366,8 @@ class Evaluator:
             "tie": summary["tie"],
             "win_rate": (summary["victory"] / decided) if comparable and decided else None,
             "decisions": summary["total_decisions"],
-            "rejected": summary["total_rejected"],
-            "rejected_decisions": summary["total_rejected"],
+            "rejected": summary["total_rejected_decisions"],
+            "rejected_decisions": summary["total_rejected_decisions"],
             "tool_calls": usage["tool_calls"],
             "tool_rejections": usage["tool_rejections"],
             "model_calls": usage["model_calls"],

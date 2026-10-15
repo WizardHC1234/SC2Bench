@@ -88,7 +88,34 @@ class ActOngoingMacroTasks(ActBase):
         return self.adapter.execution_blocker(self.ai, task)
 
     def _resource_committed(self, task: Dict[str, Any]) -> bool:
-        return self.adapter.resource_committed(self.ai, task)
+        committed = self.adapter.resource_committed(self.ai, task)
+        if not committed or task.get("_resource_committed"):
+            return committed
+        if task.get("action") not in {"build", "train"}:
+            return committed
+
+        # Race adapters can observe only aggregate in-game pending counts. A
+        # pending Marine (for example) must not make every later Marine demand
+        # look paid. Attribute an otherwise-unowned aggregate commitment to the
+        # earliest active demand of that action/target. A task that actually
+        # spends resources receives its own _resource_committed marker below.
+        identity = (str(task.get("action") or ""), str(task.get("target") or ""))
+        ordered = sorted(
+            self.active_tasks,
+            key=lambda item: (
+                int(item.get("order_index", 10**9)),
+                str(item.get("task_id") or ""),
+            ),
+        )
+        for candidate in ordered:
+            if candidate is task:
+                return True
+            if (
+                str(candidate.get("action") or ""),
+                str(candidate.get("target") or ""),
+            ) == identity:
+                return False
+        return committed
 
     def _ready_progress(self, task: Dict[str, Any]) -> int:
         target = self.adapter.ready_progress_target(task)

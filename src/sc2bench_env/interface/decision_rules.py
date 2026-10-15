@@ -531,28 +531,32 @@ def decision_json_schema(*, race: str = "terran") -> Dict[str, Any]:
             required=("group",),
         ),
         _tool_call_object_schema(
-            "attack_group",
+            "dispatch_group",
             properties={
-                "group": {"type": "string", "pattern": ANY_GROUP_PATTERN},
-                "target": _zone_string(),
+                "source": {"type": "string", "pattern": ANY_GROUP_PATTERN},
                 "units": {
                     "type": "object",
                     "minProperties": 1,
                     "additionalProperties": {"type": "integer", "minimum": 1},
                 },
+                "order": {"type": "string", "enum": list(COMBAT_STYLES)},
+                "target": _zone_string(),
+            },
+            required=("source", "units", "order", "target"),
+        ),
+        _tool_call_object_schema(
+            "attack_group",
+            properties={
+                "group": {"type": "string", "pattern": GROUP_PATTERN},
+                "target": _zone_string(),
             },
             required=("group", "target"),
         ),
         _tool_call_object_schema(
             "defend_group",
             properties={
-                "group": {"type": "string", "pattern": ANY_GROUP_PATTERN},
+                "group": {"type": "string", "pattern": GROUP_PATTERN},
                 "target": _zone_string(),
-                "units": {
-                    "type": "object",
-                    "minProperties": 1,
-                    "additionalProperties": {"type": "integer", "minimum": 1},
-                },
             },
             required=("group", "target"),
         ),

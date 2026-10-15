@@ -324,7 +324,7 @@ def _render_army_state(result: Mapping[str, Any]) -> str:
         for key in (
             "visible_enemy_nearby", "merged_from",
             "merge_pending_into", "pending_merge_sources",
-            "pending_transfers", "member_tags", "transport",
+            "pending_transfers", "transport",
         ):
             if key in row:
                 labels = {
@@ -333,7 +333,6 @@ def _render_army_state(result: Mapping[str, Any]) -> str:
                     "merge_pending_into": "Pending merge into",
                     "pending_merge_sources": "Pending merge sources",
                     "pending_transfers": "Pending transfers",
-                    "member_tags": "Member tags",
                     "transport": "Transport",
                 }
                 lines.append(f"  {labels[key]}: {_display_value(row.get(key))}")

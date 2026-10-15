@@ -415,11 +415,19 @@ def query_army_state(
     all_groups = observation.get("combat") or {}
     if not isinstance(all_groups, Mapping):
         all_groups = {}
-    selected = {
-        str(name): dict(row) if isinstance(row, Mapping) else row
-        for name, row in all_groups.items()
-        if not wanted or str(name) in set(wanted)
-    }
+    selected = {}
+    for name, row in all_groups.items():
+        if wanted and str(name) not in set(wanted):
+            continue
+        if isinstance(row, Mapping):
+            public_row = dict(row)
+            # Unit tags and backend micro counters are diagnostic identities,
+            # not part of the high-level group-control contract.
+            public_row.pop("member_tags", None)
+            public_row.pop("skill_evidence", None)
+            selected[str(name)] = public_row
+        else:
+            selected[str(name)] = row
     missing = [name for name in wanted if name not in all_groups]
     return {
         "own_forces": dict(observation.get("own_forces") or {}),

@@ -54,6 +54,20 @@ def read_episode(directory: str | Path) -> Dict[str, Any]:
         trajectory = json.loads(trajectory_path.read_text(encoding="utf-8"))
         if not isinstance(trajectory, dict) or not isinstance(trajectory.get("events"), list):
             raise ValueError("Invalid trajectory.json")
+    decision_sessions = []
+    decision_sessions_path = path / "decision_sessions.jsonl"
+    if decision_sessions_path.is_file():
+        for line_number, raw in enumerate(
+            decision_sessions_path.read_text(encoding="utf-8").splitlines(), 1
+        ):
+            if not raw.strip():
+                continue
+            item = json.loads(raw)
+            if not isinstance(item, dict) or not isinstance(item.get("messages"), list):
+                raise ValueError(
+                    f"Invalid decision_sessions.jsonl line {line_number}"
+                )
+            decision_sessions.append(item)
     protocol = None
     if isinstance(trajectory, dict):
         protocol = trajectory.get("tool_protocol_version")
@@ -71,6 +85,7 @@ def read_episode(directory: str | Path) -> Dict[str, Any]:
         "summary": summary,
         "session": session,
         "messages": session["messages"],
+        "decision_sessions": decision_sessions,
         "trajectory": trajectory,
         "tool_protocol_version": protocol,
         "record_notes": notes,

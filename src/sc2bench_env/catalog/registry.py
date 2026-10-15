@@ -20,7 +20,7 @@ from sc2bench_env.catalog.races import get_catalog
 from sc2bench_env.catalog.races.terran import TERRAN_TARGETS
 
 from sc2bench_env.interface.platform_rules import (
-    ACTION_RULES, ARMY_RULES, COMBAT_DISPATCH_RULES, COMBAT_RETARGET_RULES,
+    ARMY_RULES, COMBAT_DISPATCH_RULES, COMBAT_RETARGET_RULES,
     COMBAT_STYLE_RULES, CONTROL_RULES, EXECUTION_RULES, GAME_RULES, INTERACTION_RULES,
     PROTOSS_CONTROL_RULES, PROTOSS_GAME_RULES, PROTOSS_ROLE_RULES,
     ZERG_CONTROL_RULES, ZERG_GAME_RULES, ZERG_ROLE_RULES,
@@ -210,8 +210,9 @@ def decision_examples(*, race: str = "terran") -> Tuple[List[Dict[str, Any]], ..
             ],
             [
                 {"name": "cancel", "arguments": {"target_action": "train", "target": "roach"}},
-                {"name": "attack_group", "arguments": {"group": "group_0", "target": "zone_3",
-                 "units": {"zergling": 8, "roach": 4}}},
+                {"name": "dispatch_group", "arguments": {"source": "group_0",
+                 "units": {"zergling": 8, "roach": 4}, "order": "attack",
+                 "target": "zone_3"}},
                 {"name": "advance", "arguments": {"seconds": 15}},
             ],
             [
@@ -237,8 +238,9 @@ def decision_examples(*, race: str = "terran") -> Tuple[List[Dict[str, Any]], ..
             ],
             [
                 {"name": "cancel", "arguments": {"target_action": "train", "target": "zealot"}},
-                {"name": "attack_group", "arguments": {"group": "group_0", "target": "zone_3",
-                 "units": {"zealot": 8, "stalker": 4}}},
+                {"name": "dispatch_group", "arguments": {"source": "group_0",
+                 "units": {"zealot": 8, "stalker": 4}, "order": "attack",
+                 "target": "zone_3"}},
                 {"name": "advance", "arguments": {"seconds": 15}},
             ],
             [
@@ -248,8 +250,8 @@ def decision_examples(*, race: str = "terran") -> Tuple[List[Dict[str, Any]], ..
                 {"name": "advance", "arguments": {"seconds": 5}},
             ],
             [
-                {"name": "defend_group", "arguments": {"group": "group_0", "target": "zone_1",
-                 "units": {"zealot": 4}}},
+                {"name": "dispatch_group", "arguments": {"source": "group_0",
+                 "units": {"zealot": 4}, "order": "defend", "target": "zone_1"}},
                 {"name": "advance", "arguments": {"seconds": 5}},
             ],
         )
@@ -271,8 +273,9 @@ def decision_examples(*, race: str = "terran") -> Tuple[List[Dict[str, Any]], ..
         ],
         [
             {"name": "cancel", "arguments": {"target_action": "train", "target": "marine"}},
-            {"name": "attack_group", "arguments": {"group": "group_0", "target": "zone_3",
-             "units": {"marine": 16, "marauder": 4, "medivac": 2}}},
+            {"name": "dispatch_group", "arguments": {"source": "group_0",
+             "units": {"marine": 16, "marauder": 4, "medivac": 2},
+             "order": "attack", "target": "zone_3"}},
             {"name": "advance", "arguments": {"seconds": 15}},
         ],
         [
@@ -281,6 +284,10 @@ def decision_examples(*, race: str = "terran") -> Tuple[List[Dict[str, Any]], ..
             {"name": "reinforce_group", "arguments": {"source": "group_0", "destination": "group_1", "units": {"marine": 4}}},
             {"name": "merge_groups", "arguments": {"destination": "group_1", "sources": ["group_2"]}},
             {"name": "retreat_group", "arguments": {"group": "group_2"}},
+            {"name": "advance", "arguments": {"seconds": 5}},
+        ],
+        [
+            {"name": "defend_group", "arguments": {"group": "group_1", "target": "zone_4"}},
             {"name": "advance", "arguments": {"seconds": 5}},
         ],
     )

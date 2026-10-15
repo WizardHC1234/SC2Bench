@@ -7,6 +7,7 @@ from .act_base import ActBase
 from sharpy.interfaces import ILostUnitsManager, IIncomeCalculator
 
 REACTORS = {UnitTypeId.BARRACKSREACTOR, UnitTypeId.FACTORYREACTOR, UnitTypeId.STARPORTREACTOR, UnitTypeId.REACTOR}
+TECHLABS = {UnitTypeId.BARRACKSTECHLAB, UnitTypeId.FACTORYTECHLAB, UnitTypeId.STARPORTTECHLAB, UnitTypeId.TECHLAB}
 MAX_TRAIN_QUEUE = 5
 
 
@@ -96,10 +97,14 @@ class ActUnit(ActBase):
         if ready_builders.exists and self.knowledge.can_afford(unit_data.creation_ability):
             # Spread a train demand across compatible producers instead of
             # filling the first building's queue while other buildings sit
-            # idle. Reactor load is normalized by its two parallel lanes.
+            # idle. Prefer Reactor lanes, then plain producers, and preserve a
+            # Tech Lab for units that actually need it. Units that require a
+            # Tech Lab still reach it because other hosts fail the creation-
+            # ability readiness check below.
             builders = sorted(
                 ready_builders,
                 key=lambda builder: (
+                    self.addon_priority(builder),
                     len(getattr(builder, "orders", []) or []) /
                     max(1, self.parallel_slots(builder)),
                     getattr(builder, "tag", 0),
@@ -180,5 +185,17 @@ class ActUnit(ActBase):
         add_on = self.cache.by_tag(builder.add_on_tag)
 
         if add_on.type_id in REACTORS:
+            return 2
+        return 1
+
+    def addon_priority(self, builder: Unit) -> int:
+        """Keep scarce Terran Tech Lab lanes available for gated units."""
+        if builder.add_on_tag == 0:
+            return 1
+        add_on = self.cache.by_tag(builder.add_on_tag)
+        add_on_type = getattr(add_on, "type_id", None)
+        if add_on_type in REACTORS:
+            return 0
+        if add_on_type in TECHLABS:
             return 2
         return 1

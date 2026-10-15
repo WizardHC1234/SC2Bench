@@ -239,6 +239,9 @@ class TrajectoryRecorder:
     _model: Optional[str] = None
     _session_messages: List[Any] = field(default_factory=list)
     _session_tools: Optional[List[Any]] = None
+    _session_scope: Optional[str] = None
+    _session_decision_index: Optional[int] = None
+    _decision_sessions: Dict[int, Dict[str, Any]] = field(default_factory=dict)
     _episode_text: str = ""
     _console_log: Optional[_ConsoleLog] = None
     _recorded_agent_call_ids: Set[str] = field(default_factory=set)
@@ -318,8 +321,14 @@ class TrajectoryRecorder:
             return None
         return result.split(".", 1)[1] if result.startswith("Result.") else result
 
-    def _remember_session(self, agent_context: Optional[Dict[str, Any]]) -> None:
-        """Keep one session: the latest full message list the agent supplied."""
+    def _remember_session(
+        self,
+        agent_context: Optional[Dict[str, Any]],
+        *,
+        decision_index: Optional[int] = None,
+        game_time: Optional[float] = None,
+    ) -> None:
+        """Keep the latest transcript and each completed decision-scoped transcript."""
         supplied = agent_context or {}
         messages = supplied.get("messages") if "messages" in supplied else None
         if isinstance(messages, list):
@@ -339,6 +348,29 @@ class TrajectoryRecorder:
         model = supplied.get("model")
         if isinstance(model, str) and model:
             self._model = model
+        scope = supplied.get("session_scope")
+        if scope in {"episode", "decision"}:
+            self._session_scope = scope
+        if decision_index is not None:
+            self._session_decision_index = int(decision_index)
+        if (
+            self._session_scope == "decision"
+            and isinstance(messages, list)
+            and decision_index is not None
+        ):
+            self._decision_sessions[int(decision_index)] = {
+                "schema_version": TRAJECTORY_SCHEMA_VERSION,
+                "tool_protocol_version": TOOL_PROTOCOL_VERSION,
+                "episode_id": self.episode_id,
+                "decision_index": int(decision_index),
+                "game_time_seconds": (
+                    float(game_time) if game_time is not None else float(self._game_time)
+                ),
+                "model": self._model,
+                "tools": deepcopy(_json_safe(self._session_tools)),
+                "messages": deepcopy(_json_safe(self._session_messages)),
+            }
+            self._write_decision_sessions()
         self._write_session()
 
     def _write_session(self) -> None:
@@ -350,10 +382,28 @@ class TrajectoryRecorder:
             "episode_id": self.episode_id,
             "model": self._model,
             "result": self._public_result(),
+            "scope": self._session_scope,
+            "decision_index": self._session_decision_index,
             "tools": self._session_tools,
             "messages": self._session_messages,
             **_knowledge_fields(),
         })
+
+    def _write_decision_sessions(self) -> None:
+        """Write one self-contained transcript per decision for decision-scoped Agents."""
+        if self.directory is None:
+            return
+        lines = [
+            json.dumps(
+                _json_safe(self._decision_sessions[index]),
+                ensure_ascii=False,
+                separators=(",", ":"),
+                allow_nan=False,
+            )
+            for index in sorted(self._decision_sessions)
+        ]
+        content = "\n".join(lines) + ("\n" if lines else "")
+        self._write_atomic_text(self.directory / "decision_sessions.jsonl", content)
 
     def record_agent_call_failure(self, agent_context: Dict[str, Any], *, game_time: float) -> None:
         """A failed external call is not a submitted/invalid environment decision."""
@@ -361,7 +411,11 @@ class TrajectoryRecorder:
             raise RuntimeError("Episode ended")
         recorded_at = _utc_now()
         self._game_time = float(game_time)
-        self._remember_session(agent_context)
+        self._remember_session(
+            agent_context,
+            decision_index=self._decision_count + 1,
+            game_time=self._game_time,
+        )
         supplied = agent_context.get("agent_calls")
         if not isinstance(supplied, list) or not supplied:
             supplied = [{
@@ -576,7 +630,11 @@ class TrajectoryRecorder:
                 "terminated": terminated,
                 "info": info,
             }
-        self._remember_session(agent_context)
+        self._remember_session(
+            agent_context,
+            decision_index=self._decision_count,
+            game_time=self._game_time,
+        )
         self.record_agent_calls(agent_context, game_time=self._game_time)
         self._append(trajectory_entry)
 
@@ -596,7 +654,11 @@ class TrajectoryRecorder:
             "error": {"type": type(error).__name__, "message": str(error)},
         }
         if phase == "step":
-            self._remember_session(agent_context)
+            self._remember_session(
+                agent_context,
+                decision_index=self._decision_count,
+                game_time=self._game_time,
+            )
             self.record_agent_calls(agent_context, game_time=self._game_time)
         self._append(error_entry)
 

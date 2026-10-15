@@ -29,15 +29,19 @@ ACTION_FIELDS = {
     "spawn_creep_tumor": {},
     "scout": {"route": 'ordered nonempty zone ID array, or "all" for one automatic expansion sweep'},
     "morph_townhall": {"target": "townhall ID from Structures", "to": "catalog morph name"},
-    "attack_group": {
-        "group": "group_0 or an observed outbound group ID",
+    "dispatch_group": {
+        "source": "group_0 or an observed active group ID",
+        "units": "object: army unit name -> positive integer count",
+        "order": "attack or defend",
         "target": "observed zone ID string",
-        "units": "optional object: army unit name -> positive integer count",
+    },
+    "attack_group": {
+        "group": "observed outbound group ID",
+        "target": "observed zone ID string",
     },
     "defend_group": {
-        "group": "group_0 or an observed outbound group ID",
+        "group": "observed outbound group ID",
         "target": "observed zone ID string",
-        "units": "optional object: army unit name -> positive integer count",
     },
     "reinforce_group": {
         "source": "group_0 or an observed outbound group ID",
@@ -73,7 +77,8 @@ COMMAND_TEMPLATES = {
     "chrono_boost": '{"name":"chrono_boost","arguments":{}}',
     "inject_larva": '{"name":"inject_larva","arguments":{}}',
     "spawn_creep_tumor": '{"name":"spawn_creep_tumor","arguments":{}}',
-    "attack_group": '{"name":"attack_group","arguments":{"group":"group_0","target":"<zone_id>","units":{"<unit_name>":<positive_integer>}}}',
+    "dispatch_group": '{"name":"dispatch_group","arguments":{"source":"group_0","units":{"<unit_name>":<positive_integer>},"order":"<attack_or_defend>","target":"<zone_id>"}}',
+    "attack_group": '{"name":"attack_group","arguments":{"group":"<outbound_group_id>","target":"<zone_id>"}}',
     "defend_group": '{"name":"defend_group","arguments":{"group":"<outbound_group_id>","target":"<zone_id>"}}',
     "reinforce_group": '{"name":"reinforce_group","arguments":{"source":"group_0","destination":"<outbound_group_id>","units":{"<unit_name>":<positive_integer>}}}',
     "merge_groups": '{"name":"merge_groups","arguments":{"destination":"<outbound_group_id>","sources":["group_3"]}}',

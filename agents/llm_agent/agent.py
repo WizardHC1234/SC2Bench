@@ -267,6 +267,9 @@ class LLMAgent:
             status = response.get("http_status")
             failures.append({
                 "messages": self.messages, "tools": list(self._sent_tools),
+                "session_scope": (
+                    "decision" if self.conversation_mode == "per_decision" else "episode"
+                ),
                 "assistant_content": "",
                 "model": response.get("model", llm_model()),
                 "thinking_requested": self.thinking_requested,
@@ -318,6 +321,9 @@ class LLMAgent:
         return {
             "messages": [dict(message) for message in self.messages],
             "tools": list(self._sent_tools),
+            "session_scope": (
+                "decision" if self.conversation_mode == "per_decision" else "episode"
+            ),
             "assistant_content": raw,
             "model": response.get("model", llm_model()),
             "usage": response.get("usage") or {},

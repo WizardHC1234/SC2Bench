@@ -186,7 +186,7 @@ KNOWLEDGE_TOOLS = (
 )
 ACTION_TOOLS = (
     "build", "train", "research", "cancel", "morph_townhall", "scout", "scan",
-    "call_mule", "supply_drop", "attack_group", "defend_group",
+    "call_mule", "supply_drop", "dispatch_group", "attack_group", "defend_group",
     "reinforce_group", "merge_groups", "retreat_group", "advance",
 )
 
@@ -223,7 +223,7 @@ def action_tool_names(race: str = "terran") -> Tuple[str, ...]:
         if name in {"morph_townhall", "scan", "call_mule", "supply_drop"} and name not in present:
             continue
         names.append(name)
-    combat_at = names.index("attack_group")
+    combat_at = names.index("dispatch_group")
     for extra in ("chrono_boost", "inject_larva", "spawn_creep_tumor"):
         if extra in present:
             names.insert(combat_at, extra)
@@ -296,7 +296,7 @@ def _action_description(name: str, race: str) -> str:
             "recall uses the main Nexus for nearby members; others walk. If recall is unavailable, "
             "the order fails and the current mission continues."
         )
-    if name in {"attack_group", "defend_group"}:
+    if name in {"dispatch_group", "attack_group", "defend_group"}:
         return ACTION_RULES[name]
     if name == "reinforce_group":
         return ACTION_RULES[name]
@@ -325,8 +325,8 @@ def _action_specs(race: str = "terran") -> Tuple[ToolSpec, ...]:
     schemas = []
     available_actions = action_tool_names(race)
     for name in available_actions:
-        if name in {"attack_group", "defend_group"}:
-            group = {"type": "string", "description": "group_0 or an active outbound group ID"}
+        if name == "dispatch_group":
+            source = {"type": "string", "description": "group_0 or an active outbound group ID"}
             units = {
                 "type": "object", "minProperties": 1,
                 "description": "dispatchable unit name to positive count",
@@ -336,10 +336,24 @@ def _action_specs(race: str = "terran") -> Tuple[ToolSpec, ...]:
                 name=name, kind="action", description=_action_description(name, race),
                 parameters={
                     "type": "object", "additionalProperties": False,
-                    "properties": {"group": group, "target": {"type": "string"}, "units": units},
-                    "required": ["group", "target"],
+                    "properties": {
+                        "source": source,
+                        "units": units,
+                        "order": {"type": "string", "enum": ["attack", "defend"]},
+                        "target": {"type": "string"},
+                    },
+                    "required": ["source", "units", "order", "target"],
                 },
             ))
+            continue
+        if name in {"attack_group", "defend_group"}:
+            schemas.append(_spec(name, _action_description(name, race), {
+                "group": {
+                    "type": "string",
+                    "description": "active outbound group ID, such as group_1",
+                },
+                "target": {"type": "string"},
+            }, ("group", "target")))
             continue
         if name == "reinforce_group":
             schemas.append(_spec(name, _action_description(name, race), {

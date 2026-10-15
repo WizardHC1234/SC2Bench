@@ -358,7 +358,6 @@ def brief_facility_lines(data, *, race="terran"):
             ("warp_ready", "warp ready"),
             ("cooling", "cooling down"),
             ("cooling_down", "cooling down"),
-            ("free_queue_positions", "free queue positions"),
             ("larva", "larva"),
         ):
             if key in row and row.get(key) is not None:
@@ -527,7 +526,7 @@ def blocker_text(reason):
         "resources": "resource budget unavailable (including earlier spending priority)",
         "supply": "insufficient available supply",
         "energy": "insufficient available energy",
-        "producer_busy": "compatible in-game production queues full",
+        "producer_busy": "all compatible production lanes are currently occupied",
         "production_slot": "compatible production is currently busy",
         "producer_unavailable": "no ready grounded producer",
         "producer_techlab_unavailable": "no compatible producer with a ready attached Tech Lab",
@@ -595,7 +594,7 @@ def priority_lines(data):
         if row.get("action") == "train":
             summary.extend((
                 f"paid {value(row.get('in_production'))}",
-                f"unqueued {value(row.get('waiting_to_produce'))}",
+                f"unstarted {value(row.get('waiting_to_produce'))}",
             ))
         cancellable = row.get("cancellable_count")
         if type(cancellable) is int and cancellable > 0:
@@ -749,7 +748,6 @@ def production_lines(data, buildings, training, *, race="terran"):
     columns = [("Facility", "facility"), ("Ready", "ready_grounded"),
                   ("Ready attached Tech Labs", "techlab_hosts"), ("Ready attached Reactors", "reactor_hosts"),
                   ("Capacity", "capacity"), ("Free production slots", "free_slots"),
-                  ("Free queue positions", "free_queue_positions"),
                   ("Free Tech Lab slots", "free_techlab_slots")]
     if race != "terran":
         # Keep supplied capacity facts; never manufacture Terran-specific columns.
@@ -757,11 +755,14 @@ def production_lines(data, buildings, training, *, race="terran"):
                           ("Capacity", "capacity"), ("Free production slots", "free_slots"),
                           ("Ready to warp", "ready_to_warp"), ("Cooling", "cooling"),
                           ("Reserved for morph", "reserved_for_morph"),
-                          ("Waiting for queue", "waiting_for_queue"),
-                          ("Free queue positions", "free_queue_positions")]
+                          ("Waiting for queue", "waiting_for_queue")]
         columns = [column for column in common_columns
                    if column[1] == "facility" or any(column[1] in row for row in data)]
-    hidden = {"occupied_slots", "queue_capacity", "queued_orders"}
+    # Native waiting-queue positions are deliberately not used by persistent
+    # platform tasks, because pre-filling them would make later cancel/priority
+    # changes non-preemptible. Exposing those positions suggests capacity the
+    # platform cannot actually schedule.
+    hidden = {"occupied_slots", "queue_capacity", "queued_orders", "free_queue_positions"}
     rows = [{key: item for key, item in row.items() if key not in hidden} for row in data]
     return table(rows, columns)
 

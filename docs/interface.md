@@ -32,8 +32,9 @@
 | `inject_larva` | 无额外字段；仅虫族。消耗一只就绪女王的 25 能量，底层选择一座主基地。不会自动施放 |
 | `spawn_creep_tumor` | 无额外字段；仅虫族。消耗一只就绪女王的 25 能量，在菌毯上朝敌方种一个瘤。不会自动施放 |
 | `scout` | `route` 为有序 Zone 数组，或字符串 `"all"` |
-| `attack_group` | `group/target` 给已有编队下达进攻命令；增加 `units` 时从该编队拆出单位建立新的进攻编队。`group_0` 只能配合 `units` 使用 |
-| `defend_group` | 与 `attack_group` 的选兵方式相同，用于下达区域防守命令 |
+| `dispatch_group` | `source/units/order/target`；从 `group_0` 或活动外派编队拆出指定兵力，建立新的进攻或防守编队 |
+| `attack_group` | `group/target`；把已有外派编队改为进攻指定区域，不改变成员，也不新建编队 |
+| `defend_group` | `group/target`；把已有外派编队改为防守指定区域，不改变成员，也不新建编队 |
 | `reinforce_group` | `source/destination/units`；在 `group_0` 和活动外派编队之间转移指定单位，不改变目标编队的当前命令 |
 | `merge_groups` | `destination/sources`；把一个或多个活动编队的存活成员转入目标编队，目标编队保留 ID 和当前命令 |
 | `retreat_group` | `group`；可选 `method`。省略 `method` 时按移动撤回，到家后归并。神族 `method` 为 `recall` 时只使用当前主基地星灵枢纽召回，半径外的成员继续移动撤回；枢纽死亡、未完成、能量不足或技能不可用时失败，编队保持原命令 |
@@ -53,7 +54,7 @@ Agent 只提交规范化 Tool Call。Read / Knowledge 立即查询；Action Tool
 
 ### 军队与侦察
 
-`attack_group` 和 `defend_group` 的目标使用观测里的 Zone。省略 `units` 时对整支已有外派编队改令；提供 `units` 时从指定来源拆出单位建立新编队。`reinforce_group` 可以从 `group_0` 或任意可转移的活动编队向另一编队增援，也可以把部分成员送回 `group_0`。兵力不足时整项拒绝，不部分派遣。
+军队目标使用观测里的 Zone。`dispatch_group` 从指定来源拆出兵力并建立新编队；`attack_group` 和 `defend_group` 只对已有外派编队改令。`reinforce_group` 可以从 `group_0` 或任意可转移的活动编队向另一编队增援，也可以把部分成员送回 `group_0`。兵力不足时整项拒绝，不部分派遣。
 
 `merge_groups(destination=..., sources=[...])` 显式整合已有外出编队。所有参与编队会先统一校验；任意 ID 不存在、重复、正在撤退或召回时整项拒绝。合并完成后，source 编队以 `merged_into:<destination>` 结束，成员不会中途释放到 `group_0`。
 

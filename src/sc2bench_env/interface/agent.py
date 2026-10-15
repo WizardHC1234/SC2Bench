@@ -49,6 +49,9 @@ class AgentTurn:
     input_tokens, output_tokens and latency_seconds. Tokens stay null when the
     provider omits them. Failures may also set error_type and http_status.
     Messages and the public reply stay in the session, not in these records.
+    An Agent may set ``session_scope`` to ``episode`` for a continuing transcript
+    or ``decision`` when each decision starts a fresh transcript. Decision-scoped
+    transcripts are then retained individually by the recorder.
     """
 
     agent_context: Optional[dict[str, Any]] = None

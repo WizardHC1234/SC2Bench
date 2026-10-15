@@ -11,7 +11,7 @@ CONTROL_RULES = """Control boundary:
 
 INTERACTION_RULES = """- Changes reports execution progress since the previous decision. Use Read tools for omitted match-state detail and Knowledge tools for static game data when the decision needs them.
 - Queries read one frozen snapshot and do not advance time. Each Action immediately returns whether it was staged, rejected or a no-op, together with its effect on unfinished work when relevant. Staged actions are stored for this decision only; they are not paid for, started or completed yet.
-- Queries and actions may be interleaved across replies. Review Action results before calling advance. Call advance exactly once as the final tool call to submit staged actions and continue the game. With no new action, call advance by itself.
+- Query and Action calls made before advance use the same frozen decision snapshot. Review Action results before calling advance. Call advance exactly once as the final tool call to submit staged actions and continue the game. With no new action, call advance by itself.
 """
 
 PLANNING_RULES = """Planning context:
@@ -35,7 +35,7 @@ ARMY_RULES = """Army groups:
 
 GAME_RULES = """- Minerals and gas pay for buildings, units and research. Completed SCVs generate income while gathering resources; SCVs occupied by other work are not gathering. Additional eligible gathering SCVs increase income until the available mineral or gas worker capacity is reached.
 - Queued units commit resources and supply. Completed supply-providing structures increase the supply cap, unfinished ones provide no supply, and total supply is capped at 200. A unit cannot begin production while its required supply is unavailable. Query the relevant building data when the exact amount is needed.
-- Buildings and research require completed prerequisites. Unit production also requires a completed compatible producer; accepted work waits while compatible producers are busy. Each producer can hold only a limited queue.
+- Buildings and research require completed prerequisites. Unit production also requires a completed compatible producer; accepted work waits while its compatible production lanes are occupied.
 - Barracks, Factories and Starports can each use one add-on. A Reactor lets its host train two compatible units in parallel, while a Tech Lab unlocks advanced units or research. An add-on cannot produce anything independently of its host building.
 - Town halls train SCVs, and morphing a town hall prevents it from training them until the morph completes. SCVs construct buildings and gather resources.
 - Cloaked or burrowed enemies require detection before they can be targeted.
@@ -80,7 +80,7 @@ ZERG_GAME_RULES = """- Minerals and gas pay for buildings, units and research. C
 """
 
 # Action-local behavior is exposed through each Action tool's schema.
-COMBAT_DISPATCH_RULES = "attack_group and defend_group redirect an existing outbound group when units is omitted, or atomically split the requested units from group_0 or another active group into a new group. group_0 itself remains at home."
+COMBAT_DISPATCH_RULES = "dispatch_group atomically splits requested units from group_0 or another active group into a new attack or defend group. group_0 itself remains at home. attack_group and defend_group only change an existing outbound group's order."
 COMBAT_RETARGET_RULES = "reinforce_group transfers a requested subset without changing the destination order; merge_groups transfers whole groups; retreat_group returns a whole outbound group home. Transfers do not pass through group_0 unless home is the destination."
 COMBAT_STYLE_RULES = "attack engages and changes to defend after the target is continuously confirmed clear. defend holds locally without attacking structures or pursuing across the map. Acceptance is not arrival or success."
 
@@ -97,16 +97,11 @@ ACTION_RULES = {
     "spawn_creep_tumor": "Plant one creep tumor on creep, toward the enemy. A burrowed tumor spreads the next one for free. If none can, one ready Queen spends 25 energy. It is not cast automatically.",
     "scout": 'Send one SCV along the ordered route; route="all" performs one expansion-zone sweep. A new scout command replaces existing scout work, and the scout\'s death fails the task without automatic replacement. Arrival does not guarantee full-zone visibility or that every enemy was found.',
     "morph_townhall": "Morph the selected town hall to the requested form. The request completes when the morph command is issued, not when the new form finishes.",
-    "combat": " ".join((
-        COMBAT_DISPATCH_RULES,
-        COMBAT_RETARGET_RULES,
-        COMBAT_STYLE_RULES,
-    )),
-    "attack_group": "Order an existing outbound group to attack a zone, or provide units to split a new group from the named source. group_0 may only be used with units and remains at home. A split reserves the requested members in full or rejects without changing either group.",
-    "defend_group": "Order an existing outbound group to defend a zone, or provide units to split a new group from the named source. group_0 may only be used with units and remains at home. A split reserves the requested members in full or rejects without changing either group. Defending groups stay near the target, do not chase across the map and do not proactively attack structures.",
+    "dispatch_group": "Split the requested units from group_0 or another active group into a new group and give it an attack or defend order. The split is all-or-nothing; the source keeps its own ID and order. group_0 remains the home pool.",
+    "attack_group": "Order an existing outbound group to attack a zone. This changes that group's order and does not create a group or change its membership.",
+    "defend_group": "Order an existing outbound group to defend a zone. This changes that group's order and does not create a group or change its membership. Defending groups stay near the target, do not chase across the map and do not proactively attack structures.",
     "reinforce_group": "Transfer the requested units from group_0 or an active outbound source to an active destination without changing the destination order. Transfers are all-or-nothing and remain pending until the units physically join; destination group_0 means return home.",
     "merge_groups": "Move all living source members into the destination without passing through group_0. The destination keeps its ID and order. Missing, duplicate, withdrawing or recalling groups reject the whole call.",
-    "retreat": "Start an outbound group's immediate return home. Acceptance is not arrival; survivors merge into group_0 and the old group ends only after they arrive home.",
     "retreat_group": "Return one active outbound group home. Survivors join group_0 only after arrival.",
     "advance": "End this decision: submit the actions already staged, advance the requested positive number of game seconds and return the next Observation. Episode end may return early; active work continues.",
 }

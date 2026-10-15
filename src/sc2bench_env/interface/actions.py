@@ -147,14 +147,21 @@ class GameAction:
         return self.action
 
     def to_tool_call(self) -> dict[str, Any]:
-        if self.public_action in {"attack_group", "defend_group"}:
-            arguments: dict[str, Any] = {
-                "group": self.source if self.units is not None else self.group,
-                "target": self.target,
+        if self.public_action == "dispatch_group":
+            return {
+                "name": "dispatch_group",
+                "arguments": {
+                    "source": self.source,
+                    "units": dict(self.units or {}),
+                    "order": self.style,
+                    "target": self.target,
+                },
             }
-            if self.units is not None:
-                arguments["units"] = dict(self.units)
-            return {"name": self.public_action, "arguments": arguments}
+        if self.public_action in {"attack_group", "defend_group"}:
+            return {
+                "name": self.public_action,
+                "arguments": {"group": self.group, "target": self.target},
+            }
         if self.public_action == "reinforce_group":
             return {
                 "name": "reinforce_group",

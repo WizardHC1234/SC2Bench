@@ -44,13 +44,13 @@ def normalize_target_aliases(
 
     # Public army tools have one clear responsibility each.  Runtime and
     # Sharpy continue to consume the established combat/retreat tasks.
+    if action == "dispatch_group":
+        entry["action"] = "combat"
+        entry["style"] = entry.pop("order", None)
+        return entry, ()
     if action in {"attack_group", "defend_group"}:
-        source = entry.get("group")
         entry["action"] = "combat"
         entry["style"] = "attack" if action == "attack_group" else "defend"
-        if "units" in entry:
-            entry["source"] = source
-            entry.pop("group", None)
         return entry, ()
     if action == "reinforce_group":
         entry["action"] = "combat"
