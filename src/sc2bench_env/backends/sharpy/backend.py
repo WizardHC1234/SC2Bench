@@ -292,6 +292,7 @@ class SharpyBackend(Backend):
         self._adapter = None
         self._game_error: Optional[BaseException] = None
         self._replay_path: Optional[Path] = None
+        self._terminal_settled = threading.Event()
         self.knowledge_snapshot: Optional[Dict[str, Any]] = None
 
     def set_replay_path(self, path: Optional[Path]) -> None:
@@ -311,6 +312,7 @@ class SharpyBackend(Backend):
         self._bridge.zone_registry.reset()
         self._bridge.structure_registry.reset()
         self._game_error = None
+        self._terminal_settled = threading.Event()
 
         _ensure_runtime_paths()
         from sc2bench_env.backends.sharpy.races import get_adapter
@@ -432,6 +434,7 @@ class SharpyBackend(Backend):
         self._bridge.zone_registry.reset()
         self._bridge.structure_registry.reset()
         self._game_error = None
+        self._terminal_settled = threading.Event()
         _ensure_runtime_paths()
         from sc2bench_env.backends.sharpy.races import get_adapter
         self._adapter = get_adapter(config.race)
@@ -615,6 +618,20 @@ class SharpyBackend(Backend):
         return updates
 
     def snapshot(self) -> BackendSnapshot:
+        # BenchBot.on_end publishes the provisional SC2 result before
+        # run_game finishes replay/transport cleanup. If that cleanup reveals
+        # a protocol or connection failure, _run_game_thread replaces the
+        # provisional Defeat/Tie with backend_error. Do not let the Environment
+        # finalize the episode in the small window between those two events.
+        with self._bridge.lock:
+            terminal = bool(self._bridge.snapshot.terminated)
+        if (
+            terminal
+            and self._thread is not None
+            and self._thread.is_alive()
+            and threading.current_thread() is not self._thread
+        ):
+            self._terminal_settled.wait(timeout=30.0)
         with self._bridge.lock:
             snap = self._bridge.snapshot
             return BackendSnapshot(
@@ -680,8 +697,9 @@ class SharpyBackend(Backend):
             # Stay lockstep. config.realtime only paces the decision wait at 1x;
             # the advance window steps as fast as the machine allows.
             kwargs: Dict[str, Any] = {"realtime": False}
-            if self._replay_path is not None:
-                kwargs["save_replay_as"] = str(self._replay_path)
+            # BenchBot saves during on_end, before SC2 starts closing the
+            # websocket. Passing save_replay_as here would make BurnySC2 send a
+            # second, later RequestSaveReplay over a closing transport.
             # _Bridge owns the time limit using ai.time, the same clock exposed
             # in Observation. Do not enable BurnySC2's legacy 0.725/16 cutoff.
             if self._config.seed is not None:
@@ -706,14 +724,16 @@ class SharpyBackend(Backend):
             if (self._bridge.leave_requested and isinstance(exc, ProtocolError)
                     and "Not in a game" in str(exc) and replay is not None and replay.is_file()
                     and replay.stat().st_size > 0):
-                # Explicit leave already saved this replay in BenchBot. BurnySC2
-                # may attempt a second save after on_end; preserve the game result.
-                logger.warning("Post-leave replay save skipped; replay already saved: %s", exc)
+                # Explicit leave already saved the replay in BenchBot. Preserve
+                # the recorded result if BurnySC2's later leave/quit observes
+                # that SC2 has already closed the game.
+                logger.warning("Post-leave cleanup observed a closed game: %s", exc)
             else:
                 logger.exception("Sharpy game thread failed")
                 self._game_error = exc
                 self._bridge.on_game_end(f"error:{exc}")
         finally:
+            self._terminal_settled.set()
             self._bridge.stopped.set()
             self._bridge.ready.set()
             self._bridge.decision_reached.set()

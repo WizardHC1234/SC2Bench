@@ -52,20 +52,28 @@ def load_model(config_path: Path, model_key: str) -> dict:
     return row
 
 
-def episode_status(directory: Path) -> str | None:
-    episode = directory / "episode.txt"
-    if not episode.is_file():
-        return None
-    text = episode.read_text(encoding="utf-8")
-    marker = text.rfind("\nResult\n")
-    if marker < 0:
-        return None
+def episode_counts_for_quota(directory: Path) -> bool:
+    """True only for a finished game that actually started.
+
+    Launch failures, empty shells, and aborted near-zero-length episodes must
+    not fill the planned repetition quota or win-rate denominator.
+    """
     try:
-        payload = json.loads(text[marker + len("\nResult\n"):])
-    except json.JSONDecodeError:
-        return None
-    status = payload.get("status")
-    return status if isinstance(status, str) else None
+        payload = Evaluator.evaluate_episode(directory)
+    except (OSError, ValueError, TypeError, KeyError):
+        return False
+    if payload.get("status") != "completed":
+        return False
+    decisions = payload.get("decision_count")
+    game_s = payload.get("game_time_seconds")
+    if type(decisions) is not int or decisions < 1:
+        return False
+    if not isinstance(game_s, (int, float)) or game_s <= 0:
+        return False
+    # Near-instant "completed" defeats are usually killed/failed launches.
+    if decisions <= 5 and game_s < 60:
+        return False
+    return True
 
 
 def completed_in_cell(directory: Path) -> int:
@@ -83,7 +91,7 @@ def completed_in_cell(directory: Path) -> int:
         if parent in seen:
             continue
         seen.add(parent)
-        if episode_status(parent) == "completed":
+        if episode_counts_for_quota(parent):
             count += 1
     return count
 
@@ -95,7 +103,18 @@ def game_started(row: dict) -> bool:
 
 
 def episode_completed(row: dict) -> bool:
-    return row.get("status") == "completed" and row.get("record_directory") is not None
+    """Batch-index rows that represent a real finished game."""
+    if row.get("status") != "completed" or row.get("record_directory") is None:
+        return False
+    decisions = row.get("decision_count")
+    game_s = row.get("game_time_seconds")
+    if type(decisions) is not int or decisions < 1:
+        return False
+    if not isinstance(game_s, (int, float)) or game_s <= 0:
+        return False
+    if decisions <= 5 and game_s < 60:
+        return False
+    return True
 
 
 def main(argv=None) -> int:

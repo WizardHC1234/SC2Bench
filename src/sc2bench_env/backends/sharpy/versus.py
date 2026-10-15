@@ -193,8 +193,9 @@ class SharpyVersusGame:
             assert left._config is not None and right._config is not None
             assert left._adapter is not None and right._adapter is not None
             kwargs: dict = {"realtime": False}
-            if self._replay_path is not None:
-                kwargs["save_replay_as"] = str(self._replay_path)
+            # The first BenchBot owns the replay path and saves from on_end
+            # while its SC2 client is still usable. Avoid BurnySC2's later
+            # replay request over a closing transport.
             if left._config.seed is not None:
                 kwargs["random_seed"] = int(left._config.seed)
             results = run_game(

@@ -98,13 +98,25 @@ def _batch_status(error: BaseException) -> str:
 def _pid_is_alive(pid: Any) -> bool:
     if type(pid) is not int or pid < 1:
         return False
+    # Windows: os.kill(pid, 0) can raise SystemError wrapping WinError 87 for
+    # stale coordinator PIDs left in abandoned batch.json files.
+    if os.name == "nt":
+        import ctypes
+        PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+        handle = ctypes.windll.kernel32.OpenProcess(
+            PROCESS_QUERY_LIMITED_INFORMATION, False, int(pid),
+        )
+        if handle:
+            ctypes.windll.kernel32.CloseHandle(handle)
+            return True
+        return False
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
         return False
     except PermissionError:
         return True
-    except OSError:
+    except (OSError, SystemError):
         return False
     return True
 

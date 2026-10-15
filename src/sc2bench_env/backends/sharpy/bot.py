@@ -181,12 +181,7 @@ class BenchBot(KnowledgeBot):
                 self._sync_macro_tasks()
             if self.bridge.should_leave():
                 # Explicit leave can bypass BurnySC2's post-game replay saver.
-                if self.bridge.replay_path is not None and not self._replay_saved:
-                    try:
-                        await self.client.save_replay(str(self.bridge.replay_path))
-                        self._replay_saved = True
-                    except Exception as exc:
-                        logger.warning("save_replay before leave failed: %s", exc)
+                await self._save_replay_once("before leave")
                 try:
                     await self.client.leave()
                 except Exception as exc:
@@ -258,10 +253,29 @@ class BenchBot(KnowledgeBot):
         # the first Victory wakes that agent and freezes a double win before
         # the other client reports.
         try:
+            # BurnySC2 normally saves after on_end, when SC2 may already be
+            # closing its websocket. Save while this callback still owns a
+            # live client; backend.py deliberately does not pass
+            # save_replay_as to run_game.
+            await self._save_replay_once("on game end")
             await super().on_end(game_result)
         finally:
             all_results = getattr(getattr(self, "client", None), "_game_result", None)
             self.bridge.note_raw_result(game_result, all_results)
+
+    async def _save_replay_once(self, context: str) -> None:
+        path = self.bridge.replay_path
+        if path is None or self._replay_saved:
+            return
+        try:
+            await self.client.save_replay(str(path))
+        except Exception as exc:
+            # Replay is an artifact, not the game outcome. A connection that
+            # closes during replay export must never resign or invalidate the
+            # already determined match result.
+            logger.warning("Replay export %s failed: %s", context, exc)
+        else:
+            self._replay_saved = True
 
     def _sync_macro_tasks(self) -> None:
         specs = self.bridge.get_macro_specs()

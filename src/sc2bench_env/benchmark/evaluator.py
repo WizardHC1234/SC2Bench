@@ -72,6 +72,35 @@ def _trajectory_events(record_directory: Any) -> list[dict[str, Any]]:
     return [event for event in events if isinstance(event, dict)]
 
 
+def _legacy_transport_failure(record_directory: Path, end: Any) -> bool:
+    """Recognize records finalized before terminal-error reconciliation.
+
+    Older Sharpy runs could publish Result.Defeat from ``on_end`` and only
+    afterwards fail while closing the protocol transport.  The log's explicit
+    runner-failure markers are authoritative evidence that this was not a
+    completed game result.  New records are classified by the backend itself;
+    this fallback only repairs evaluation of already persisted artifacts.
+    """
+    if not isinstance(end, dict):
+        return False
+    if (end.get("status") != "completed"
+            or end.get("end_reason") != "game_ended"
+            or end.get("replay_saved") is not False):
+        return False
+    try:
+        log = (record_directory / "log.txt").read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    return (
+        "Sharpy game thread failed" in log
+        and (
+            "Resigning due to previous error" in log
+            or "Cannot write to closing transport" in log
+            or "ConnectionResetError" in log
+        )
+    )
+
+
 def _empty_usage() -> dict[str, Any]:
     return {
         "tool_calls": {"knowledge": 0, "read": 0, "action": 0, "advance": 0},
@@ -224,7 +253,12 @@ class Evaluator:
             (directory / "episode.txt").read_text(encoding="utf-8"))
         if "episode_id" not in start or "backend" not in start or "config" not in start:
             raise ValueError("Missing episode configuration")
-        status = end["status"] if end is not None else "incomplete"
+        legacy_transport_failure = _legacy_transport_failure(directory, end)
+        status = (
+            "incomplete" if end is None
+            else "failed" if legacy_transport_failure
+            else end["status"]
+        )
         if end is not None:
             if status not in {"completed", "interrupted", "failed"}:
                 raise ValueError("Invalid terminal status")
@@ -237,7 +271,11 @@ class Evaluator:
                 if value is not None and (type(value) not in {int, float} or
                                           not math.isfinite(value) or value < 0):
                     raise ValueError("Invalid terminal duration")
-        result = end.get("result") if end is not None else None
+        result = (
+            None if legacy_transport_failure
+            else end.get("result") if end is not None
+            else None
+        )
         return {
             "episode_id": start["episode_id"],
             "backend": start["backend"],
@@ -248,7 +286,9 @@ class Evaluator:
             "status": status,
             "outcome": _OUTCOMES.get(result, "unfinished") if status == "completed" else "unfinished",
             "result": result if status == "completed" else None,
-            "end_reason": end.get("end_reason") if end is not None else None,
+            "end_reason": "backend_error" if legacy_transport_failure else (
+                end.get("end_reason") if end is not None else None
+            ),
             "game_time_seconds": end.get("game_time_seconds") if end is not None else None,
             "wall_time_seconds": end.get("wall_time_seconds") if end is not None else None,
             "decision_count": end.get("decision_count") if end is not None else None,

@@ -16,6 +16,14 @@ from sc2bench_env.benchmark.evaluator import Evaluator
 from sc2bench_env.interface.config import EpisodeConfig
 
 
+# Let an in-flight model call return, then let Environment.close() record the
+# cooperative interruption before resorting to process-tree termination.  The
+# old three-second window was shorter than ordinary LLM latency and turned a
+# user-stopped batch into apparent SC2 defeats when the game process was killed
+# underneath BurnySC2.
+CANCELLATION_GRACE_SECONDS = 30.0
+
+
 def serialize_factories(backend_factory: Callable, agent_factory: Callable) -> bytes:
     # Optional and lazy: serial/core-only installations need neither dependency.
     try:
@@ -138,6 +146,7 @@ def _read_messages(worker: _Worker) -> None:
 
 
 def _worker_result(worker: _Worker, error_type: str = "WorkerExited") -> dict[str, Any]:
+    received_result = worker.result is not None
     row = worker.result
     if row is None or (row.get("record_directory") is None and worker.record_directory is not None):
         error_type = row.get("error_type", error_type) if row is not None else error_type
@@ -151,6 +160,20 @@ def _worker_result(worker: _Worker, error_type: str = "WorkerExited") -> dict[st
             except (OSError, ValueError, TypeError, KeyError):
                 pass
             row["record_directory"] = worker.record_directory
+    if error_type == "WorkerInterrupted" and not received_result:
+        # The coordinator knows this worker was stopped as part of batch
+        # cancellation. Evaluator has already demoted legacy transport
+        # failures, so a remaining completed row is a clean ending that raced
+        # with result delivery. Otherwise never promote the last provisional
+        # SC2 result into a game defeat.
+        clean_natural_end = row.get("status") == "completed"
+        if not clean_natural_end:
+            row.update({
+                "status": "interrupted",
+                "outcome": "unfinished",
+                "result": None,
+                "end_reason": "caller_interrupted",
+            })
     row["worker_pid"] = worker.process.pid
     row["worker_exitcode"] = worker.process.exitcode
     return row
@@ -210,7 +233,7 @@ def run_parallel(configs: Sequence[EpisodeConfig], payload: bytes, record_dir: P
         # Do not start pending games after interruption/coordinator error.
         for worker in active.values():
             worker.cancel.set()
-        deadline = time.monotonic() + 3
+        deadline = time.monotonic() + CANCELLATION_GRACE_SECONDS
         while any(worker.process.is_alive() for worker in active.values()) and time.monotonic() < deadline:
             for worker in active.values():
                 _read_messages(worker)
