@@ -1,6 +1,8 @@
 """Agent-facing action data structures and validation."""
 from __future__ import annotations
 
+from difflib import get_close_matches
+
 
 import re
 from dataclasses import dataclass
@@ -242,6 +244,12 @@ def parse_advance_action(raw: Mapping[str, Any], *, race: str = "terran") -> Adv
     return AdvanceAction(seconds=float(seconds))
 
 
+def _unsupported_name(kind: str, name: str, choices: Sequence[str]) -> str:
+    candidates = get_close_matches(name, list(choices), n=3)
+    suffix = f"; closest valid: {', '.join(candidates)}" if candidates else ""
+    return f"unsupported {kind} {name!r}{suffix}"
+
+
 def parse_game_action(raw: Mapping[str, Any], *, race: str = "terran") -> GameAction:
     if not isinstance(raw, Mapping):
         raise ActionValidationError("action must be a mapping")
@@ -258,9 +266,9 @@ def parse_game_action(raw: Mapping[str, Any], *, race: str = "terran") -> GameAc
     if action in {"advance", "wait"}:
         raise ActionValidationError("advance must appear only as the trailing decision entry")
     if action not in GAME_ACTIONS:
-        raise ActionValidationError(
-            f"unsupported action {action!r}; allowed={sorted(GAME_ACTIONS | {'advance'})}"
-        )
+        raise ActionValidationError(_unsupported_name(
+            "action", action, sorted(GAME_ACTIONS | {"advance"}),
+        ))
 
     if action == "build":
         target = _require_str(raw.get("target"), "target").lower()
@@ -270,9 +278,9 @@ def parse_game_action(raw: Mapping[str, Any], *, race: str = "terran") -> GameAc
                 'example: {"name":"morph_townhall","arguments":{"target":"townhall_0","to":"orbital_command"}}'
             )
         if target not in known_target_names("build", race=race):
-            raise ActionValidationError(
-                f"unsupported build target {target!r}; allowed={list(known_target_names('build', race=race))}"
-            )
+            raise ActionValidationError(_unsupported_name(
+                "build target", target, known_target_names("build", race=race),
+            ))
         return GameAction(action="build", target=target, count=1)
 
     if action == "train":
@@ -281,18 +289,17 @@ def parse_game_action(raw: Mapping[str, Any], *, race: str = "terran") -> GameAc
         if not isinstance(count, int) or isinstance(count, bool) or count < 1:
             raise ActionValidationError("train count must be a positive integer")
         if target not in known_target_names("train", race=race):
-            raise ActionValidationError(
-                f"unsupported train target {target!r}; allowed={list(known_target_names('train', race=race))}"
-            )
+            raise ActionValidationError(_unsupported_name(
+                "train target", target, known_target_names("train", race=race),
+            ))
         return GameAction(action="train", target=target, count=count)
 
     if action == "research":
         target = _require_str(raw.get("target"), "target").lower()
         if target not in known_target_names("research", race=race):
-            raise ActionValidationError(
-                f"unsupported research target {target!r}; "
-                f"allowed={list(known_target_names('research', race=race))}"
-            )
+            raise ActionValidationError(_unsupported_name(
+                "research target", target, known_target_names("research", race=race),
+            ))
         return GameAction(action="research", target=target, count=1)
 
     if action == "cancel":

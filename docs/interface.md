@@ -68,7 +68,7 @@ Agent 只提交规范化 Tool Call。Read / Knowledge 立即查询；Action Tool
 
 ## 观测和反馈
 
-平台内部保留 Full Observation，Read Tools 在一个决策中读取同一份冻结快照。Runner 和 Versus 交给 `AgentInput.observation` 的是结构化 Brief Observation；`LLMAdapter.render_input` 将它渲染为 `[Game]`、`[Economy]`、`[Production]`、`[Infrastructure]`、`[Available Targets]`、`[Army]`、`[Relevant Zones]`、`[Abilities]`、`[Changes]` 和 `[Decision]`。Brief 仍保留普通决策所需的资源、收入、饱和度、供给、持续生产任务、建筑规模和每个活动 Group 的实际兵力，但不展开完整地图拓扑、生产槽位和低频编队诊断。相同 action、target、状态和阻塞原因的持久生产请求在 Brief 中合并显示总请求数、剩余量和付费量，最早一项的位置保留其优先级；`query_production_state` 仍返回未合并的完整顺序。
+平台内部保留 Full Observation，Read Tools 在一个决策中读取同一份冻结快照。Runner 和 Versus 交给 `AgentInput.observation` 的是结构化 Brief Observation；`LLMAdapter.render_input` 将它渲染为 `[Game]`、`[Economy]`、`[Production]`、`[Infrastructure]`、`[Available Targets]`、`[Army]`、`[Relevant Zones]`、`[Abilities]`、`[Changes]` 和 `[Decision]`。Brief 仍保留普通决策所需的资源、收入、饱和度、供给、持续生产任务、建筑规模和每个活动 Group 的实际兵力，但不展开完整地图拓扑、生产槽位和低频编队诊断。相同 action、target、状态和阻塞原因的持久生产请求在 Brief 中合并显示总请求数、剩余量、付费量、可取消量和阻塞分类，最早一项的位置保留其优先级；`query_production_state` 仍返回未合并的完整顺序。Army 同时显示外派编队数量；每个外派编队显示当前命令持续的游戏时间，进攻完成后的驻扎显示驻扎时间。
 
 Read Tools 包括 `query_map_overview`、`query_zone_state`、`query_route`、`query_production_state` 和 `query_army_state`。前两类动态详情查询可按生产动作/目标或 Group ID 过滤。所有查询结果都标明 `as_of_game_time`，不会推进游戏、执行侦察或获得战争迷雾中的隐藏信息。Knowledge Tools 继续提供静态单位、建筑、升级和前置关系。
 

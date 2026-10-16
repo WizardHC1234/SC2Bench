@@ -281,6 +281,17 @@ class Evaluator:
             "backend": start["backend"],
             "config": start["config"],
             "versions": start.get("versions"),
+            "record_schema_version": start.get("schema_version"),
+            "tool_protocol_version": start.get("tool_protocol_version"),
+            "knowledge": {
+                "profile_id": start.get("knowledge_profile_id"),
+                "game_version": start.get("knowledge_game_version"),
+                "base_build": start.get("knowledge_base_build"),
+                "data_version": start.get("knowledge_data_version"),
+                "ruleset": start.get("knowledge_ruleset"),
+                "schema_version": start.get("knowledge_schema_version"),
+                "snapshot_hash": start.get("knowledge_snapshot_hash"),
+            },
             "platform_prompt_sha256": hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
             "conversation_scope": _conversation_scope(directory),
             "status": status,
@@ -336,6 +347,12 @@ class Evaluator:
         summary = Evaluator.summarize(rows)
         modes = []
         conversation_scopes = []
+        game_versions = []
+        knowledge_snapshots = []
+        platform_versions = []
+        tool_protocol_versions = []
+        record_schema_versions = []
+        backends = []
         for row in rows:
             mode = decision_mode(row.get("config") if isinstance(row.get("config"), dict) else {})
             if mode not in modes:
@@ -343,7 +360,38 @@ class Evaluator:
             scope = str(row.get("conversation_scope") or "unknown")
             if scope not in conversation_scopes:
                 conversation_scopes.append(scope)
-        comparable = len(modes) <= 1 and len(conversation_scopes) <= 1
+            runtime = row.get("indexed_runtime_versions")
+            game_version = runtime.get("game_version") if isinstance(runtime, dict) else None
+            if game_version is not None and game_version not in game_versions:
+                game_versions.append(game_version)
+            knowledge = row.get("knowledge")
+            snapshot_hash = knowledge.get("snapshot_hash") if isinstance(knowledge, dict) else None
+            if snapshot_hash is not None and snapshot_hash not in knowledge_snapshots:
+                knowledge_snapshots.append(snapshot_hash)
+            versions = row.get("versions")
+            platform_version = versions.get("sc2bench-env") if isinstance(versions, dict) else None
+            if platform_version is not None and platform_version not in platform_versions:
+                platform_versions.append(platform_version)
+            protocol = row.get("tool_protocol_version")
+            if protocol is not None and protocol not in tool_protocol_versions:
+                tool_protocol_versions.append(protocol)
+            record_schema = row.get("record_schema_version")
+            if record_schema is not None and record_schema not in record_schema_versions:
+                record_schema_versions.append(record_schema)
+            backend = row.get("backend")
+            if backend is not None and backend not in backends:
+                backends.append(backend)
+        comparison_dimensions = {
+            "decision_modes": modes,
+            "conversation_scopes": conversation_scopes,
+            "game_versions": game_versions,
+            "knowledge_snapshots": knowledge_snapshots,
+            "platform_versions": platform_versions,
+            "tool_protocol_versions": tool_protocol_versions,
+            "record_schema_versions": record_schema_versions,
+            "backends": backends,
+        }
+        comparable = all(len(values) <= 1 for values in comparison_dimensions.values())
         decided = summary["victory"] + summary["defeat"] + summary["tie"]
         usage = _empty_usage()
         decision_values = []
@@ -399,6 +447,7 @@ class Evaluator:
                 conversation_scopes[0] if len(conversation_scopes) == 1 else None
             ),
             "conversation_scopes": conversation_scopes,
+            "comparison_dimensions": comparison_dimensions,
             "comparable": comparable,
             "episodes": summary["episodes"],
             "victory": summary["victory"],

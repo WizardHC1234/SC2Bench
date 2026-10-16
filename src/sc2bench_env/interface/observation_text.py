@@ -88,6 +88,17 @@ def time_value(seconds):
     return f"{time_clock(seconds)} ({value(seconds)} s)"
 
 
+def resource_amount(item):
+    """Make confirmed exhaustion explicit while preserving unknown values."""
+    if resource_depleted(item):
+        return "depleted"
+    return value(item)
+
+
+def resource_depleted(item):
+    return isinstance(item, (int, float)) and not isinstance(item, bool) and item == 0
+
+
 def resource_lines(rows):
     if not rows:
         return ["none"]
@@ -100,8 +111,8 @@ def resource_lines(rows):
         for row in rows:
             lines.append(
                 f"- {value(row.get('zone_id'))}: "
-                f"minerals {value(row.get('minerals_remaining'))}; "
-                f"vespene {value(row.get('vespene_remaining'))}; "
+                f"minerals {resource_amount(row.get('minerals_remaining'))}; "
+                f"vespene {resource_amount(row.get('vespene_remaining'))}; "
                 f"gas structures {value(row.get('owned_gas_structure_count'))}; "
                 f"free geysers {value(row.get('available_geyser_slots'))}"
             )
@@ -111,8 +122,11 @@ def resource_lines(rows):
             }))
         return lines
     def ratio(row, prefix):
-        return "/".join("?" if row.get(key) is None else value(row[key])
-                        for key in (f"{prefix}_remaining", f"{prefix}_initial"))
+        remaining = row.get(f"{prefix}_remaining")
+        initial = row.get(f"{prefix}_initial")
+        rendered = "/".join("?" if item is None else value(item)
+                            for item in (remaining, initial))
+        return f"depleted ({rendered})" if resource_depleted(remaining) else rendered
     lines = ["Base resources (remaining/initial; ? = unknown):",
              "Zone | Minerals | Vespene gas | Geyser slots | Owned gas structures | Available geyser slots | Resource visibility"]
     known = {"zone_id", "minerals_remaining", "minerals_initial", "vespene_remaining",
@@ -160,6 +174,8 @@ def combat_lines(groups):
                 f"  Current order: {value(row.get('style'))} "
                 f"{value(row.get('target'))} — {value(row.get('status'))}"
             )
+            if "order_seconds" in row:
+                lines.append(f"  Current order duration: {value(row.get('order_seconds'))} s")
         if "requested" in row:
             lines.append(f"  Originally requested: {counts(row['requested'])}")
         if "assigned" in row:
@@ -188,7 +204,8 @@ def combat_lines(groups):
         lines.extend(extras(row, {"status", "style", "target", "phase", "alive", "requested",
                                  "nearest_zone", "assigned", "visible_enemy_nearby",
                                  "weapon_cooldown_active_count", "cloaked", "forms", "skill_evidence",
-                                 "transport", "order_transition", "attack_result", "holding_seconds"}))
+                                 "transport", "order_transition", "attack_result", "holding_seconds",
+                                 "order_seconds"}))
     return lines
 
 
@@ -226,7 +243,11 @@ def brief_combat_lines(groups):
     """Group core summary used by Brief OBS (plan section 4.5)."""
     if not groups:
         return ["none"]
-    lines = []
+    outbound_count = sum(
+        name != "group_0" and isinstance(row, dict)
+        for name, row in groups.items()
+    )
+    lines = [f"Outbound groups: {outbound_count}"]
     for group, row in sorted(groups.items(), key=_group_sort_key):
         if not isinstance(row, dict):
             lines.append(f"{group}: {value(row)}")
@@ -249,6 +270,10 @@ def brief_combat_lines(groups):
             header = f"{group}: defend {target}; holding_after_attack"
             if nearest and nearest != row.get("target"):
                 header += f"; near {value(nearest)}"
+            if "holding_seconds" in row:
+                header += f"; holding {value(row.get('holding_seconds'))} s"
+        elif group != "group_0" and "order_seconds" in row:
+            header += f"; order active {value(row.get('order_seconds'))} s"
         lines.append(header)
         if group == "group_0":
             free = row.get("alive") if "alive" in row else row.get("free")
@@ -377,9 +402,9 @@ def brief_building_lines(data):
         building = int(row.get("under_construction") or 0)
         if ready <= 0 and building <= 0:
             continue
-        text = f"{name} {ready}"
+        text = f"{name}: ready {ready}"
         if building > 0:
-            text += f" (+{building} building)"
+            text += f"; under construction {building}"
         parts.append(text)
     return ["; ".join(parts)] if parts else ["none"]
 
@@ -415,16 +440,40 @@ def brief_available_target_lines(data):
     return lines or ["none"]
 
 
-def brief_forces_lines(data):
+def brief_forces_lines(data, *, race="terran"):
     if not isinstance(data, dict) or not data:
         return ["none"]
     lines = []
-    army = data.get("army")
+    army = dict(data.get("army") or {})
+    non_dispatchable = set()
+    catalog = _production_catalog(race)
+    if catalog is not None:
+        non_dispatchable = {
+            spec.name for spec in catalog.targets
+            if spec.action == "train" and not spec.dispatchable
+        }
+    support = {
+        name: int(count) for name, count in dict(data.get("support") or {}).items()
+        if int(count) > 0
+    }
+    support.update({
+        name: int(count) for name, count in army.items()
+        if name in non_dispatchable and int(count) > 0
+    })
+    army = {
+        name: int(count) for name, count in army.items()
+        if name not in non_dispatchable and int(count) > 0
+    }
     if army:
         lines.append(f"Total: {counts(army)}")
-    assigned = data.get("assigned")
+    assigned = {
+        name: int(count) for name, count in dict(data.get("assigned") or {}).items()
+        if name not in non_dispatchable and int(count) > 0
+    }
     if assigned:
         lines.append(f"Unavailable: {counts(assigned)}")
+    if support:
+        lines.append(f"Non-combat support: {counts(support)}")
     garrison = data.get("bunker_garrison")
     if garrison:
         lines.append(f"Bunker garrison: {counts(garrison)}")
@@ -439,11 +488,62 @@ def brief_priority_lines(data):
         row.get("remaining") for row in data
         if isinstance(row, dict) and type(row.get("remaining")) is int
     ]
+    cancellable_values = [
+        row.get("cancellable_count") for row in data
+        if isinstance(row, dict) and type(row.get("cancellable_count")) is int
+    ]
+    unknown_cancellable = sum(
+        isinstance(row, dict) and row.get("cancellable_count") is None
+        for row in data
+    )
+    blocked = {}
+    for row in data:
+        if not isinstance(row, dict):
+            continue
+        reason = row.get("waiting_for")
+        if not isinstance(reason, str) or not reason:
+            continue
+        if reason == "supply":
+            category = "supply"
+        elif reason == "resources":
+            category = "resources"
+        elif reason.startswith("prerequisite:"):
+            category = "prerequisites"
+        elif reason in {
+            "producer_busy", "production_slot", "producer_unavailable",
+            "producer_techlab_unavailable", "waiting_for_queue",
+        }:
+            category = "production"
+        elif reason.startswith("builder_unavailable:") or reason in {
+            "no_available_geyser", "addon_host_unavailable", "addon_host_busy",
+            "source_unit_reserved", "source_unit_unavailable",
+        }:
+            category = "availability"
+        else:
+            category = "other"
+        amount = (
+            row.get("waiting_to_produce")
+            if row.get("action") == "train" else row.get("cancellable_count")
+        )
+        if type(amount) is not int:
+            amount = row.get("remaining")
+        if type(amount) is int and amount > 0:
+            blocked[category] = blocked.get(category, 0) + amount
     lines = [
         f"{request_count} requests"
         + (f" grouped into {len(data)} lines" if request_count != len(data) else "")
         + (f"; {sum(remaining_values)} items remaining" if remaining_values else ""),
     ]
+    cancellable_total = sum(cancellable_values)
+    if cancellable_total > 0 or unknown_cancellable:
+        cancellable_text = f"Not started and cancellable: {cancellable_total}"
+        if unknown_cancellable:
+            cancellable_text += f"; unknown for {unknown_cancellable} grouped lines"
+        lines.append(cancellable_text)
+    if blocked:
+        lines.append("Blocked work: " + "; ".join(
+            f"{name} {amount}" for name, amount in blocked.items()
+        ))
     for index, row in enumerate(data, 1):
         target = value(row.get("target"))
         if row.get("to"):
@@ -454,6 +554,9 @@ def brief_priority_lines(data):
         if row.get("action") == "train":
             summary.append(f"paid {value(row.get('in_production'))}")
             summary.append(f"unstarted {value(row.get('waiting_to_produce'))}")
+        cancellable = row.get("cancellable_count")
+        if type(cancellable) is int and cancellable > 0:
+            summary.append(f"cancellable {cancellable}")
         waiting_for = row.get("waiting_for")
         blocker = blocker_text(waiting_for)
         state = row.get("state")

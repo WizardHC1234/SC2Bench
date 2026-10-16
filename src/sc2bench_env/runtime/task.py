@@ -69,6 +69,10 @@ class Demand:
     order_index: int = 0
     created_at: float = 0.0
     updated_at: float = 0.0
+    # Game time at which the current macro order was issued. Backend progress
+    # refreshes update ``updated_at`` every step, so it cannot represent order
+    # age for Agent-visible group state.
+    order_started_at: float = 0.0
     # Snapshot helpers for backends that need absolute Sharpy targets.
     baseline_owned: int = 0
     # Object-level / multi-arg actions.
@@ -112,6 +116,7 @@ class Demand:
             order_index=order_index,
             created_at=game_time,
             updated_at=game_time,
+            order_started_at=game_time,
             baseline_owned=baseline_owned,
             to=action.to,
             route=action.route,

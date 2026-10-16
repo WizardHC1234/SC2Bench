@@ -116,7 +116,7 @@ def build_observation(snapshot, task_manager, config, previous=None) -> Observat
         map_topology=topology,
         production_priority=task_manager.production_priority_summary(),
         production=snapshot.info.get("production"),
-        own_forces=own_forces_view(snapshot, task_manager),
+        own_forces=own_forces_view(snapshot, task_manager, combat=combat),
         abilities=race_view.abilities,
         units=dict(snapshot.units),
         buildings=dict(snapshot.buildings),
@@ -161,37 +161,67 @@ def morph_source_reservations(task_manager) -> dict[str, int]:
     return reserved
 
 
-def assigned_army_counts(snapshot, task_manager) -> dict[str, int]:
+def assigned_army_counts(snapshot, task_manager, *, combat=None) -> dict[str, int]:
     bound: dict[str, int] = {}
-    progress = dict(snapshot.info.get("combat_progress") or {})
-    for demand in task_manager.active_demands():
-        if demand.action != "combat":
-            continue
-        row = progress.get(demand.demand_id) or {}
-        alive = row.get("alive")
-        units = alive if isinstance(alive, dict) else (demand.units or {})
-        for name, count in units.items():
-            bound[str(name)] = bound.get(str(name), 0) + int(count)
+    if combat is not None:
+        for label, row in combat.items():
+            if label == "group_0" or not isinstance(row, dict):
+                continue
+            for name, count in dict(row.get("alive") or {}).items():
+                bound[str(name)] = bound.get(str(name), 0) + int(count)
+    else:
+        progress = dict(snapshot.info.get("combat_progress") or {})
+        for demand in task_manager.active_demands():
+            if demand.action != "combat":
+                continue
+            row = progress.get(demand.demand_id) or {}
+            alive = row.get("alive")
+            units = alive if isinstance(alive, dict) else (demand.units or {})
+            for name, count in units.items():
+                bound[str(name)] = bound.get(str(name), 0) + int(count)
     for name, count in morph_source_reservations(task_manager).items():
         bound[str(name)] = bound.get(str(name), 0) + int(count)
     for name, count in dict(snapshot.info.get("unavailable_army") or {}).items():
         bound[str(name)] = max(bound.get(str(name), 0), int(count))
     return bound
 
-def own_forces_view(snapshot, task_manager):
+def own_forces_view(snapshot, task_manager, *, combat=None):
     return split_own_forces(
         snapshot.units,
-        assigned=assigned_army_counts(snapshot, task_manager),
+        assigned=assigned_army_counts(snapshot, task_manager, combat=combat),
         bunker_garrison=snapshot.info.get("bunker_garrison"),
+        race=getattr(task_manager, "race", None),
     )
 
-def idle_army_counts(snapshot, task_manager) -> dict[str, int]:
-    army = dict(split_own_forces(snapshot.units).army)
-    bound = assigned_army_counts(snapshot, task_manager)
+def idle_army_counts(snapshot, task_manager, *, combat=None) -> dict[str, int]:
+    army = dict(split_own_forces(
+        snapshot.units, race=getattr(task_manager, "race", None),
+    ).army)
+    bound = assigned_army_counts(snapshot, task_manager, combat=combat)
     return {
         name: max(0, int(army.get(name, 0)) - int(bound.get(name, 0)))
         for name in set(army) | set(bound)
     }
+
+
+def _clamp_group_alive_to_inventory(
+    snapshot, summary: dict[str, dict], *, race: str | None,
+) -> None:
+    """Keep all group rows within the current same-frame unit inventory."""
+    remaining = dict(split_own_forces(snapshot.units, race=race).army)
+    for row in summary.values():
+        alive = row.get("alive") if isinstance(row, dict) else None
+        if not isinstance(alive, dict):
+            continue
+        reconciled: dict[str, int] = {}
+        for name, raw_count in alive.items():
+            count = max(0, int(raw_count))
+            available = max(0, int(remaining.get(str(name), 0)))
+            kept = min(count, available)
+            if kept:
+                reconciled[str(name)] = kept
+            remaining[str(name)] = available - kept
+        row["alive"] = reconciled
 
 def combat_summary(snapshot, task_manager) -> dict[str, dict]:
     progress = dict(snapshot.info.get("combat_progress") or {})
@@ -214,6 +244,13 @@ def combat_summary(snapshot, task_manager) -> dict[str, dict]:
             "assigned": bool(row.get("assigned", True)),
             "nearest_zone": row.get("nearest_zone"),
         }
+        order_started_at = getattr(
+            demand, "order_started_at", getattr(demand, "created_at", None),
+        )
+        if isinstance(order_started_at, (int, float)):
+            summary[label]["order_seconds"] = max(
+                0, int(float(snapshot.game_time_seconds) - float(order_started_at))
+            )
         reinforcement_history = getattr(demand, "reinforcement_history", ())
         if reinforcement_history:
             summary[label]["reinforcements"] = [
@@ -279,12 +316,19 @@ def combat_summary(snapshot, task_manager) -> dict[str, dict]:
             summary[label]["member_tags"] = [int(tag) for tag in row["member_tags"]]
         if row.get("end_reason"):
             summary[label]["end_reason"] = str(row["end_reason"])
+    _clamp_group_alive_to_inventory(
+        snapshot, summary, race=getattr(task_manager, "race", None),
+    )
     main_zone = next((z.get("zone_id") for z in snapshot.info.get("zone_state", [])
                       if z.get("zone_role") == "own_main"), None)
     group0_zone = snapshot.info.get("group0_zone_id") or main_zone
     summary["group_0"] = {
         "status": "active", "style": "defend", "target": group0_zone,
-        "alive": {k: v for k, v in idle_army_counts(snapshot, task_manager).items() if v > 0},
+        "alive": {
+            k: v for k, v in idle_army_counts(
+                snapshot, task_manager, combat=summary,
+            ).items() if v > 0
+        },
         "assigned": False, "phase": "engaging" if snapshot.info.get("group0_engaged") else "guarding",
     }
     return summary
@@ -655,6 +699,7 @@ def compact_observation(
         brief_group_fields = {
             "status", "style", "target", "phase", "alive", "nearest_zone",
             "visible_enemy_nearby", "order_transition", "attack_result", "holding_seconds",
+            "order_seconds",
         }
         combat = {
             name: ({key: value for key, value in row.items() if key in brief_group_fields}

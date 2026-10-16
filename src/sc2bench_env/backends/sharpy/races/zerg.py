@@ -24,7 +24,10 @@ from sc2bench_env.backends.sharpy.acts import (
     ActCombatMission, ActInject, ActMorphTownhall, ActScoutRoute, ActSpawnCreepTumor,
 )
 from sc2bench_env.backends.sharpy.defense import PlanZoneDefenseSafe
-from sc2bench_env.backends.sharpy.defense_placement import DEFENSE_KINDS, DefensiveGridBuilding
+from sc2bench_env.backends.sharpy.defense_placement import (
+    DEFENSE_KINDS,
+    ZergDefensiveGridBuilding,
+)
 from sc2bench_env.backends.sharpy.combat_styles import unit_available_for_background
 from sc2bench_env.backends.sharpy.gather import PlanHomeGather
 from sc2bench_env.backends.sharpy.races.base import RaceAdapter
@@ -428,7 +431,7 @@ class ZergAdapter(RaceAdapter):
             if unit_type is None:
                 raise ValueError(f"unsupported zerg build target: {task.target}")
             if task.target in DEFENSE_KINDS:
-                return DefensiveGridBuilding(unit_type, to_count, task.target)
+                return ZergDefensiveGridBuilding(unit_type, to_count, task.target)
             return ZergGridBuilding(unit_type, to_count)
         if task.action == "train":
             _require_catalog("train", task.target)

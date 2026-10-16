@@ -123,7 +123,7 @@ def render_brief_observation_text(
 
     army: List[str] = []
     forces_data = data.get("own_forces") or {}
-    forces = brief_forces_lines(forces_data)
+    forces = brief_forces_lines(forces_data, race=race)
     if useful(forces):
         army.extend(forces)
     combat = dict(data.get("combat") or {})
@@ -247,10 +247,11 @@ class MapControlView:
 
 @dataclass
 class OwnForcesView:
-    """Living own units. ``army`` is total army; assigned/free split combat ownership."""
+    """Living own units split by worker, controllable army and support roles."""
 
     workers: Dict[str, int] = field(default_factory=dict)
     army: Dict[str, int] = field(default_factory=dict)
+    support: Dict[str, int] = field(default_factory=dict)
     assigned: Dict[str, int] = field(default_factory=dict)
     free: Dict[str, int] = field(default_factory=dict)
     bunker_garrison: Dict[str, int] = field(default_factory=dict)
@@ -259,6 +260,7 @@ class OwnForcesView:
         payload = {
             "workers": dict(self.workers),
             "army": dict(self.army),
+            "support": dict(self.support),
             "assigned": dict(self.assigned),
             "free": dict(self.free) if self.free or self.assigned else dict(self.army),
         }
@@ -387,15 +389,28 @@ def split_own_forces(
     *,
     assigned: Optional[Dict[str, int]] = None,
     bunker_garrison: Optional[Dict[str, int]] = None,
+    race: Optional[str] = None,
 ) -> OwnForcesView:
     workers: Dict[str, int] = {}
     army: Dict[str, int] = {}
+    support: Dict[str, int] = {}
+    support_names = set()
+    if race is not None:
+        from sc2bench_env.catalog.races import get_catalog
+
+        support_names = {
+            spec.name for spec in get_catalog(race=race).targets
+            if spec.action == "train" and not spec.dispatchable
+            and spec.name not in WORKER_UNIT_NAMES
+        }
     for name, count in units.items():
         amount = int(count)
         if amount <= 0:
             continue
         if name in WORKER_UNIT_NAMES:
             workers[name] = amount
+        elif name in support_names:
+            support[name] = amount
         else:
             army[name] = amount
     assigned_map = {
@@ -417,6 +432,7 @@ def split_own_forces(
     return OwnForcesView(
         workers=workers,
         army=army,
+        support=support,
         assigned=assigned_map,
         free={name: count for name, count in free_map.items() if count > 0},
         bunker_garrison=garrison,

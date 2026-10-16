@@ -27,7 +27,7 @@ EXECUTION_RULES = """Execution model:
 """
 
 ARMY_RULES = """Army groups:
-- group_0 is the permanent home pool. New army units gather at the natural expansion when available, otherwise at the main. Use its available counts for dispatch or reinforcement; gathering, bunker, scout, transport and outbound members are unavailable. A returned group joins it only after arriving home.
+- group_0 is the permanent home pool. New army units gather at the natural expansion when available, otherwise at the main. Use its available counts for dispatch or reinforcement; units performing another platform-managed role, scouting, transporting or assigned to an outbound group are unavailable. A returned group joins it only after arriving home.
 - New units do not automatically reinforce outbound groups.
 - Army orders persist until changed. Reassess existing groups as objectives, positions and threats change, and issue new orders when appropriate.
 - Treat targets as objectives rather than search waypoints. Zone numbers do not imply adjacency; query routes when path choice matters.

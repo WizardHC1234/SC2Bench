@@ -183,7 +183,7 @@ class DefensiveGridBuilding(GridBuilding):
 
         return ProtossGridBuilding.position_protoss(self, count)
 
-    def _defensive_position(self):
+    def _defensive_position(self, predicate=None):
         solver = self.building_solver
         if solver is None:
             return None
@@ -196,6 +196,8 @@ class DefensiveGridBuilding(GridBuilding):
             if point in wall or point in reserved or point in addon_spots:
                 continue
             if buildings.closer_than(1, point):
+                continue
+            if predicate is not None and not predicate(point):
                 continue
             candidates.append(point)
         if not candidates:
@@ -260,3 +262,39 @@ class DefensiveGridBuilding(GridBuilding):
             map_center=map_center,
             natural=natural,
         )
+
+
+class ZergDefensiveGridBuilding(DefensiveGridBuilding):
+    """Prefer defensive positions that are legal on creep.
+
+    Sharpy's generic ``GridBuilding`` creates a Pylon helper whenever a build
+    position is unavailable.  That fallback is valid for Protoss but must not
+    run for Zerg defensive structures.
+    """
+
+    def __init__(self, unit_type: UnitTypeId, to_count: int, kind: str):
+        super().__init__(unit_type, to_count, kind)
+        self.waiting_reason = None
+
+    async def start(self, knowledge):
+        await super().start(knowledge)
+        self.make_pylon = None
+
+    def position_zerg(self, count) -> Optional[Any]:
+        creep = self.ai.state.creep
+        chosen = self._defensive_position(
+            predicate=lambda point: self.is_on_creep(creep, point),
+        )
+        if chosen is not None:
+            return chosen
+        return GridBuilding.position_zerg(self, count)
+
+    async def execute(self) -> bool:
+        self.waiting_reason = None
+        done = await super().execute()
+        if done:
+            return True
+        count = self.get_count(self.unit_type, include_pending=False, include_not_ready=True)
+        if count < self.to_count and self.position_zerg(count) is None:
+            self.waiting_reason = "no_creep"
+        return False

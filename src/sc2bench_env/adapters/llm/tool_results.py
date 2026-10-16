@@ -31,6 +31,13 @@ def _display_distance(value: Any) -> str:
     return _display_value(value)
 
 
+def _display_resource_ratio(remaining: Any, initial: Any) -> str:
+    ratio = f"{_display_value(remaining)}/{_display_value(initial)}"
+    if isinstance(remaining, (int, float)) and not isinstance(remaining, bool) and remaining == 0:
+        return f"depleted ({ratio})"
+    return ratio
+
+
 def _display_list(value: Any) -> str:
     if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
         return "none"
@@ -48,6 +55,26 @@ def _display_counts(value: Any) -> str:
     if not isinstance(value, Mapping) or not value:
         return "none"
     return ", ".join(f"{name} x{count}" for name, count in value.items())
+
+
+def _render_weapon(weapon: Mapping[str, Any]) -> str:
+    """Keep every reported weapon fact without dumping Python-style mappings."""
+    preferred = (
+        ("targets", "targets"), ("damage", "damage"), ("attacks", "attacks"),
+        ("range", "range"), ("minimum_range", "minimum range"),
+        ("period", "period"), ("bonus", "bonus"), ("base_dps", "base_dps"),
+        ("target_restrictions", "restrictions"), ("name", "name"),
+    )
+    parts = [
+        f"{label} {_display_value(weapon.get(key))}"
+        for key, label in preferred if key in weapon
+    ]
+    known = {key for key, _label in preferred}
+    parts.extend(
+        f"{key} {_display_value(value)}"
+        for key, value in weapon.items() if key not in known
+    )
+    return "; ".join(parts) if parts else "unknown"
 
 
 def _render_catalog_results(result: Mapping[str, Any], *, kind: str) -> str:
@@ -72,23 +99,24 @@ def _render_catalog_results(result: Mapping[str, Any], *, kind: str) -> str:
             continue
         lines.append(f"- {name}")
         lines.append(
-            "  Cost: "
+            "  Cost/time: "
             f"{_display_value(row.get('minerals'))} minerals, "
-            f"{_display_value(row.get('vespene'))} gas"
+            f"{_display_value(row.get('vespene'))} gas; "
+            f"{_display_value(row.get('time_seconds'))} seconds"
         )
-        time_label = "Training time" if kind == "unit" else (
-            "Build time" if kind == "building" else "Research time"
-        )
-        lines.append(f"  {time_label}: {_display_value(row.get('time_seconds'))} seconds")
         if kind == "unit":
-            lines.append(f"  Supply required by this action: {_display_value(row.get('supply'))}")
-            lines.append(f"  Total supply while alive: {_display_value(row.get('client_food_required'))}")
-            lines.append(f"  Supply provided when complete: {_display_supply_provided(row.get('food_provided'))}")
+            lines.append(
+                f"  Supply: action {_display_value(row.get('supply'))}; "
+                f"alive {_display_value(row.get('client_food_required'))}; "
+                f"Supply provided when complete: {_display_supply_provided(row.get('food_provided'))}"
+            )
             lines.append(f"  Produced at: {_display_value(row.get('produced_at'))}")
         elif kind == "building":
-            lines.append(f"  Builder: {_display_value(row.get('builder'))}")
-            lines.append(f"  Kind: {_display_value(row.get('kind'))}")
-            lines.append(f"  Supply provided when complete: {_display_supply_provided(row.get('food_provided'))}")
+            lines.append(
+                f"  Builder: {_display_value(row.get('builder'))}; "
+                f"kind {_display_value(row.get('kind'))}; "
+                f"Supply provided when complete: {_display_supply_provided(row.get('food_provided'))}"
+            )
             if row.get("morph_from"):
                 lines.append(f"  Morphs from: {_display_value(row.get('morph_from'))}")
         else:
@@ -101,8 +129,10 @@ def _render_catalog_results(result: Mapping[str, Any], *, kind: str) -> str:
             lines.append(f"  Dispatchable: {_display_value(row.get('dispatchable'))}")
         if row.get("action") == "morph_townhall":
             lines.append("  Order this with morph_townhall and a townhall_<n> id.")
-        lines.append(f"  Prerequisites: {_display_list(row.get('prerequisites'))}")
-        lines.append(f"  Availability: {_display_value(row.get('availability'))}")
+        lines.append(
+            f"  Prerequisites: {_display_list(row.get('prerequisites'))}; "
+            f"availability {_display_value(row.get('availability'))}"
+        )
         if kind == "research":
             lines.append(f"  Effect: {_display_value(row.get('description'))}")
             continue
@@ -113,16 +143,28 @@ def _render_catalog_results(result: Mapping[str, Any], *, kind: str) -> str:
             ) if row.get(key) == "unknown"
         ]
         if gaps:
-            lines.append(f"  Data gaps: {', '.join(gaps)}")
+            lines.append(
+                f"  Data gaps: {', '.join(gaps)}; "
+                f"Armor: {_display_value(row.get('armor'))}"
+            )
         else:
-            lines.append(f"  Health: {_display_value(row.get('health'))}")
-            lines.append(f"  Shields: {_display_value(row.get('shields'))}")
-            lines.append(f"  Energy max: {_display_value(row.get('energy_max'))}")
-        lines.append(f"  Armor: {_display_value(row.get('armor'))}")
+            lines.append(
+                f"  Health: {_display_value(row.get('health'))}; "
+                f"Shields: {_display_value(row.get('shields'))}; "
+                f"Energy max: {_display_value(row.get('energy_max'))}; "
+                f"Armor: {_display_value(row.get('armor'))}"
+            )
         if kind == "unit":
-            lines.append(f"  Movement speed: {_display_value(row.get('movement_speed'))}")
-        lines.append(f"  Sight: {_display_value(row.get('sight_range'))}")
-        lines.append(f"  Attributes: {_display_list(row.get('attributes'))}")
+            lines.append(
+                f"  Movement speed: {_display_value(row.get('movement_speed'))}; "
+                f"Sight: {_display_value(row.get('sight_range'))}; "
+                f"Attributes: {_display_list(row.get('attributes'))}"
+            )
+        else:
+            lines.append(
+                f"  Sight: {_display_value(row.get('sight_range'))}; "
+                f"Attributes: {_display_list(row.get('attributes'))}"
+            )
         attack = row.get("can_attack")
         lines.append(
             "  Can attack: varies by form"
@@ -143,7 +185,10 @@ def _render_catalog_results(result: Mapping[str, Any], *, kind: str) -> str:
                     f"can_attack {_display_value(form.get('can_attack'))}"
                 )
                 for weapon in form.get("weapons") or []:
-                    lines.append(f"    Weapon: {_display_value(weapon)}")
+                    if isinstance(weapon, Mapping):
+                        lines.append(f"    Weapon: {_render_weapon(weapon)}")
+                    else:
+                        lines.append(f"    Weapon: {_display_value(weapon)}")
         platform = row.get("platform_behavior")
         if (platform is not None and platform not in ("unknown", "not_applicable")
                 and platform != row.get("description") and platform != row.get("form_note")):
@@ -158,11 +203,8 @@ def _render_map_overview(result: Mapping[str, Any]) -> str:
         return "Map overview\nNo map topology is available."
     lines = [f"Map overview at game time {_display_value(result.get('as_of_game_time'))}"]
     lines.append(
-        f"Distance basis: {_display_value(topology.get('distance_basis'))}; "
-        f"neighbor basis: {_display_value(topology.get('neighbor_basis'))}"
-    )
-    lines.append(
-        "Path coverage: "
+        f"Paths: {_display_value(topology.get('distance_basis'))}; "
+        f"neighbors: {_display_value(topology.get('neighbor_basis'))}; coverage "
         f"{_display_value(topology.get('verified_path_pair_count'))}/"
         f"{_display_value(topology.get('total_path_pair_count'))} verified pairs"
     )
@@ -170,7 +212,7 @@ def _render_map_overview(result: Mapping[str, Any]) -> str:
     if not isinstance(zones, Sequence) or isinstance(zones, (str, bytes)) or not zones:
         lines.append("Zones: none")
         return "\n".join(lines)
-    lines.append("Zones:")
+    lines.append("Zone | own-main | enemy-main | ramp | neighbors (path distance)")
     for zone in zones:
         if not isinstance(zone, Mapping):
             continue
@@ -181,13 +223,13 @@ def _render_map_overview(result: Mapping[str, Any]) -> str:
                     f"{_display_value(neighbor.get('zone_id'))} "
                     f"({_display_distance(neighbor.get('path_distance'))})"
                 )
-        lines.append(
-            f"- {_display_value(zone.get('zone_id'))}: "
-            f"own-main distance={_display_distance(zone.get('path_distance_from_own_main'))}; "
-            f"enemy-main distance={_display_distance(zone.get('path_distance_to_enemy_main'))}; "
-            f"ramp={_display_value(zone.get('has_ramp'))}; "
-            f"neighbors={', '.join(neighbors) if neighbors else 'none'}"
-        )
+        lines.append(" | ".join((
+            _display_value(zone.get("zone_id")),
+            _display_distance(zone.get("path_distance_from_own_main")),
+            _display_distance(zone.get("path_distance_to_enemy_main")),
+            _display_value(zone.get("has_ramp")),
+            ", ".join(neighbors) if neighbors else "none",
+        )))
     return "\n".join(lines)
 
 
@@ -233,10 +275,8 @@ def _render_zone_state(result: Mapping[str, Any]) -> str:
             if isinstance(resource, Mapping):
                 lines.append(
                     "  Resources: "
-                    f"minerals={_display_value(resource.get('minerals_remaining'))}/"
-                    f"{_display_value(resource.get('minerals_initial'))}; "
-                    f"gas={_display_value(resource.get('vespene_remaining'))}/"
-                    f"{_display_value(resource.get('vespene_initial'))}; "
+                    f"minerals={_display_resource_ratio(resource.get('minerals_remaining'), resource.get('minerals_initial'))}; "
+                    f"gas={_display_resource_ratio(resource.get('vespene_remaining'), resource.get('vespene_initial'))}; "
                     f"gas structures={_display_value(resource.get('owned_gas_structure_count'))}; "
                     f"geysers available={_display_value(resource.get('available_geyser_slots'))}/"
                     f"{_display_value(resource.get('geyser_slots'))}; "
@@ -256,9 +296,30 @@ def _render_production_state(result: Mapping[str, Any]) -> str:
         lines.append("- none")
     for index, row in enumerate(work, 1):
         if isinstance(row, Mapping):
-            lines.append(f"{index}. " + "; ".join(
+            target = _display_value(row.get("target"))
+            if row.get("to"):
+                target += f" -> {_display_value(row.get('to'))}"
+            fields = []
+            labels = {
+                "state": "state", "remaining": "remaining",
+                "cancellable_count": "cancellable", "in_production": "paid",
+                "waiting_to_produce": "unstarted", "waiting_for": "blocked",
+                "mechanism": "mechanism", "order_progress": "progress",
+                "production_batch_size": "batch", "requested_count": "requested",
+                "actual_produced": "actual",
+            }
+            for key, label in labels.items():
+                if key in row and row.get(key) is not None:
+                    fields.append(f"{label}={_display_value(row.get(key))}")
+            known = {"action", "target", "to", *labels}
+            fields.extend(
                 f"{key}={_display_value(value)}" for key, value in row.items()
-            ))
+                if key not in known and value is not None
+            )
+            suffix = f"; {'; '.join(fields)}" if fields else ""
+            lines.append(
+                f"{index}. {_display_value(row.get('action'))} {target}{suffix}"
+            )
     if result.get("larva_available") is not None:
         lines.append(f"Larva available: {_display_value(result.get('larva_available'))}")
     infrastructure = result.get("infrastructure")
@@ -275,14 +336,20 @@ def _render_production_state(result: Mapping[str, Any]) -> str:
 def _render_army_state(result: Mapping[str, Any]) -> str:
     lines = [f"Army state at game time {_display_value(result.get('as_of_game_time'))}"]
     own = result.get("own_forces") if isinstance(result.get("own_forces"), Mapping) else {}
+    lines.append(f"Total army: {_display_counts(own.get('army'))}")
+    if own.get("support"):
+        lines.append(f"Non-combat support: {_display_counts(own.get('support'))}")
     lines.extend((
-        f"Total army: {_display_counts(own.get('army'))}",
         f"Available from group_0: {_display_counts(own.get('free'))}",
         f"Assigned outbound: {_display_counts(own.get('assigned'))}",
         f"Bunker garrison: {_display_counts(own.get('bunker_garrison'))}",
         "Groups:",
     ))
     groups = result.get("groups") if isinstance(result.get("groups"), Mapping) else {}
+    lines.insert(
+        len(lines) - 1,
+        f"Outbound groups: {sum(name != 'group_0' for name in groups)}",
+    )
     if not groups:
         lines.append("- none")
     for name, row in groups.items():
@@ -315,6 +382,10 @@ def _render_army_state(result: Mapping[str, Any]) -> str:
                 f"  Current order: {_display_value(row.get('style'))} "
                 f"{_display_value(row.get('target'))} — {_display_value(row.get('status'))}"
             )
+            if "order_seconds" in row:
+                lines.append(
+                    f"  Current order duration: {_display_value(row.get('order_seconds'))} s"
+                )
         if "requested" in row:
             lines.append(f"  Requested total: {_display_counts(row.get('requested'))}")
         reinforcements = row.get("reinforcements")

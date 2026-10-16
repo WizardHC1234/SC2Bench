@@ -9,9 +9,16 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from difflib import get_close_matches
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 from sc2bench_env.interface.races import require_supported_own_race
+
+
+def _unsupported_name(kind: str, name: str, choices: Sequence[str]) -> str:
+    candidates = get_close_matches(name, list(choices), n=3)
+    suffix = f"; closest valid: {', '.join(candidates)}" if candidates else ""
+    return f"unsupported {kind} {name!r}{suffix}"
 
 COMBAT_STYLES: Tuple[str, ...] = ("attack", "defend")
 # Canonical runtime verbs after public ToolCall names have been normalized.
@@ -138,9 +145,9 @@ def validate_entry_fields(raw: Mapping[str, Any], *, index: int, race: str = "te
         )
     rule = VERB_FIELD_RULES.get(verb)
     if rule is None:
-        raise DecisionSchemaError(
-            f"unsupported action {raw.get('action')!r}; allowed={list(ACTION_VERBS)}"
-        )
+        raise DecisionSchemaError(_unsupported_name(
+            "action", verb, ACTION_VERBS,
+        ))
     reject_unknown_fields(internal, rule)
     require_fields(internal, rule)
     _validate_entry_values(internal, verb=verb, index=index, race=race)
@@ -180,10 +187,9 @@ def _validate_entry_values(raw: Mapping[str, Any], *, verb: str, index: int, rac
                 '{"name":"morph_townhall","arguments":{"target":"townhall_0","to":"lair"}}'
             )
         if normalized not in known_target_names("build", race=race):
-            raise DecisionSchemaError(
-                f"unsupported build target {normalized!r}; "
-                f"allowed={list(known_target_names('build', race=race))}"
-            )
+            raise DecisionSchemaError(_unsupported_name(
+                "build target", normalized, known_target_names("build", race=race),
+            ))
     elif verb == "train":
         target = raw.get("target")
         count = raw.get("count")
@@ -193,20 +199,19 @@ def _validate_entry_values(raw: Mapping[str, Any], *, verb: str, index: int, rac
             raise DecisionSchemaError(f"{where}.count must be a positive integer")
         normalized = target.strip().lower()
         if normalized not in known_target_names("train", race=race):
-            raise DecisionSchemaError(
-                f"unsupported train target {normalized!r}; "
-                f"allowed={list(known_target_names('train', race=race))}"
-            )
+            raise DecisionSchemaError(_unsupported_name(
+                "train target", normalized, known_target_names("train", race=race),
+            ))
     elif verb == "research":
         target = raw.get("target")
         if not isinstance(target, str) or not target.strip():
             raise DecisionSchemaError(f"{where}.target must be a non-empty string")
         normalized = target.strip().lower()
         if normalized not in known_target_names("research", race=race):
-            raise DecisionSchemaError(
-                f"unsupported research target {normalized!r}; "
-                f"allowed={list(known_target_names('research', race=race))}"
-            )
+            raise DecisionSchemaError(_unsupported_name(
+                "research target", normalized,
+                known_target_names("research", race=race),
+            ))
     elif verb == "cancel":
         target_action = raw.get("target_action")
         target = raw.get("target")

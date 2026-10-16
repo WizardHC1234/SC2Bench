@@ -276,7 +276,9 @@ class TaskManager:
                     )
 
         if action.action == "merge_groups":
-            return self._merge_groups(action, game_time=game_time)
+            return self._merge_groups(
+                action, game_time=game_time, group_army=group_army,
+            )
 
         if action.action == "combat" and action.destination is not None:
             source_name = action.source or ""
@@ -303,6 +305,13 @@ class TaskManager:
                     )
             else:
                 destination = None
+
+            if destination is not None and destination.style == "attack":
+                rejection = self._queen_attack_rejection(
+                    action, requested, destination=destination_name,
+                )
+                if rejection is not None:
+                    return rejection
 
             if source_name == "group_0":
                 available = {name: int(idle_army.get(name, 0)) for name in requested}
@@ -410,6 +419,12 @@ class TaskManager:
                 return ActionReceipt(action=action.public_action or "combat", result="rejected", group=action.group,
                                      reason="group_not_reinforceable", action_id=action.action_id)
             requested = {str(name): int(count) for name, count in sorted(action.units.items())}
+            if existing.style == "attack":
+                rejection = self._queen_attack_rejection(
+                    action, requested, group=action.group,
+                )
+                if rejection is not None:
+                    return rejection
             available = {name: int(idle_army.get(name, 0)) for name in requested}
             missing = {
                 name: need - available.get(name, 0)
@@ -457,6 +472,17 @@ class TaskManager:
                     action_id=action.action_id,
                 )
             method = getattr(action, "method", None) or "move"
+            existing_members = (
+                group_army.get(existing.group, {})
+                if existing.group in group_army
+                else dict(existing.units or {})
+            )
+            if action.action == "combat" and action.style == "attack":
+                rejection = self._queen_attack_rejection(
+                    action, existing_members, group=action.group,
+                )
+                if rejection is not None:
+                    return rejection
             if action.action == "retreat" and method == "recall":
                 unchanged = (
                     existing.retreat_method == "recall"
@@ -470,6 +496,7 @@ class TaskManager:
                     existing.recall_failure = None
                     existing.command_revision += 1
                     existing.updated_at = game_time
+                    existing.order_started_at = game_time
                     self._push_event({"type": "group_order_updated",
                                       "group": existing.group,
                                       "action": action.action, "style": existing.style,
@@ -494,6 +521,7 @@ class TaskManager:
                     existing.recall_status = None
                 existing.command_revision += 1
                 existing.updated_at = game_time
+                existing.order_started_at = game_time
                 self._push_event({"type": "group_order_updated",
                                   "group": existing.group,
                                   "action": action.action, "style": existing.style, "target": existing.target})
@@ -507,6 +535,10 @@ class TaskManager:
             requested = {
                 str(name): int(count) for name, count in sorted((action.units or {}).items())
             }
+            if action.style == "attack":
+                rejection = self._queen_attack_rejection(action, requested)
+                if rejection is not None:
+                    return rejection
             # Identical active combat is a no-op (dedupe).
             for demand in self.demands.values():
                 if (
@@ -666,7 +698,37 @@ class TaskManager:
             if demand.action == "combat" and demand.group == group
         ), None)
 
-    def _merge_groups(self, action: GameAction, *, game_time: float) -> ActionReceipt:
+    def _queen_attack_rejection(
+        self,
+        action: GameAction,
+        units: Dict[str, int],
+        *,
+        group: Optional[str] = None,
+        destination: Optional[str] = None,
+        sources: Optional[tuple[str, ...]] = None,
+    ) -> Optional[ActionReceipt]:
+        if self.race != "zerg" or int(units.get("queen", 0)) <= 0:
+            return None
+        return ActionReceipt(
+            action=action.public_action or action.action,
+            target=action.target,
+            style=action.style,
+            group=group,
+            destination=destination,
+            sources=sources,
+            result="rejected",
+            reason="queen_attack_not_supported",
+            action_id=action.action_id,
+            details={"requested": dict(units), "queen_allowed_for": "defend"},
+        )
+
+    def _merge_groups(
+        self,
+        action: GameAction,
+        *,
+        game_time: float,
+        group_army: Dict[str, Dict[str, int]] | None = None,
+    ) -> ActionReceipt:
         destination_name = action.destination or ""
         source_names = tuple(action.sources or ())
         groups = {name: self._active_group(name) for name in (destination_name, *source_names)}
@@ -694,6 +756,22 @@ class TaskManager:
         assert destination is not None
         sources = [groups[name] for name in source_names]
         assert all(source is not None for source in sources)
+        if destination.style == "attack":
+            combined: Dict[str, int] = {}
+            for demand in demands:
+                observed = (
+                    (group_army or {}).get(demand.group, {})
+                    if demand.group in (group_army or {})
+                    else (demand.units or {})
+                )
+                for name, count in observed.items():
+                    combined[name] = combined.get(name, 0) + int(count)
+            rejection = self._queen_attack_rejection(
+                action, combined, destination=destination_name,
+                sources=source_names,
+            )
+            if rejection is not None:
+                return rejection
         pending = list(destination.merge_source_ids)
         for source in sources:
             assert source is not None
