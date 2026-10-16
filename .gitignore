@@ -13,3 +13,12 @@ dependencies/**/dist/
 games/
 records/
 agents/config.json
+
+# Local eval suites (keep on disk, do not publish)
+benchmarks/kimi_k25_ai.json
+benchmarks/terran_pilot.json
+benchmarks/xvt_hard_random_75.json
+benchmarks/xvt_hard_random_90.json
+benchmarks/xvt_hard_styles_75.json
+benchmarks/xvt_hard_tvt_30.json
+benchmarks/_tvt_hard_rerun.json
