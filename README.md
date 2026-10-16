@@ -91,7 +91,7 @@ python examples/llm_vs_llm.py --race protoss --enemy-race zerg --skill none --op
 
 并行使用独立进程，`max_parallel` 设置同时进行的对局上限。仅使用核心包时需加装 `.[parallel]`，`.[llm]` 已包含并行依赖；详见 [Agent 接入](docs/agent_integration.md)。
 
-源码安装默认输出到 `records/`，普通安装默认输出到 `~/.sc2bench/records/`。每局一个文件夹，保存 `episode.txt`、`session.json`、`log.txt`，以及可用回放。`log.txt` 是这一局终端输出的副本。
+源码安装默认输出到 `records/`，普通安装默认输出到 `~/.sc2bench/records/`。每局一个文件夹，保存 `episode.txt`、只含实际对话的 `session.json`、紧凑评测数据 `metrics.json`、`log.txt`，以及可用回放。`log.txt` 是这一局终端输出的副本。
 
 ## 文档入口
 

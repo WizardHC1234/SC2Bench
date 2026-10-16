@@ -1,4 +1,4 @@
-"""Standard interaction trajectory recording."""
+"""Episode metadata and model-session recording."""
 from __future__ import annotations
 
 
@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 from uuid import uuid4
 
-TRAJECTORY_SCHEMA_VERSION = "0.7"
+RECORD_SCHEMA_VERSION = "0.8"
 TOOL_PROTOCOL_VERSION = "tool_turn_v3"
 _EXECUTION_STATE = {
     "ok": "completed",
@@ -149,39 +149,6 @@ def _json_safe(value: Any) -> Any:
     return {"non_json_type": type(value).__name__}
 
 
-def _public_event(index: int, entry: Dict[str, Any]) -> Dict[str, Any]:
-    event_type = {
-        "reset": "reset",
-        "tool_call": "tool_call",
-        "step": "decision_step",
-        "agent_protocol_error": "agent_error",
-        "agent_call_failure": "agent_error",
-        "error": "environment_error",
-        "end": "episode_end",
-    }.get(str(entry.get("type")), entry.get("type"))
-    payload = {
-        key: value for key, value in entry.items()
-        if key not in {"type", "recorded_at", "game_time_seconds", "decision_index", "turn_id"}
-    }
-    game_time = entry.get("game_time_seconds")
-    if game_time is None and entry.get("type") == "reset":
-        game_time = ((entry.get("observation") or {}).get("game") or {}).get("game_time_seconds")
-    if game_time is None and entry.get("type") == "step":
-        game_time = entry.get("game_time_after_seconds")
-    decision_index = entry.get("decision_index")
-    if decision_index is None and entry.get("type") in {"step", "end"}:
-        decision_index = entry.get("step_index")
-    return {
-        "sequence_index": index,
-        "event_type": event_type,
-        "recorded_at": entry.get("recorded_at"),
-        "game_time_seconds": game_time,
-        "decision_index": decision_index,
-        "turn_id": entry.get("turn_id"),
-        "payload": payload,
-    }
-
-
 def collect_versions() -> Dict[str, Any]:
     versions: Dict[str, Any] = {"python": platform.python_version()}
     for package in ("sc2bench-env", "burnysc2", "sharpy-sc2"):
@@ -223,7 +190,7 @@ def _latest_agent_input(agent_context: Optional[Dict[str, Any]]) -> Optional[str
 
 @dataclass
 class TrajectoryRecorder:
-    """Collects reset/step/close events into a fixed JSON structure."""
+    """Collect runtime events in memory and persist the model session."""
 
     episode_id: str = "episode"
     config: Dict[str, Any] = field(default_factory=dict)
@@ -245,6 +212,8 @@ class TrajectoryRecorder:
     _episode_text: str = ""
     _console_log: Optional[_ConsoleLog] = None
     _recorded_agent_call_ids: Set[str] = field(default_factory=set)
+    _tool_call_records: List[Dict[str, Any]] = field(default_factory=list)
+    _model_call_records: List[Dict[str, Any]] = field(default_factory=list)
 
     def start(
         self, root: str | Path, *, prompt: str, backend: str,
@@ -268,7 +237,7 @@ class TrajectoryRecorder:
             self.directory = directory
             break
         metadata_payload = {
-                "schema_version": TRAJECTORY_SCHEMA_VERSION,
+                "schema_version": RECORD_SCHEMA_VERSION,
                 "tool_protocol_version": TOOL_PROTOCOL_VERSION,
                 "episode_id": self.episode_id,
                 "started_at": self._started_at,
@@ -283,7 +252,7 @@ class TrajectoryRecorder:
         self._header_metadata = metadata_payload
         self._write_episode_header()
         self._write_session()
-        self._write_trajectory()
+        self._write_metrics()
         self._console_log = _ConsoleLog(self.directory / "log.txt")
         self._console_log.start()
         return self.directory
@@ -314,12 +283,6 @@ class TrajectoryRecorder:
             self.stop_console_log()
         except Exception:
             return
-
-    def _public_result(self) -> Optional[str]:
-        result = self.result
-        if not isinstance(result, str):
-            return None
-        return result.split(".", 1)[1] if result.startswith("Result.") else result
 
     def _remember_session(
         self,
@@ -359,7 +322,7 @@ class TrajectoryRecorder:
             and decision_index is not None
         ):
             self._decision_sessions[int(decision_index)] = {
-                "schema_version": TRAJECTORY_SCHEMA_VERSION,
+                "schema_version": RECORD_SCHEMA_VERSION,
                 "tool_protocol_version": TOOL_PROTOCOL_VERSION,
                 "episode_id": self.episode_id,
                 "decision_index": int(decision_index),
@@ -377,16 +340,26 @@ class TrajectoryRecorder:
         if self.directory is None:
             return
         self._write_atomic(self.directory / "session.json", {
-            "schema_version": TRAJECTORY_SCHEMA_VERSION,
+            "schema_version": RECORD_SCHEMA_VERSION,
             "tool_protocol_version": TOOL_PROTOCOL_VERSION,
             "episode_id": self.episode_id,
             "model": self._model,
-            "result": self._public_result(),
             "scope": self._session_scope,
             "decision_index": self._session_decision_index,
             "tools": self._session_tools,
             "messages": self._session_messages,
-            **_knowledge_fields(),
+        })
+
+    def _write_metrics(self) -> None:
+        if self.directory is None:
+            return
+        self._write_atomic(self.directory / "metrics.json", {
+            "schema_version": RECORD_SCHEMA_VERSION,
+            "tool_protocol_version": TOOL_PROTOCOL_VERSION,
+            "episode_id": self.episode_id,
+            "tool_calls": self._tool_call_records,
+            "model_calls": self._model_call_records,
+            "summary": deepcopy(self.summary) or {},
         })
 
     def _write_decision_sessions(self) -> None:
@@ -438,6 +411,8 @@ class TrajectoryRecorder:
             "http_status": agent_context.get("api_http_status"),
             "attempt": agent_context.get("api_attempt"),
         })
+        self._write_session()
+        self._write_metrics()
 
     def record_agent_calls(self, agent_context: Optional[Dict[str, Any]], *, game_time: float) -> None:
         """Persist harness-supplied model calls. Missing tokens stay null."""
@@ -453,13 +428,17 @@ class TrajectoryRecorder:
             if normalized is None or normalized["call_id"] in self._recorded_agent_call_ids:
                 continue
             self._recorded_agent_call_ids.add(normalized["call_id"])
-            self._append({
+            entry = {
                 "type": "agent_call",
                 "recorded_at": _utc_now(),
                 "game_time_seconds": float(game_time),
                 "decision_index": self._decision_count or None,
                 **normalized,
+            }
+            self._model_call_records.append({
+                key: deepcopy(value) for key, value in entry.items() if key != "type"
             })
+            self._append(entry)
 
     @staticmethod
     def _write_atomic(path: Path, payload: Dict[str, Any]) -> None:
@@ -491,7 +470,28 @@ class TrajectoryRecorder:
         if self.summary is not None:
             raise RuntimeError("Cannot append to a finalized trajectory")
         self.steps.append(json.loads(json.dumps(_json_safe(entry), ensure_ascii=False)))
-        self._write_trajectory()
+
+    @staticmethod
+    def _tool_error_code(payload: Any) -> Optional[str]:
+        if not isinstance(payload, dict):
+            return None
+        data = payload.get("data")
+        error = data.get("error") if isinstance(data, dict) else None
+        code = error.get("code") if isinstance(error, dict) else None
+        return str(code) if code is not None else None
+
+    def _remember_tool_call(
+        self, *, kind: Optional[str], name: Any, status: Any,
+        execution_state: str, decision_index: Optional[int], payload: Any = None,
+    ) -> None:
+        self._tool_call_records.append(_json_safe({
+            "name": str(name or ""),
+            "kind": kind,
+            "status": status,
+            "execution_state": execution_state,
+            "error_code": self._tool_error_code(payload),
+            "decision_index": decision_index,
+        }))
 
     @property
     def decision_count(self) -> int:
@@ -517,11 +517,20 @@ class TrajectoryRecorder:
         except (TypeError, ValueError):
             # Structured data remains authoritative if a custom call cannot be rendered.
             rendered_result = None
+        execution_state = _EXECUTION_STATE.get(status, "completed")
+        self._remember_tool_call(
+            kind=kind,
+            name=call.get("name"),
+            status=status,
+            execution_state=execution_state,
+            decision_index=decision_index,
+            payload=payload,
+        )
         self._append({
             "type": "tool_call",
             "kind": kind,
             "status": status,
-            "execution_state": _EXECUTION_STATE.get(status, "completed"),
+            "execution_state": execution_state,
             "name": call.get("name"),
             "arguments": dict(call.get("arguments") or {}),
             "call": call,
@@ -547,19 +556,30 @@ class TrajectoryRecorder:
             "agent_context": agent_context,
             "recorded_at": _utc_now(),
         })
+        self._write_session()
+        self._write_metrics()
 
     def record_tool_call(
         self, *, name: str, arguments: Dict[str, Any], result: Dict[str, Any],
         game_time_seconds: float, elapsed_seconds: float,
     ) -> None:
         status = result.get("status") if isinstance(result, dict) else None
+        execution_state = _EXECUTION_STATE.get(status, "completed")
+        self._remember_tool_call(
+            kind=None,
+            name=name,
+            status=status,
+            execution_state=execution_state,
+            decision_index=self._decision_count + 1,
+            payload=result,
+        )
         self._append({
             "type": "tool_call",
             "name": name,
             "arguments": arguments,
             "result": result,
             "status": status,
-            "execution_state": _EXECUTION_STATE.get(status, "completed"),
+            "execution_state": execution_state,
             "game_time_seconds": game_time_seconds,
             "next_decision_index": self._decision_count + 1,
             "elapsed_seconds": elapsed_seconds,
@@ -637,6 +657,8 @@ class TrajectoryRecorder:
         )
         self.record_agent_calls(agent_context, game_time=self._game_time)
         self._append(trajectory_entry)
+        self._write_session()
+        self._write_metrics()
 
     def record_error(
         self, error: BaseException, *, phase: str, submitted_decision: Any = None,
@@ -661,6 +683,8 @@ class TrajectoryRecorder:
             )
             self.record_agent_calls(agent_context, game_time=self._game_time)
         self._append(error_entry)
+        self._write_session()
+        self._write_metrics()
 
     def finalize(
         self, result: Optional[str] = None, *, status: str = "completed",
@@ -678,7 +702,7 @@ class TrajectoryRecorder:
         if observation is not None:
             self._game_time = float(observation["game"]["game_time_seconds"])
         summary = {
-            "schema_version": TRAJECTORY_SCHEMA_VERSION,
+            "schema_version": RECORD_SCHEMA_VERSION,
             "tool_protocol_version": TOOL_PROTOCOL_VERSION,
             "episode_id": self.episode_id,
             "status": status,
@@ -706,7 +730,7 @@ class TrajectoryRecorder:
                 + json.dumps(_json_safe(summary), ensure_ascii=False, indent=2) + "\n",
             )
             self._write_session()
-            self._write_trajectory()
+            self._write_metrics()
         return self.to_dict()
 
     def _replay_saved(self) -> bool:
@@ -714,20 +738,6 @@ class TrajectoryRecorder:
             return False
         replay = self.directory / "replay.SC2Replay"
         return replay.is_file() and replay.stat().st_size > 0
-
-    def _write_trajectory(self) -> None:
-        if self.directory is None:
-            return
-        events = [_public_event(index, entry) for index, entry in enumerate(self.steps)]
-        self._write_atomic(self.directory / "trajectory.json", {
-            "schema_version": TRAJECTORY_SCHEMA_VERSION,
-            "tool_protocol_version": TOOL_PROTOCOL_VERSION,
-            "episode_id": self.episode_id,
-            "config": dict(self.config),
-            "events": events,
-            "result": {"result": self._public_result(), "summary": deepcopy(self.summary)},
-            "summary": deepcopy(self.summary) or {},
-        })
 
     def _integrity(self) -> Dict[str, Any]:
         errors: List[str] = []
@@ -825,7 +835,7 @@ class TrajectoryRecorder:
 
     def to_dict(self) -> Dict[str, Any]:
         return {
-            "schema_version": TRAJECTORY_SCHEMA_VERSION,
+            "schema_version": RECORD_SCHEMA_VERSION,
             "tool_protocol_version": TOOL_PROTOCOL_VERSION,
             "episode_id": self.episode_id,
             "config": dict(self.config),

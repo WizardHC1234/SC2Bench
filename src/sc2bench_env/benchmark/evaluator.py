@@ -72,6 +72,30 @@ def _trajectory_events(record_directory: Any) -> list[dict[str, Any]]:
     return [event for event in events if isinstance(event, dict)]
 
 
+def _compact_usage_records(
+    record_directory: Any,
+) -> Optional[tuple[list[dict[str, Any]], list[dict[str, Any]]]]:
+    """Read compact usage metadata; return None for pre-0.8 records."""
+    if not isinstance(record_directory, str) or not record_directory:
+        return None
+    try:
+        payload = json.loads(
+            (Path(record_directory) / "metrics.json").read_text(encoding="utf-8")
+        )
+    except (OSError, ValueError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    tool_calls = payload.get("tool_calls")
+    model_calls = payload.get("model_calls")
+    if not isinstance(tool_calls, list) or not isinstance(model_calls, list):
+        return None
+    return (
+        [item for item in tool_calls if isinstance(item, dict)],
+        [item for item in model_calls if isinstance(item, dict)],
+    )
+
+
 def _legacy_transport_failure(record_directory: Path, end: Any) -> bool:
     """Recognize records finalized before terminal-error reconciliation.
 
@@ -114,49 +138,69 @@ def _empty_usage() -> dict[str, Any]:
     }
 
 
-def _consume_trajectory(usage: dict[str, Any], record_directory: Any) -> None:
+def _consume_tool_call(usage: dict[str, Any], payload: dict[str, Any]) -> None:
+    name = payload.get("name")
+    kind = payload.get("kind")
+    # tool_turn_v3 records written before this fix replaced the family with
+    # kind="rejected". Infer the original family so old batches remain measurable.
+    if payload.get("status") == "rejected" and kind not in {
+        "knowledge", "read", "action",
+    }:
+        if name in KNOWLEDGE_TOOLS:
+            kind = "knowledge"
+        elif name in READ_TOOLS:
+            kind = "read"
+        elif name in _KNOWN_TOOL_NAMES:
+            kind = "action"
+        else:
+            kind = "unknown"
+    if name == "advance":
+        usage["tool_calls"]["advance"] += 1
+    elif kind in usage["tool_calls"]:
+        usage["tool_calls"][kind] += 1
+    if payload.get("status") == "rejected":
+        rejected = usage["tool_rejections"]
+        rejected["total"] += 1
+        for bucket, value in (("by_kind", kind), ("by_tool", name)):
+            key = str(value or "unknown")
+            rejected[bucket][key] = rejected[bucket].get(key, 0) + 1
+        code = payload.get("error_code")
+        if code is None:
+            result = payload.get("result") if isinstance(payload.get("result"), dict) else {}
+            data = result.get("data") if isinstance(result.get("data"), dict) else {}
+            error = data.get("error") if isinstance(data.get("error"), dict) else {}
+            code = error.get("code")
+        code = str(code or "unknown")
+        rejected["by_code"][code] = rejected["by_code"].get(code, 0) + 1
+
+
+def _consume_model_call(usage: dict[str, Any], payload: dict[str, Any]) -> None:
+    status = payload.get("status")
+    if status not in {"ok", "failure"}:
+        return
+    usage["model_calls"][status] += 1
+    usage["input_tokens"].append(payload.get("input_tokens"))
+    usage["output_tokens"].append(payload.get("output_tokens"))
+    usage["latency_seconds"].append(payload.get("latency_seconds"))
+
+
+def _consume_record_usage(usage: dict[str, Any], record_directory: Any) -> None:
+    compact = _compact_usage_records(record_directory)
+    if compact is not None:
+        tool_calls, model_calls = compact
+        for payload in tool_calls:
+            _consume_tool_call(usage, payload)
+        for payload in model_calls:
+            _consume_model_call(usage, payload)
+        return
+    # Backward compatibility for records created before metrics.json replaced
+    # the duplicated full trajectory.
     for event in _trajectory_events(record_directory):
         payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
         if event.get("event_type") == "tool_call":
-            name = payload.get("name")
-            kind = payload.get("kind")
-            # tool_turn_v3 records written before this fix replaced the family
-            # with kind="rejected". Infer the original family so old batches
-            # remain measurable.
-            if payload.get("status") == "rejected" and kind not in {
-                "knowledge", "read", "action",
-            }:
-                if name in KNOWLEDGE_TOOLS:
-                    kind = "knowledge"
-                elif name in READ_TOOLS:
-                    kind = "read"
-                elif name in _KNOWN_TOOL_NAMES:
-                    kind = "action"
-                else:
-                    kind = "unknown"
-            if name == "advance":
-                usage["tool_calls"]["advance"] += 1
-            elif kind in usage["tool_calls"]:
-                usage["tool_calls"][kind] += 1
-            if payload.get("status") == "rejected":
-                rejected = usage["tool_rejections"]
-                rejected["total"] += 1
-                for bucket, value in (("by_kind", kind), ("by_tool", name)):
-                    key = str(value or "unknown")
-                    rejected[bucket][key] = rejected[bucket].get(key, 0) + 1
-                result = payload.get("result") if isinstance(payload.get("result"), dict) else {}
-                data = result.get("data") if isinstance(result.get("data"), dict) else {}
-                error = data.get("error") if isinstance(data.get("error"), dict) else {}
-                code = str(error.get("code") or "unknown")
-                rejected["by_code"][code] = rejected["by_code"].get(code, 0) + 1
+            _consume_tool_call(usage, payload)
         elif event.get("event_type") == "agent_call":
-            status = payload.get("status")
-            if status not in {"ok", "failure"}:
-                continue
-            usage["model_calls"][status] += 1
-            usage["input_tokens"].append(payload.get("input_tokens"))
-            usage["output_tokens"].append(payload.get("output_tokens"))
-            usage["latency_seconds"].append(payload.get("latency_seconds"))
+            _consume_model_call(usage, payload)
 
 
 def _token_total(values: list[Any]) -> tuple[Optional[int], int]:
@@ -401,7 +445,7 @@ class Evaluator:
                 decision_values.append(row["decision_count"])
             if type(row.get("rejected_count")) is int:
                 rejected_values.append(row["rejected_count"])
-            _consume_trajectory(usage, row.get("record_directory"))
+            _consume_record_usage(usage, row.get("record_directory"))
         input_total, input_missing = _token_total(usage["input_tokens"])
         output_total, output_missing = _token_total(usage["output_tokens"])
         if input_total is None or output_total is None:
@@ -415,7 +459,7 @@ class Evaluator:
         # Means use one total per episode. Re-read is cheap next to a match.
         for row in rows:
             episode_usage = _empty_usage()
-            _consume_trajectory(episode_usage, row.get("record_directory"))
+            _consume_record_usage(episode_usage, row.get("record_directory"))
             episode_input, _ = _token_total(episode_usage["input_tokens"])
             episode_output, _ = _token_total(episode_usage["output_tokens"])
             if episode_input is not None and episode_output is not None and episode_usage["input_tokens"]:

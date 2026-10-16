@@ -48,6 +48,16 @@ def read_episode(directory: str | Path) -> Dict[str, Any]:
             "tools": None,
             "messages": [],
         }
+    metrics_path = path / "metrics.json"
+    if metrics_path.is_file():
+        metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
+        if not isinstance(metrics, dict):
+            raise ValueError("Invalid metrics.json")
+        for field in ("tool_calls", "model_calls"):
+            if not isinstance(metrics.get(field), list):
+                raise ValueError(f"Invalid metrics.json {field}")
+    else:
+        metrics = None
     trajectory_path = path / "trajectory.json"
     trajectory = None
     if trajectory_path.is_file():
@@ -77,7 +87,9 @@ def read_episode(directory: str | Path) -> Dict[str, Any]:
     if not protocol:
         protocol = "legacy"
         notes.append("legacy record without tool_protocol_version")
-    if trajectory is None:
+    # trajectory.json was retired when metrics.json became the compact
+    # evaluator record. Keep the reader field for older episode compatibility.
+    if trajectory is None and metrics is None:
         notes.append("model session only; no platform trajectory")
     return {
         "metadata": metadata,
@@ -85,6 +97,7 @@ def read_episode(directory: str | Path) -> Dict[str, Any]:
         "summary": summary,
         "session": session,
         "messages": session["messages"],
+        "metrics": metrics,
         "decision_sessions": decision_sessions,
         "trajectory": trajectory,
         "tool_protocol_version": protocol,

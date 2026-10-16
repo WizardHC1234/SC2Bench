@@ -141,7 +141,7 @@ python -m sc2bench_env paths
 
 ## 记录和路径
 
-每局保存 `episode.txt`、`session.json`、`log.txt` 和可用的 `replay.SC2Replay`；Fake 没有回放。`episode.txt` 记录配置、平台合同和终局摘要，其中包括实际使用的 seed。`session.json` 包含 `episode_id`、`model`、`result`、这一局发给模型的 `tools`，以及模型实际看到的 `messages`（系统提示、观测、tool call 和 tool result）。标准轨迹同时保存 Full Observation、渲染后的 Brief、Harness 实际提供的当前 Agent 输入，以及每个 Tool call 的结构化结果和文本化结果。`log.txt` 复制这一局写到终端的内容，环境关闭后不再追加。Runner 把完整批次写在 `records/<batch-directory>/batch.json`，不在记录根目录散落 `run_*.json`。
+每局保存 `episode.txt`、`session.json`、`metrics.json`、`log.txt` 和可用的 `replay.SC2Replay`；Fake 没有回放。`episode.txt` 记录配置、平台合同和终局摘要，其中包括实际使用的 seed。`session.json` 只保存这一局发给模型的 `tools` 和模型实际看到的 `messages`（系统提示、观测、tool call 和 tool result）。`metrics.json` 只保存评测所需的工具状态、模型 token/延迟和终局统计。平台不再重复保存包含 Full Observation 的 `trajectory.json`。`log.txt` 复制这一局写到终端的内容，环境关闭后不再追加。Runner 把完整批次写在 `records/<batch-directory>/batch.json`，不在记录根目录散落 `run_*.json`。
 
 源码/可编辑安装默认使用项目 `records/`，普通包使用用户 `~/.sc2bench/records/`。环境变量 `SC2BENCH_OUTPUT_DIR` 可设置绝对输出根；显式 `record_dir` 优先。默认路径不随工作目录改变。`Evaluator.evaluate_batch` 只读 `batch.json` 和各局记录，不调用游戏或模型，并重新计算胜负、工具次数、工具拒绝、模型调用、token 和延迟。`rejected_decisions` 表示整个决策未通过协议校验，`tool_rejections` 单独统计被拒绝的工具及原因；工具被拒绝时仍保留原来的 action、read 或 knowledge 类别。token 指标同时记录单次调用的最大输入长度。blocking/realtime、episode/decision 会话范围、后端、SC2 游戏版本、Knowledge 快照、平台版本、记录 Schema 或 Tool 协议不一致时，汇总标记为不可比较且不生成合并胜率。供应商没返回的 token 保持空值。
 
