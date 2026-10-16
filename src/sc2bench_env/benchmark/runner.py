@@ -445,6 +445,10 @@ class BenchmarkRunner:
         except AgentStopped as stop:
             if env is not None:
                 try:
+                    if stop.agent_context is not None:
+                        env.record_protocol_error(
+                            stop.end_reason, agent_context=stop.agent_context,
+                        )
                     env.close(end_reason=stop.end_reason)
                 except Exception as error:
                     error_type = type(error).__name__

@@ -6,6 +6,7 @@ import json
 import re
 import ssl
 import time
+from email.utils import parsedate_to_datetime
 from http.client import HTTPException
 from typing import Any, Callable, Mapping, Optional
 from urllib.error import HTTPError, URLError
@@ -54,6 +55,22 @@ def _parse_tool_calls(message: Mapping[str, Any]) -> list[dict[str, Any]]:
             "raw": item,
         })
     return parsed
+
+
+def _retry_after_seconds(error: HTTPError) -> Optional[float]:
+    value = error.headers.get("Retry-After") if error.headers is not None else None
+    if not value:
+        return None
+    try:
+        seconds = float(value)
+    except ValueError:
+        try:
+            from datetime import datetime, timezone
+
+            seconds = (parsedate_to_datetime(value) - datetime.now(timezone.utc)).total_seconds()
+        except (TypeError, ValueError, OverflowError):
+            return None
+    return max(0.0, min(60.0, seconds))
 
 
 def build_chat_payload(
@@ -138,12 +155,17 @@ def make_llm_call(
             status = exc.code if isinstance(exc, HTTPError) else None
             retryable = (
                 status in {408, 429} or (status is not None and status >= 500)
-            ) if status is not None else isinstance(exc, (URLError, OSError, HTTPException))
+            ) if status is not None else isinstance(
+                exc, (URLError, OSError, HTTPException, json.JSONDecodeError, UnicodeDecodeError)
+            )
             return {
                 "content": "", "raw_content": "", "model": model,
                 "thinking_requested": thinking, "actual_messages": messages,
                 "error": type(exc).__name__, "http_status": status,
                 "retryable": retryable,
+                "retry_after_seconds": (
+                    _retry_after_seconds(exc) if isinstance(exc, HTTPError) else None
+                ),
                 "latency_seconds": round(time.perf_counter() - started, 6),
                 "tool_calls": [],
             }

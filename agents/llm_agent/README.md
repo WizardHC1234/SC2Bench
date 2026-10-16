@@ -34,6 +34,7 @@ Agent 默认不加载 Skill。选择 Skill 时使用 `race/strategy` 名称，`-
 python -m agents.llm_agent --help
 python -m agents.llm_agent --dry-run --opponent mediumhard
 python -m agents.llm_agent --opponent mediumhard
+python -m agents.llm_agent --max-tool-rounds 24 --opponent mediumhard
 python -m agents.llm_agent --conversation-mode per_decision --opponent mediumhard
 python -m agents.llm_agent --skill terran/two-base-tanks --opponent mediumhard
 python -m agents.llm_agent --race protoss --skill protoss/macro-stalkers --opponent mediumhard
@@ -60,4 +61,5 @@ BenchmarkRunner().run(
 `create_agent()` 默认运行无 Skill 基线。加载策略时传入完整名称，例如 `create_agent(skill_name="terran/two-base-tanks")`。
 
 每调用一次 `create_agent()` 得到一个新实例；一局不要复用上一局的实例。
+`max_tool_rounds` 是单次决策内允许的最大模型工具轮数，默认 24；它只用于终止失控的工具循环，不改变正常的查询、动作和 `advance` 流程。正式评测应把该值写入 `agent_metadata.settings`。
 批量评测时应把 `conversation_mode` 写进 `agent_metadata.settings`，以便区分整局多轮上下文和逐决策上下文的结果。Agent 同时会把实际会话范围写入记录：`full_session` 的完整历史保存在 `session.json`，`per_decision` 的每次独立决策保存在 `decision_sessions.jsonl`，`session.json` 保留最近一次决策。Evaluator 不把两种会话范围合并成一个胜率。

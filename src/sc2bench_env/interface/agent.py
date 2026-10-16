@@ -31,13 +31,17 @@ class AgentInput:
 
 
 class AgentStopped(RuntimeError):
-    """An external Agent's deliberate stop, distinct from an unexpected error."""
+    """An external Agent's deliberate stop, with an optional transcript snapshot."""
 
-    def __init__(self, end_reason: str = "agent_stopped") -> None:
+    def __init__(
+        self, end_reason: str = "agent_stopped", *,
+        agent_context: Optional[dict[str, Any]] = None,
+    ) -> None:
         if end_reason not in _STOP_REASONS:
             raise ValueError("Unsupported Agent stop reason")
         super().__init__(end_reason)
         self.end_reason = end_reason
+        self.agent_context = agent_context
 
 
 @dataclass(frozen=True)

@@ -548,6 +548,11 @@ class TrajectoryRecorder:
         self, *, code: str, agent_context: Optional[Dict[str, Any]] = None,
         game_time_seconds: float = 0.0,
     ) -> None:
+        self._remember_session(
+            agent_context,
+            decision_index=self._decision_count + 1,
+            game_time=game_time_seconds,
+        )
         self.record_agent_calls(agent_context, game_time=game_time_seconds)
         self._append({
             "type": "agent_protocol_error",

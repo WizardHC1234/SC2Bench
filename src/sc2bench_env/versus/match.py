@@ -262,6 +262,10 @@ def run_versus(
             try:
                 turn = agents[player](request)
             except AgentStopped as stop:
+                if stop.agent_context is not None:
+                    match.record_protocol_error(
+                        player, stop.end_reason, agent_context=stop.agent_context,
+                    )
                 match.close(end_reason=stop.end_reason)
                 break
             if not isinstance(turn, AgentTurn):

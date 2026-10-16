@@ -42,6 +42,10 @@ def run_episode(env: Environment, agent: agent_module.LLMAgent,
             turn = agent(request)
         except AgentStopped as stop:
             tool_turn.abort()
+            if stop.agent_context is not None:
+                env.record_protocol_error(
+                    stop.end_reason, agent_context=stop.agent_context,
+                )
             env.close(end_reason=stop.end_reason)
             return {"result": None, "end_reason": stop.end_reason}
         if not isinstance(turn, AgentTurn):

@@ -158,9 +158,13 @@ def render_brief_observation_text(
             map_control_data.get("unconfirmed_expansion_count"),
         ]
         if all(type(item) is int for item in zone_total_parts):
-            omitted = max(0, sum(zone_total_parts) - len(data.get("zone_state") or []))
-            if omitted:
-                zone_lines.append(f"Other map zones not shown: {omitted}")
+            own, enemy, unconfirmed = zone_total_parts
+            total = sum(zone_total_parts)
+            shown = len(data.get("zone_state") or [])
+            zone_lines.append(
+                f"Map zones: self-owned {own}; enemy-owned {enemy}; "
+                f"unconfirmed {unconfirmed}; relevant shown {shown}/{total}"
+            )
     add("Relevant Zones", zone_lines)
     add(
         "Abilities",

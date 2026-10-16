@@ -30,7 +30,7 @@ ARMY_RULES = """Army groups:
 - group_0 is the permanent home pool. New army units gather at the natural expansion when available, otherwise at the main. Use its available counts for dispatch or reinforcement; units performing another platform-managed role, scouting, transporting or assigned to an outbound group are unavailable. A returned group joins it only after arriving home.
 - New units do not automatically reinforce outbound groups.
 - Army orders persist until changed. Reassess existing groups as objectives, positions and threats change, and issue new orders when appropriate.
-- Treat targets as objectives rather than search waypoints. Zone numbers do not imply adjacency; query routes when path choice matters.
+- Zone numbers do not imply adjacency; query routes when path choice matters.
 """
 
 GAME_RULES = """- Minerals and gas pay for buildings, units and research. Completed SCVs generate income while gathering resources; SCVs occupied by other work are not gathering. Additional eligible gathering SCVs increase income until the available mineral or gas worker capacity is reached.
@@ -98,7 +98,7 @@ ACTION_RULES = {
     "scout": 'Send one SCV along the ordered route; route="all" performs one expansion-zone sweep. A new scout command replaces existing scout work, and the scout\'s death fails the task without automatic replacement. Arrival does not guarantee full-zone visibility or that every enemy was found.',
     "morph_townhall": "Morph the selected town hall to the requested form. The request completes when the morph command is issued, not when the new form finishes.",
     "dispatch_group": "Split the requested units from group_0 or another active group into a new group and give it an attack or defend order. The split is all-or-nothing; the source keeps its own ID and order. group_0 remains the home pool.",
-    "attack_group": "Order an existing outbound group to attack a zone. This changes that group's order and does not create a group or change its membership.",
+    "attack_group": "Order an existing outbound group to attack a zone, whether or not the zone is currently visible. This changes that group's order and does not create a group or change its membership.",
     "defend_group": "Order an existing outbound group to defend a zone. This changes that group's order and does not create a group or change its membership. Defending groups stay near the target, do not chase across the map and do not proactively attack structures.",
     "reinforce_group": "Transfer the requested units from group_0 or an active outbound source to an active destination without changing the destination order. Transfers are all-or-nothing and remain pending until the units physically join; destination group_0 means return home.",
     "merge_groups": "Move all living source members into the destination without passing through group_0. The destination keeps its ID and order. Missing, duplicate, withdrawing or recalling groups reject the whole call.",

@@ -30,6 +30,7 @@ from agents.llm_agent import (
 )
 from agents.llm_agent.agent import CONVERSATION_MODES
 from agents.llm_agent.config import positive_float, positive_int
+from agents.llm_agent.prompts import MAX_TOOL_ROUNDS
 from sc2bench_env.benchmark import BenchmarkRunner
 from sc2bench_env.interface.config import EpisodeConfig
 from sc2bench_env.interface.opponents import (
@@ -93,6 +94,7 @@ def main(argv=None) -> int:
     parser.add_argument("--game-time-limit", type=positive_float, default=1800)
     parser.add_argument("--max-decisions", type=positive_int, default=500)
     parser.add_argument("--max-rejections", type=positive_int, default=3)
+    parser.add_argument("--max-tool-rounds", type=positive_int, default=MAX_TOOL_ROUNDS)
     parser.add_argument(
         "--conversation-mode", choices=CONVERSATION_MODES, default="full_session")
     parser.add_argument("--api-timeout", type=positive_float, default=120)
@@ -118,6 +120,7 @@ def main(argv=None) -> int:
             "conversation_mode": args.conversation_mode,
             "max_rejections": args.max_rejections, "api_timeout": args.api_timeout,
             "api_attempts": args.api_attempts, "api_retry_delay": args.api_retry_delay,
+            "max_tool_rounds": args.max_tool_rounds,
             "record_dir": str(resolve_record_dir(args.record_dir)),
         }, ensure_ascii=False, indent=2))
         return 0
@@ -136,6 +139,7 @@ def main(argv=None) -> int:
             api_retry_delay_seconds=args.api_retry_delay,
             max_consecutive_rejections=args.max_rejections,
             conversation_mode=args.conversation_mode,
+            max_tool_rounds=args.max_tool_rounds,
         )
 
     runner = BenchmarkRunner(backend_factory=lambda: "sharpy", record_dir=args.record_dir)
@@ -150,6 +154,7 @@ def main(argv=None) -> int:
             "api_retry_delay_seconds": args.api_retry_delay,
             "max_consecutive_rejections": args.max_rejections,
             "conversation_mode": args.conversation_mode,
+            "max_tool_rounds": args.max_tool_rounds,
         },
     }
     print("Runner is starting one episode with agents.llm_agent.", flush=True)

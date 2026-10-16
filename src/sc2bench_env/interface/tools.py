@@ -417,9 +417,8 @@ def tool_specs(race: str = "terran") -> Tuple[ToolSpec, ...]:
         ),
         _spec(
             "query_zone_state",
-            "Read current or last-seen state and known resources for named zones. Does not scout.",
+            "Read current or last-seen state and known resources for named zones, or all zones when zone_ids is omitted. Does not scout.",
             {"zone_ids": {"type": "array", "minItems": 1, "items": {"type": "string"}}},
-            ("zone_ids",),
         ),
         _spec(
             "query_route",

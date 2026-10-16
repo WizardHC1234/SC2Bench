@@ -294,15 +294,25 @@ def query_map_overview(observation: Mapping[str, Any]) -> Dict[str, Any]:
     return {"map_topology": topology}
 
 
-def query_zone_state(observation: Mapping[str, Any], zone_ids: Sequence[str]) -> Dict[str, Any]:
-    wanted = [str(zone) for zone in zone_ids]
-    rows = [
+def query_zone_state(
+    observation: Mapping[str, Any], zone_ids: Optional[Sequence[str]] = None,
+) -> Dict[str, Any]:
+    all_rows = [
         row for row in observation.get("zone_state") or []
-        if isinstance(row, Mapping) and row.get("zone_id") in set(wanted)
+        if isinstance(row, Mapping)
+    ]
+    wanted = (
+        [str(row.get("zone_id")) for row in all_rows if row.get("zone_id") is not None]
+        if zone_ids is None
+        else [str(zone) for zone in zone_ids]
+    )
+    wanted_set = set(wanted)
+    rows = [
+        row for row in all_rows if row.get("zone_id") in wanted_set
     ]
     resources = [
         row for row in (observation.get("map_control") or {}).get("base_resources") or []
-        if isinstance(row, Mapping) and row.get("zone_id") in set(wanted)
+        if isinstance(row, Mapping) and row.get("zone_id") in wanted_set
     ]
     missing = [zone for zone in wanted if zone not in {row.get("zone_id") for row in rows}]
     return {"zones": rows, "base_resources": resources, "unknown_zone_ids": missing}
@@ -457,7 +467,7 @@ def run_query(
             return _with_snapshot_time(query_map_overview(observation), observation)
         if name == "query_zone_state":
             ids = arguments.get("zone_ids")
-            if not isinstance(ids, list):
+            if ids is not None and not isinstance(ids, list):
                 return {"error": "zone_ids must be an array of strings"}
             return _with_snapshot_time(query_zone_state(observation, ids), observation)
         if name == "query_route":

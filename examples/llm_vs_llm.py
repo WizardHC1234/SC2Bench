@@ -46,6 +46,9 @@ def main(argv=None) -> int:
                         type=agent_module.positive_int, default=500)
     parser.add_argument("--max-rejections",
                         type=agent_module.positive_int, default=3)
+    parser.add_argument("--max-tool-rounds",
+                        type=agent_module.positive_int,
+                        default=agent_module.MAX_TOOL_ROUNDS)
     parser.add_argument("--skill", default="none")
     parser.add_argument("--opponent-skill", default="none")
     parser.add_argument("--temperature", type=agent_module.parse_temperature,
@@ -84,6 +87,7 @@ def main(argv=None) -> int:
                 {"model": args.model, "skill": args.skill},
                 {"model": opponent_model, "skill": args.opponent_skill},
             ],
+            "max_tool_rounds": args.max_tool_rounds,
             "record_dir": str(resolve_record_dir(args.record_dir)),
             "execution": "versus",
         }, ensure_ascii=False, indent=2))
@@ -103,6 +107,7 @@ def main(argv=None) -> int:
         thinking_requested=args.thinking, verbose=not args.quiet,
         max_api_attempts=args.api_attempts, api_retry_delay_seconds=args.api_retry_delay,
         max_consecutive_rejections=args.max_rejections,
+        max_tool_rounds=args.max_tool_rounds,
     )
     agent = agent_module.create_agent(home, skill_name=args.skill, **options)
     opponent = agent_module.create_agent(

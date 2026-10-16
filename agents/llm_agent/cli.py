@@ -31,6 +31,7 @@ from .config import (
     positive_float,
     positive_int,
 )
+from .prompts import MAX_TOOL_ROUNDS
 from .skills import AVAILABLE_SKILLS, DEFAULT_SKILL, skill_race
 
 
@@ -52,6 +53,10 @@ def run_episode(
             ))
         except AgentStopped as stop:
             tool_turn.abort()
+            if stop.agent_context is not None:
+                env.record_protocol_error(
+                    stop.end_reason, agent_context=stop.agent_context,
+                )
             env.close(end_reason=stop.end_reason)
             return {"result": None, "end_reason": stop.end_reason}
         if not isinstance(turn, AgentTurn):
@@ -100,6 +105,7 @@ def main(argv=None) -> int:
     parser.add_argument("--game-time-limit", type=positive_float, default=1800)
     parser.add_argument("--max-decisions", type=positive_int, default=500)
     parser.add_argument("--max-rejections", type=positive_int, default=3)
+    parser.add_argument("--max-tool-rounds", type=positive_int, default=MAX_TOOL_ROUNDS)
     parser.add_argument("--api-timeout", type=positive_float, default=120)
     parser.add_argument("--api-attempts", type=positive_int, default=3)
     parser.add_argument("--api-retry-delay", type=positive_float, default=1)
@@ -139,6 +145,7 @@ def main(argv=None) -> int:
             "skill": args.skill,
             "conversation_mode": args.conversation_mode,
             "max_decisions": args.max_decisions,
+            "max_tool_rounds": args.max_tool_rounds,
             "record_dir": str(resolve_record_dir(args.record_dir)),
             "execution": "direct_environment",
         }, ensure_ascii=False, indent=2))
@@ -158,7 +165,8 @@ def main(argv=None) -> int:
             thinking_requested=args.thinking, verbose=not args.quiet,
             skill_name=args.skill,
             conversation_mode=args.conversation_mode,
-    )
+            max_tool_rounds=args.max_tool_rounds,
+        )
     env = Environment("sharpy", record_dir=args.record_dir)
     try:
         info = run_episode(env, agent, config, max_decisions=args.max_decisions)

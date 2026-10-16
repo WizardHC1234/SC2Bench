@@ -101,12 +101,14 @@ class LLMAgent:
         max_consecutive_rejections: int = 3, thinking_requested: bool = False,
         verbose: bool = True, skill_name: Optional[str] = DEFAULT_SKILL,
         conversation_mode: str = "full_session",
+        max_tool_rounds: int = MAX_TOOL_ROUNDS,
     ) -> None:
         if (type(max_api_attempts) is not int or max_api_attempts < 1
                 or not math.isfinite(api_retry_delay_seconds) or api_retry_delay_seconds < 0
-                or type(max_consecutive_rejections) is not int or max_consecutive_rejections < 1):
+                or type(max_consecutive_rejections) is not int or max_consecutive_rejections < 1
+                or type(max_tool_rounds) is not int or max_tool_rounds < 1):
             raise ValueError(
-                "invalid external Agent retry or rejection limits")
+                "invalid external Agent retry, rejection, or tool-round limits")
         if conversation_mode not in CONVERSATION_MODES:
             raise ValueError(
                 f"conversation_mode must be one of {CONVERSATION_MODES}")
@@ -117,6 +119,7 @@ class LLMAgent:
         self.thinking_requested = thinking_requested
         self.verbose = verbose
         self.conversation_mode = conversation_mode
+        self.max_tool_rounds = max_tool_rounds
         loaded_skill = load_skill(skill_name)
         self.skill_name = loaded_skill[0] if loaded_skill else None
         self.skill_text = loaded_skill[1] if loaded_skill else ""
@@ -145,14 +148,15 @@ class LLMAgent:
         self._sent_tools = schemas
         race = str(request.observation.game.race or "terran").strip().lower()
         adapter = LLMAdapter(race=race)
-        provider_tool_calls: list[dict[str, Any]] = []
         failures: list[dict[str, Any]] = []
         decision_calls: list[dict[str, Any]] = []
         last_attempt = 1
+        last_response: dict[str, Any] = {}
         phase = "querying"
         query_names, action_names = _tool_roles(request.tool_specs)
-        for _round in range(MAX_TOOL_ROUNDS):
+        for _round in range(self.max_tool_rounds):
             response, attempt, round_failures = self._complete_once(schemas)
+            last_response = response
             last_attempt = attempt
             failures.extend(round_failures)
             if response.get("error"):
@@ -161,27 +165,20 @@ class LLMAgent:
                                  stop_after_call_failures=True)
             decision_calls.append(_model_call(response))
             tool_calls = list(response.get("tool_calls") or [])
-            raw = response.get("raw_content", response.get("content", ""))
             content = response.get("content") or ""
             if not tool_calls:
                 hint = READY_TEXT_HINT if phase == "ready_to_advance" else NO_TOOL_HINT
                 self.messages.append(
-                    {"role": "assistant", "content": content or raw})
+                    {"role": "assistant", "content": content})
                 if self.verbose:
-                    if response.get("reasoning"):
-                        _print_block("Model reasoning (API returned)",
-                                     str(response.get("reasoning") or ""))
-                    _print_block("Model reply (raw)", raw or "(empty)")
+                    _print_block("Model reply", content or "(empty)")
                     _print_block("Tool reminder", hint)
                 self.messages.append({"role": "user", "content": hint})
                 continue
             kind, problem = _classify_reply(phase, tool_calls, query_names, action_names)
             self.messages.append(
-                self._assistant_tool_message(content, raw, tool_calls))
+                self._assistant_tool_message(content, tool_calls))
             if self.verbose:
-                if response.get("reasoning"):
-                    _print_block("Model reasoning (API returned)",
-                                 str(response.get("reasoning") or ""))
                 if content:
                     _print_block("Model note", content)
             if problem:
@@ -211,9 +208,6 @@ class LLMAgent:
                 arguments = call.get("arguments") if isinstance(
                     call.get("arguments"), dict) else {}
                 tool_call = ToolCall(name, dict(arguments))
-                provider_tool_calls.append({
-                    "id": call_id, "name": name, "arguments": dict(arguments),
-                })
                 if self.verbose and name not in {"advance"}:
                     _print_block(
                         _tool_query_title(name),
@@ -233,7 +227,6 @@ class LLMAgent:
             if ready:
                 context = self._turn_context(
                     response, request, last_attempt, failures)
-                context["provider_tool_calls"] = list(provider_tool_calls)
                 context["agent_calls"] = list(decision_calls)
                 if self.verbose:
                     print(
@@ -242,7 +235,11 @@ class LLMAgent:
                         flush=True,
                     )
                 return AgentTurn(context, call_failures=tuple(failures))
-        raise AgentStopped("tool_round_limit")
+        context = self._turn_context(
+            last_response, request, last_attempt, failures,
+        )
+        context["agent_calls"] = list(decision_calls)
+        raise AgentStopped("tool_round_limit", agent_context=context)
 
     def _complete_once(self, schemas: list[dict[str, Any]]) -> tuple[dict[str, Any], int, list[dict[str, Any]]]:
         response: dict[str, Any] = {}
@@ -289,15 +286,21 @@ class LLMAgent:
             )
             if attempt == self.max_api_attempts or not response.get("retryable", True):
                 return response, attempt, failures
-            if self.api_retry_delay_seconds:
-                time.sleep(min(60.0, self.api_retry_delay_seconds * attempt))
+            retry_after = response.get("retry_after_seconds")
+            if isinstance(retry_after, bool) or not isinstance(retry_after, (int, float)):
+                retry_after = 0
+            if self.api_retry_delay_seconds or retry_after:
+                backoff = self.api_retry_delay_seconds * (2 ** (attempt - 1))
+                time.sleep(min(60.0, max(backoff, float(retry_after))))
         return response, attempt, failures
 
     def _invoke_llm(self, schemas: list[dict[str, Any]]) -> dict[str, Any]:
         messages = [dict(message) for message in self.messages]
         return self.call_llm(messages, tools=schemas)
 
-    def _assistant_tool_message(self, content: str, raw: str, tool_calls: list[dict[str, Any]]) -> dict[str, Any]:
+    def _assistant_tool_message(
+        self, content: str, tool_calls: list[dict[str, Any]],
+    ) -> dict[str, Any]:
         serialized = []
         for index, call in enumerate(tool_calls):
             arguments = call.get("arguments") if isinstance(
@@ -310,24 +313,23 @@ class LLMAgent:
                     "arguments": json.dumps(arguments, ensure_ascii=False),
                 },
             })
-        return {"role": "assistant", "content": content or raw or None, "tool_calls": serialized}
+        return {"role": "assistant", "content": content or None, "tool_calls": serialized}
 
     def _turn_context(
         self, response: Mapping[str, Any], request: AgentInput, attempt: int,
         failures: list[dict[str, Any]],
     ) -> dict[str, Any]:
         _ = request, failures
-        raw = response.get("raw_content", response.get("content", ""))
+        content = response.get("content") or ""
         return {
             "messages": [dict(message) for message in self.messages],
             "tools": list(self._sent_tools),
             "session_scope": (
                 "decision" if self.conversation_mode == "per_decision" else "episode"
             ),
-            "assistant_content": raw,
+            "assistant_content": content,
             "model": response.get("model", llm_model()),
             "usage": response.get("usage") or {},
-            "reasoning": response.get("reasoning") or "",
             "finish_reason": response.get("finish_reason") or "",
             "thinking_requested": response.get("thinking_requested", self.thinking_requested),
             "latency_seconds": response.get("latency_seconds", 0),
