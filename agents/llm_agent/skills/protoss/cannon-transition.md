@@ -4,104 +4,33 @@ race: protoss
 kind: strategy
 ---
 
-# Cannon Rush
+# Cannon Pressure into Stalker Macro
 
-## Objective
+## Strategy
 
-Execute the `Cannon Rush` plan through the cumulative targets and conditions below.
+Apply early Pylon and Photon Cannon pressure, then stop investing in the rush if it has not produced a decisive advantage. The follow-up is a two-base Stalker army with Blink and enough Gateways to continue playing a normal game.
 
-## Count semantics
+## Opening pressure
 
-- Every unit, worker, building and expansion count is a cumulative target, not an amount to add in one decision.
-- Compare living, unfinished and queued counts before issuing the next action. Request only the missing difference.
-- `continuous` means the original plan used its unbounded default target. Continue that production only after earlier gated targets are satisfied.
-- Different plan components may run concurrently. Do not force unrelated tracks into a single serial build order.
+- Use an early Probe to establish the forward Pylon and Forge. Add Photon Cannons only while the position remains viable and protected by Pylon power.
+- Choose between an aggressive Forge-and-Cannon route and a safer Cannon-expand route. In either case, add a Gateway behind the pressure and prepare the natural expansion rather than spending indefinitely on forward structures.
+- End the cannon phase around 4:00, or earlier after losing 3 Probes involved in the pressure. Do not keep rebuilding an already failed forward position.
 
-## Procedure
+## Macro transition
 
-1. Find the earliest unmet checkpoint whose stated condition is observable and satisfied.
-2. Query any missing cost, prerequisite or unit capability needed for that checkpoint.
-3. Issue only the actions needed to close the gap to the checkpoint totals and end the decision with `advance`.
-4. Use only the attack condition written below. An army-power value is not a unit count and must not be converted into one.
-5. If a step requires unsupported exact placement or unit-level control, do not invent a substitute composition or timing.
+- Establish 2 Nexuses and grow toward about 44 Probes.
+- Build a Cybernetics Core, begin with 2 Gateways and scale toward 7 as the economy develops.
+- Take 2 Assimilators first and later reach 4 total for sustained Stalker production and upgrades.
+- Produce an initial group of about 4 Stalkers, then continue Stalkers as the main army.
+- Research Warp Gate, add a Twilight Council and research Blink.
 
-## Cannon Rush plan
+## Combat
 
-### Economy and structures
+- Use the early structures to force a response and buy room for the expansion; their purpose is not to dictate every later action.
+- After transition, gather Stalkers into a coherent force. Attack or defend according to the visible army rather than continuing the expired cannon-rush behavior.
 
-- Train `probe` to a cumulative total of 13.
-- Build `pylon` to a cumulative total of 1.
-- Expand to a cumulative total of 2 `nexus` structures.
-- Train `probe` to a cumulative total of 30.
-- When total nexus count reaches 2, train `probe` to a cumulative total of 44.
-- Build `gateway` to a cumulative total of 2.
-- Build `cybernetics_core` to a cumulative total of 1.
-- Build `assimilator` to a cumulative total of 2.
-- Maintain Pylon supply as production grows.
-- Build `assimilator` to a cumulative total of 3.
-- Train `probe` to a cumulative total of 22.
-- When total nexus count reaches 2, train `probe` to a cumulative total of 44.
-- Build `assimilator` to a cumulative total of 3.
-- When ready cybernetics_core count reaches 1, build `twilight_council` to a cumulative total of 1.
-- When ready cybernetics_core count reaches 1, build `gateway` to a cumulative total of 7.
-- Build `assimilator` to a cumulative total of 4.
+## Attack timing
 
-### Army production
-
-- Train `stalker` to a cumulative total of 4.
-- Train `stalker` to a cumulative total of 100.
-
-### Research
-
-- Research `warp_gate`.
-- When ready twilight_council count reaches 1, research `blink`.
-
-### Tactical behavior
-
-- Chrono Boost `probe` production. skip this step when total probe count reaches 16; activate only when ready pylon count reaches 1.
-- Chrono Boost active research with parameter `0`.
-- Clear blocked base minerals.
-- Cancel unsafe or invalid construction.
-- Defend owned zones.
-- Distribute workers.
-- Gather free army before attacking.
-- Use `6` as the minimum strength value in the attack check against known enemy forces; attack regardless when supply used is above 190.
-- Search for and destroy remaining enemy structures.
-
-## Cannon Rush.cannon rush
-
-### Economy and structures
-
-- Build `pylon` to a cumulative total of 1.
-- Build `forge` to a cumulative total of 1.
-- Train `probe` to a cumulative total of 18.
-- When minerals reach 400, build `gateway` to a cumulative total of 1.
-- When minerals reach 700, expand to a cumulative total of 2 `nexus` structures. skip this step when total nexus count reaches 2.
-- Build `cybernetics_core` to a cumulative total of 1.
-
-### Tactical behavior
-
-- Chrono Boost `probe` production.
-
-## Cannon Rush.cannon expand
-
-### Economy and structures
-
-- Train `probe` to a cumulative total of 14. This target is issued only once.
-- Build `forge` to a cumulative total of 1.
-- Train `probe` to a cumulative total of 18.
-- Expand to a cumulative total of 2 `nexus` structures.
-- Build `gateway` to a cumulative total of 1.
-
-### Steps without a direct action
-
-- The plan requires an exact position for `pylon`; this step has no direct high-level action equivalent.
-- The plan requires an exact position for `photon_cannon`; this step has no direct high-level action equivalent. skip this step when at least one own Pylon has been lost.
-
-## Cannon placement behavior
-
-- Two reserved Probes are used: one advances the Pylon chain and one advances the Photon Cannon chain.
-- Candidate Pylon positions run from the enemy natural toward the enemy main and across the enemy ramp. Against Zerg, the final main-base point is 10 distance units from the enemy main toward the ramp; against other races, three additional points are used inside the main approach.
-- The Cannon worker builds near the current Pylon-chain target. From the third target onward, the chain requires 2 Cannons near each target before advancing.
-- The rush stage stops after at least 3 own Probes have been lost or game time passes 4:00; the selected macro transition then continues.
-- These coordinate-level placements and individual Probe movements have no direct high-level action equivalent.
+- Because the cannon phase ends around 4:00 and the Stalkers are produced afterward, the first mobile group should normally form around 5:30–6:30. A longer delay usually means the macro transition or Gateway production has stalled.
+- The forward Pylons and Cannons are the opening pressure. Do not send newly produced Stalkers one at a time to support a position that is already lost.
+- After the transition, begin the first mobile attack with at least 6 living Stalkers. Reinforce that group from the growing Gateway count; if it falls below 4 Stalkers, withdraw and rebuild before the next attack.

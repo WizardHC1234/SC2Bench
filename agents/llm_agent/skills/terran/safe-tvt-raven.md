@@ -6,106 +6,31 @@ kind: strategy
 
 # Safe TvT Raven
 
-## Objective
+## Strategy
 
-Execute the `Safe TvT Raven` plan through the cumulative targets and conditions below.
+Use a double-gas Reaper–Hellion opening for map control, protect the expansion with a Cyclone and reach 2 Ravens quickly. Transition afterward into upgraded Marine–Tank–Viking with Medivac and Liberator support.
 
-## Count semantics
+## Development
 
-- Every unit, worker, building and expansion count is a cumulative target, not an amount to add in one decision.
-- Compare living, unfinished and queued counts before issuing the next action. Request only the missing difference.
-- `continuous` means the original plan used its unbounded default target. Continue that production only after earlier gated targets are satisfied.
-- Different plan components may run concurrently. Do not force unrelated tracks into a single serial build order.
+- Open Supply Depot, Barracks and two early Refineries, then add a fast Factory. Produce 3 Reapers and 2 Hellions for early information and control.
+- Take the natural Command Center after the Factory setup and morph Orbitals. Produce 1 defensive Cyclone before committing to the Raven transition.
+- Build a Starport and give it Tech Lab access, producing 2 Ravens. Around 4:20, begin the third Command Center if the position is stable.
+- After the first Cyclone, build toward 5 Siege Tanks. After the 2 Ravens, use a Starport Reactor and build an initial group of about 6 Vikings.
+- Take 2 Refineries in the opening and the third around the natural expansion. Reach 6 total Refineries when the five-Barracks production and six-Viking stage are being established.
+- Scale toward 5 Barracks, 2 Factories and 1 Starport, supported by two Engineering Bays. Barracks mainly use Reactors, Factories use Tech Labs and the Starport uses a Reactor after the Raven phase.
 
-## Procedure
+## Production and research
 
-1. Find the earliest unmet checkpoint whose stated condition is observable and satisfied.
-2. Query any missing cost, prerequisite or unit capability needed for that checkpoint.
-3. Issue only the actions needed to close the gap to the checkpoint totals and end the decision with `advance`.
-4. Use only the attack condition written below. An army-power value is not a unit count and must not be converted into one.
-5. If a step requires unsupported exact placement or unit-level control, do not invent a substitute composition or timing.
+- The mature targets are continuous Marine production, about 10 Siege Tanks, 4 Medivacs, an initial 6 Vikings and 2 Liberators. Increase Vikings toward the late ceiling of 20 only when continued air control requires them.
+- Prioritize Stimpack, Infantry Weapons and Armor, Combat Shield and Vehicle Weapons; add Ship Weapons later when the air count justifies it.
 
-## Terran Safe Tv T plan
+## Combat
 
-### Economy and structures
+- Preserve the Reapers, Hellions and Cyclone when possible; their purpose is to make the Raven transition safe.
+- Stimpack completion is the intended start of sustained aggression. Keep air control over the tank army and reinforce the active front with Marines and tanks.
 
-- Train `scv` to a cumulative total of 14. skip this step when total supply_depot count reaches 1.
-- Train `scv` to a cumulative total of 15. skip this step when ready supply_depot count reaches 1.
-- Train `scv` to a cumulative total of 19. skip this step when ready barracks count reaches 1.
-- When ready barracks count reaches 1, morph eligible `command_center` structures into `orbital_command`.
-- Train `scv` to a cumulative total of 22. skip this step when total command_center count reaches 2.
-- Train `scv` to a cumulative total of 66.
-- Build `barracks_reactor` on `barracks` to a cumulative add-on total of 5. activate only when total barracks count reaches 2.
-- Build `factory_techlab` on `factory` to a cumulative add-on total of 2. activate only when total barracks count reaches 2.
-- Build `starport_reactor` on `starport` to a cumulative add-on total of 1. activate only when total barracks count reaches 2.
-- When supply used reaches 14, build `supply_depot` to a cumulative total of 1.
-- Build `refinery` to a cumulative total of 1.
-- Build `barracks` to a cumulative total of 1.
-- Build `refinery` to a cumulative total of 2.
-- Build `factory` to a cumulative total of 1.
-- Build `supply_depot` to a cumulative total of 2.
-- Expand to a cumulative total of 2 `command_center` structures.
-- Build `supply_depot` to a cumulative total of 3.
-- Build `starport` to a cumulative total of 1.
-- Build `factory_techlab` on `factory` to a cumulative add-on total of 1.
-- Build `barracks_techlab` on `barracks` to a cumulative add-on total of 1. skip this step when Once(Any(UnitReady(TECHLAB), UnitReady(FACTORYTECHLAB))).
-- Build `refinery` to a cumulative total of 3.
-- When game time reaches 260 seconds, expand to a cumulative total of 3 `command_center` structures.
-- When total raven count reaches 2, including queued units, including lost units, build `barracks_reactor` on `barracks` to a cumulative add-on total of 1. skip this step when total barracks_techlab count reaches 1.
-- When total viking count reaches 2, including queued units, including lost units, build `barracks` to a cumulative total of 3.
-- When total viking count reaches 4, including queued units, including lost units, build `engineering_bay` to a cumulative total of 2.
-- Build `refinery` to a cumulative total of 6.
-- When total viking count reaches 6, including queued units, build `barracks` to a cumulative total of 5.
-- When combat_shield research is at least 60% complete, build `factory` to a cumulative total of 2.
-- When infantry_weapons_1 research is at least 60% complete, build `armory` to a cumulative total of 1.
+## Attack timing
 
-### Army production
-
-- When total factory count reaches 1, including queued units, train `reaper` to a cumulative total of 3. This target is issued only once.
-- When total factory count reaches 1, including queued units, train `hellion` to a cumulative total of 2. This target is issued only once.
-- Train `cyclone` to a cumulative total of 1. This target is issued only once.
-- Train `raven` to a cumulative total of 2. This target is issued only once.
-- When total cyclone count reaches 1, including lost units, train `siege_tank` to a cumulative total of 5. This target is issued only once.
-- When total raven count reaches 2, including lost units, train `viking` to a cumulative total of 6. This target is issued only once.
-- Train `marine` to a cumulative total of 100.
-- Train `siege_tank` to a cumulative total of 10.
-- Train `medivac` to a cumulative total of 4.
-- Train `viking` to a cumulative total of 6.
-- Train `liberator` to a cumulative total of 2.
-- Train `viking` to a cumulative total of 20.
-
-### Research
-
-- Research `stimpack`.
-- Research `infantry_weapons_1`.
-- Research `infantry_armor_1`.
-- Research `combat_shield`.
-- Research `vehicle_weapons_1`.
-- Research `infantry_weapons_2`.
-- Research `infantry_armor_2`.
-- Research `vehicle_weapons_2`.
-- Research `infantry_weapons_3`.
-- Research `infantry_armor_3`.
-- Research `vehicle_weapons_3`.
-- Research `ship_weapons_1`.
-- Research `ship_weapons_2`.
-- Research `ship_weapons_3`.
-
-### Tactical behavior
-
-- Distribute workers with parameter `6`. skip this step when ready barracks count reaches 1.
-- Distribute workers with parameter `4`. activate only when ready barracks count reaches 1; skip this step when total command_center count reaches 2.
-- Distribute workers. activate only when total command_center count reaches 2.
-- Manage Terran add-on swaps. skip this step when total command_center count reaches 3, including lost units, including queued units.
-- Manage Terran add-on swaps. activate only when total raven count reaches 2, including lost units; skip this step when total barracks count reaches 5, including lost units.
-- Manage Terran add-on swaps. activate only when total barracks count reaches 5, including lost units; skip this step when combat_shield research is complete.
-- Manage Terran add-on swaps. activate only when combat_shield research is complete.
-- Call MULEs with parameter `50`.
-- Lower Supply Depots.
-- Clear blocked base minerals.
-- Repair damaged assets.
-- Resume interrupted construction.
-- Gather free army before attacking.
-- Defend owned zones.
-- When stimpack research is complete, use `4` as the minimum strength value in the attack check against known enemy forces; attack regardless when supply used is above 190.
-- Search for and destroy remaining enemy structures.
+- Stimpack takes about two minutes to research, while Ravens and Tanks occupy long Tech Lab queues. Begin gathering before Stim completes so the force can normally move out around 6:30–7:30 rather than starting assembly afterward.
+- Move out for the first sustained attack as Stimpack approaches completion with about 16 Marines, 4 Siege Tanks and the 2 Ravens. The initial Vikings should join when enemy air or vision control makes them useful.
+- Keep Marine and Tank reinforcements moving to the same front. If fewer than 10 Marines or 2 Tanks survive, fall back under Viking and Raven cover and rebuild before recommitting.

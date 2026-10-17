@@ -6,100 +6,31 @@ kind: strategy
 
 # Terran Silver Bio
 
-## Objective
+## Strategy
 
-Execute the `Terran Silver Bio` plan through the cumulative targets and conditions below.
+Play a two-base bio opening with 1 Reaper for scouting, then develop Marauder–Marine production and expand to a third base around 40 workers. The build includes a simple early-rush adjustment and a detection response rather than following one fixed sequence through every matchup.
 
-## Count semantics
+## Development
 
-- Every unit, worker, building and expansion count is a cumulative target, not an amount to add in one decision.
-- Compare living, unfinished and queued counts before issuing the next action. Request only the missing difference.
-- `continuous` means the original plan used its unbounded default target. Continue that production only after earlier gated targets are satisfied.
-- Different plan components may run concurrently. Do not force unrelated tracks into a single serial build order.
+- Open with a Supply Depot around 13 supply, Barracks and Refinery around 15, then take the natural Command Center when no early rush is visible. Morph completed Command Centers into Orbitals.
+- Produce toward 22 SCVs before the natural and about 44 across two bases. Start the third Command Center near 40 workers when the army can protect it.
+- Establish 3 Barracks first, using 2 Tech Labs and 1 Reactor. Grow to 5 Barracks with 3 Reactors; scale as high as 8 only when minerals are accumulating faster than the current production can spend them.
+- Take the second Refinery with the early Barracks development, then reach 4 total Refineries for the five-Barracks Marauder and technology requirements.
+- Against a clear early rush, delay or cancel an exposed natural, add the second Barracks sooner and produce at least 2 Marines for defense.
 
-## Procedure
+## Production and research
 
-1. Find the earliest unmet checkpoint whose stated condition is observable and satisfied.
-2. Query any missing cost, prerequisite or unit capability needed for that checkpoint.
-3. Issue only the actions needed to close the gap to the checkpoint totals and end the decision with `advance`.
-4. Use only the attack condition written below. An army-power value is not a unit count and must not be converted into one.
-5. If a step requires unsupported exact placement or unit-level control, do not invent a substitute composition or timing.
+- Begin with 1 Reaper, then form the bio core around roughly 20 Marauders and at least 20 Marines. Once the economy is established, Marines remain the main mineral sink and replacement unit.
+- Research Concussive Shells and Combat Shield. Use Reactors for Marine volume and Tech Labs for Marauders and research.
+- If cloaked threats appear, add an Engineering Bay, defensive Missile Turrets and a Starport Tech Lab; produce up to 2 Ravens when mobile detection is needed.
 
-## Build Bio setup
+## Combat
 
-### Economy and structures
+- Use the Reaper to gather early information without delaying the economy.
+- Attack with a coherent bio group and keep reinforcements moving to the active army. If the opponent is not eliminated, search unexplored expansions with combat groups rather than leaving the entire army idle at a cleared location.
 
-- Morph eligible `command_center` structures into `orbital_command`. activate only when ready barracks count reaches 1.
-- Train `scv` to a cumulative total of 22. skip this step when total command_center count reaches 2.
-- Train `scv` to a cumulative total of 44.
-- Build `engineering_bay` to a cumulative total of 1.
-- Build `missile_turret` defensively to a cumulative total of 2.
-- Build `missile_turret` defensively to a cumulative total of None.
-- Build `starport` to a cumulative total of 2.
-- Build `starport_techlab` on `starport` to a cumulative add-on total of 1.
-- When supply used reaches 13, build `supply_depot` to a cumulative total of 1.
-- Build `barracks` to a cumulative total of 1.
-- When supply used reaches 15, build `refinery` to a cumulative total of 1.
-- Expand to a cumulative total of 2 `command_center` structures. activate only when (no rush is detected or total siege_tank count reaches 2, including lost units).
-- Build `barracks` to a cumulative total of 2. activate only when a rush is detected.
-- Build `supply_depot` to a cumulative total of 2.
-- Build `barracks_reactor` on `barracks` to a cumulative add-on total of 1.
-- Build `barracks` to a cumulative total of 2.
-- Build `refinery` to a cumulative total of 2.
-- Build `barracks_techlab` on `barracks` to a cumulative add-on total of 1.
-- Build `barracks` to a cumulative total of 3.
-- Build `barracks_techlab` on `barracks` to a cumulative add-on total of 2.
-- When worker supply reaches 40, expand to a cumulative total of 3 `command_center` structures.
-- Build `barracks` to a cumulative total of 5.
-- Build `barracks_reactor` on `barracks` to a cumulative add-on total of 3.
-- Build `refinery` to a cumulative total of 4.
-- When minerals reach 400, build `barracks` to a cumulative total of 8.
-- When minerals reach 500, build `barracks_reactor` on `barracks` to a cumulative add-on total of 6.
+## Attack timing
 
-### Army production
-
-- Train `marine` to a cumulative total of 2. activate only when an enemy worker rush is detected during the first 120 seconds.
-- When ready starport count reaches 1, train `raven` to a cumulative total of 2.
-- Train `reaper` to a cumulative total of 1. This target is issued only once.
-- When total reaper count reaches 1, including lost units, train `marine` to a cumulative total of 2.
-- Train `marauder` to a cumulative total of 20.
-- Train `marine` to a cumulative total of 20.
-- When minerals reach 250, train `marine` to a cumulative total of 100.
-
-### Research
-
-- Research `concussive_shells`.
-- Research `combat_shield`.
-
-### Tactical behavior
-
-- Cancel `command_center` construction under the listed condition. skip this step when (no rush is detected or total siege_tank count reaches 2, including lost units).
-
-### Steps without a direct action
-
-- The plan requires an exact position for `bunker`; this step has no direct high-level action equivalent.
-
-## Terran Silver Bio setup
-
-### Tactical behavior
-
-- Use `30` as the minimum strength value in the attack check against known enemy forces; attack regardless when supply used is above 190.
-
-## Terran Silver Bio plan
-
-### Tactical behavior
-
-- Clear blocked base minerals.
-- Lower Supply Depots.
-- Call MULEs with parameter `0`.
-- Distribute workers.
-- Repair damaged assets.
-- Resume interrupted construction.
-- Gather free army before attacking.
-- Search for and destroy remaining enemy structures.
-
-## Rush response
-
-- During the first 120 seconds, mark a worker rush when an enemy worker is closer to the own start than to the enemy start.
-- When that worker-rush flag is set, produce the 2-Marine response from the build and use the exact bunker position at the own main ramp defined by the source.
-- The source's general rush detector controls whether the second Command Center proceeds or is cancelled and whether the second Barracks is enabled.
+- The 3–5 Barracks produce this initial bio force in parallel, so it should normally be available around 5:30–6:30. Do not wait for the later 20-Marauder target before applying pressure.
+- Begin the first main attack with about 20 Marines and 5 Marauders. This creates a useful first bio timing without waiting for the full 20-Marauder production target.
+- Reinforce the same bio army from the Barracks. If fewer than 12 Marines and 3 Marauders remain after a failed fight, regroup to the first-attack size before taking another defended position.

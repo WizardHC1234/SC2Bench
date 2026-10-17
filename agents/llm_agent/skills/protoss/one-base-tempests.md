@@ -4,57 +4,27 @@ race: protoss
 kind: strategy
 ---
 
-# One Base Tempests
+# One-Base Tempests
 
-## Objective
+## Strategy
 
-Execute the `One Base Tempests` plan through the cumulative targets and conditions below.
+Remain on one base and rush Tempests through a Stargate and Fleet Beacon. The build has little room for unnecessary units or delayed supply because nearly all gas supports the air transition.
 
-## Count semantics
+## Development
 
-- Every unit, worker, building and expansion count is a cumulative target, not an amount to add in one decision.
-- Compare living, unfinished and queued counts before issuing the next action. Request only the missing difference.
-- `continuous` means the original plan used its unbounded default target. Continue that production only after earlier gated targets are satisfied.
-- Different plan components may run concurrently. Do not force unrelated tracks into a single serial build order.
+- Build the first Pylon around 14 workers and the Gateway around 15, then add a Forge and two Assimilators.
+- Grow to about 18 Probes, add the second Pylon and build the Cybernetics Core. Continue to roughly 22 Probes and stop the economy there.
+- Build the first Stargate, then the Fleet Beacon, followed by a second Stargate once the core technology is ready.
+- Maintain Pylon capacity before starting expensive air units; a supply block wastes the central timing.
 
-## Procedure
+## Production and combat
 
-1. Find the earliest unmet checkpoint whose stated condition is observable and satisfied.
-2. Query any missing cost, prerequisite or unit capability needed for that checkpoint.
-3. Issue only the actions needed to close the gap to the checkpoint totals and end the decision with `advance`.
-4. Use only the attack condition written below. An army-power value is not a unit count and must not be converted into one.
-5. If a step requires unsupported exact placement or unit-level control, do not invent a substitute composition or timing.
+- Produce Tempests continuously from the available Stargates. Use Chrono Boost on Tempest production when energy is available.
+- Begin pressure after the first Tempest is available, but use its range and preservation rather than flying it into concentrated anti-air. Let later Tempests join the same group.
+- Keep the air group together, pressure high-value structures or units from range, and withdraw damaged ships. The one-base economy cannot replace repeated heavy losses.
 
-## One Base Tempests plan
+## Attack timing
 
-### Economy and structures
-
-- Train `probe` to a cumulative total of 14.
-- Build `pylon` to a cumulative total of 1.
-- Train `probe` to a cumulative total of 15.
-- Build `gateway` to a cumulative total of 1.
-- Build `forge` to a cumulative total of 1.
-- Build `assimilator` to a cumulative total of 2.
-- Train `probe` to a cumulative total of 18.
-- Build `pylon` to a cumulative total of 2.
-- Build `cybernetics_core` to a cumulative total of 1.
-- Train `probe` to a cumulative total of 22.
-- Maintain Pylon supply as production grows.
-- Build `stargate` to a cumulative total of 1.
-- When ready stargate count reaches 1, build `fleet_beacon` to a cumulative total of 1.
-- When total fleet_beacon count reaches 1, build `stargate` to a cumulative total of 2.
-
-### Army production
-
-- Train `tempest` to a cumulative total of 100.
-
-### Tactical behavior
-
-- Use `4` as the minimum strength value in the attack check against known enemy forces; attack regardless when supply used is above 190.
-- Chrono Boost `tempest` production.
-- Clear blocked base minerals.
-- Defend owned zones.
-- Restore power to unpowered structures.
-- Distribute workers.
-- Gather free army before attacking.
-- Search for and destroy remaining enemy structures.
+- The first Tempest takes about 43 seconds after the Fleet Beacon and Stargate requirements are ready, placing the normal first pressure around 5:00–6:00. Waiting for several ships would give up the range-based timing of the build.
+- The first Tempest may begin ranged pressure as soon as it is complete because its range, rather than a large unit count, is the timing advantage. Do not turn that pressure into a close-range fight.
+- Keep later Tempests with the same group. If the first ship is lost, wait for at least 2 Tempests before resuming pressure; after that, withdraw whenever fewer than half of the current air group remain healthy enough to fight.

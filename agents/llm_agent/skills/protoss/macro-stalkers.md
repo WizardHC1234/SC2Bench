@@ -4,65 +4,28 @@ race: protoss
 kind: strategy
 ---
 
-# Macro Stalkers
+# Two-Base Stalker Macro
 
-## Objective
+## Strategy
 
-Execute the `Macro Stalkers` plan through the cumulative targets and conditions below.
+Build a straightforward two-base Stalker economy. The plan emphasizes steady Probe growth, 7 Gateways and 4 Assimilators rather than a narrow one-base timing.
 
-## Count semantics
+## Development
 
-- Every unit, worker, building and expansion count is a cumulative target, not an amount to add in one decision.
-- Compare living, unfinished and queued counts before issuing the next action. Request only the missing difference.
-- `continuous` means the original plan used its unbounded default target. Continue that production only after earlier gated targets are satisfied.
-- Different plan components may run concurrently. Do not force unrelated tracks into a single serial build order.
+- Open with a Pylon, Assimilator and Gateway while growing toward roughly 20 Probes.
+- Take the natural Nexus, build the Cybernetics Core and add the second Assimilator.
+- Continue toward about 44 Probes across the two bases. Reach 3 Assimilators during the initial two-base development and 4 total as Gateway production grows.
+- Increase from the first Gateway to about 7 total. Build Pylons early enough to keep all Gateways operating.
+- Research Warp Gate for faster reinforcement.
 
-## Procedure
+## Production and combat
 
-1. Find the earliest unmet checkpoint whose stated condition is observable and satisfied.
-2. Query any missing cost, prerequisite or unit capability needed for that checkpoint.
-3. Issue only the actions needed to close the gap to the checkpoint totals and end the decision with `advance`.
-4. Use only the attack condition written below. An army-power value is not a unit count and must not be converted into one.
-5. If a step requires unsupported exact placement or unit-level control, do not invent a substitute composition or timing.
+- Stalkers are the primary army throughout the plan. Request only the amount needed to restore or grow the current force; the large end target represents continuous production rather than one batch.
+- Keep early Stalkers near vulnerable bases until the expansion and production are safe.
+- Once the Gateway count and two-base economy are established, form an attack group and reinforce it through Warp Gates. Preserve the force against poor engagements so the economic advantage can produce another timing.
 
-## Macro Stalkers plan
+## Attack timing
 
-### Economy and structures
-
-- Train `probe` to a cumulative total of 14.
-- Build `pylon` to a cumulative total of 1.
-- Train `probe` to a cumulative total of 16.
-- Build `assimilator` to a cumulative total of 1.
-- Build `gateway` to a cumulative total of 1.
-- Train `probe` to a cumulative total of 20.
-- Expand to a cumulative total of 2 `nexus` structures.
-- Build `cybernetics_core` to a cumulative total of 1.
-- Train `probe` to a cumulative total of 21.
-- Build `assimilator` to a cumulative total of 2.
-- Train `probe` to a cumulative total of 22.
-- Build `pylon` to a cumulative total of 1.
-- Maintain Pylon supply as production grows.
-- Train `probe` to a cumulative total of 22.
-- When total nexus count reaches 2, train `probe` to a cumulative total of 44.
-- Build `assimilator` to a cumulative total of 3.
-- Build `gateway` to a cumulative total of 7.
-- Build `assimilator` to a cumulative total of 4.
-
-### Army production
-
-- Train `stalker` to a cumulative total of 100.
-
-### Research
-
-- Research `warp_gate`.
-
-### Tactical behavior
-
-- Chrono Boost `probe` production. skip this step when total probe count reaches 40, including queued units; activate only when total assimilator count reaches 1.
-- Clear blocked base minerals.
-- Defend owned zones.
-- Restore power to unpowered structures.
-- Distribute workers.
-- Gather free army before attacking.
-- When ready gateway count reaches 4, use `4` as the minimum strength value in the attack check against known enemy forces; attack regardless when supply used is above 190.
-- Search for and destroy remaining enemy structures.
+- On four operating Gateways, 10 Stalkers require only a few production cycles once the economy is ready. The first move-out should normally occur around 6:00–7:00 rather than waiting for the later seven-Gateway setup.
+- Keep the first Stalkers at home while the natural is vulnerable. Begin the first attack once 4 Gateways are operating and at least 10 living Stalkers have gathered.
+- Reinforce the same army through Warp Gates. After a poor fight, do not send isolated replacements; rebuild to at least 8 Stalkers and confirm the bases are safe before moving out again.

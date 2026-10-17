@@ -4,68 +4,29 @@ race: protoss
 kind: strategy
 ---
 
-# Adept All-In
+# Four-Gateway Adept All-In
 
-## Objective
+## Strategy
 
-Execute the `Adept All-In` plan through the cumulative targets and conditions below.
+Stay on one base, reach 4 Gateways quickly and use Adepts as the main pressure unit. The build values an early attack over expansion or a large worker economy.
 
-## Count semantics
+## Development
 
-- Every unit, worker, building and expansion count is a cumulative target, not an amount to add in one decision.
-- Compare living, unfinished and queued counts before issuing the next action. Request only the missing difference.
-- `continuous` means the original plan used its unbounded default target. Continue that production only after earlier gated targets are satisfied.
-- Different plan components may run concurrently. Do not force unrelated tracks into a single serial build order.
+- Build the first Pylon around 14 workers, the first Gateway around 16 and 1 Assimilator shortly afterward. Remain on that single Assimilator for this one-base attack.
+- Add the second Gateway around 19–20 supply and the second Pylon before production is blocked.
+- Build the Cybernetics Core as soon as the first Gateway allows it. Once the Core is ready and minerals permit, grow to 4 Gateways.
+- Keep the economy compact at roughly 20 Probes. Maintain Pylon coverage ahead of repeated Gateway production.
+- Research Warp Gate so later Adepts can reinforce the active pressure more quickly.
 
-## Procedure
+## Production and combat
 
-1. Find the earliest unmet checkpoint whose stated condition is observable and satisfied.
-2. Query any missing cost, prerequisite or unit capability needed for that checkpoint.
-3. Issue only the actions needed to close the gap to the checkpoint totals and end the decision with `advance`.
-4. Use only the attack condition written below. An army-power value is not a unit count and must not be converted into one.
-5. If a step requires unsupported exact placement or unit-level control, do not invent a substitute composition or timing.
+- Produce the first 2 Adepts as soon as the Cybernetics Core is ready, then continue Adept production from all available Gateways.
+- Begin the main attack after gathering more than 10 living Adepts. Reinforce the same pressure rather than waiting for an unreachable final total.
+- When 10–15 Adepts are idle away from the main force, use them as a harassment group against exposed economy or reinforcements.
+- If gas falls below the amount needed for another Adept while minerals remain high, add Zealots as a mineral-only frontline. Adepts remain the defining unit of the plan.
 
-## Adept Rush plan
+## Attack timing
 
-### Economy and structures
-
-- Build `pylon` to a cumulative total of 1.
-- Train `probe` to a cumulative total of 14.
-- Build `gateway` to a cumulative total of 1.
-- Train `probe` to a cumulative total of 16.
-- Build `assimilator` to a cumulative total of 1.
-- Train `probe` to a cumulative total of 17.
-- Build `gateway` to a cumulative total of 2.
-- Train `probe` to a cumulative total of 20.
-- Build Pylons to the plan's cumulative target of 2.
-- Maintain Pylon supply as production grows.
-- Build `cybernetics_core` to a cumulative total of 1. activate only when ready gateway count reaches 1.
-- When total cybernetics_core count reaches 1, build `gateway` to a cumulative total of 4. activate only when minerals reach 200.
-
-### Army production
-
-- When ready cybernetics_core count reaches 1, train `adept` to a cumulative total of 2. This target is issued only once.
-- Train `adept` to a cumulative total of 100.
-- Train `zealot` to a cumulative total of 100. skip this step when vespene reaches 25; activate only when minerals reach 200.
-
-### Research
-
-- Research `warp_gate`.
-
-### Tactical behavior
-
-- Start attacking when the own Adept count is greater than 10.
-- Chrono Boost `probe` production. skip this step when total probe count reaches 20, including queued units; activate only when total assimilator count reaches 1.
-- Clear blocked base minerals.
-- Chrono Boost active research with parameter `0`.
-- Defend owned zones.
-- Restore power to unpowered structures.
-- Distribute workers.
-- Gather free army before attacking.
-- Begin Adept harassment when the randomly selected 10 to 15 idle Adepts are available.
-- Search for and destroy remaining enemy structures.
-
-## Explicit conditional rules
-
-- The attack starts when own Adept count is greater than 10; the randomly selected scout count does not change this trigger.
-- The Adept scout count is selected randomly from 10 through 15.
+- With uninterrupted four-Gateway production, this force should normally leave around 4:30–5:15. If the timing is already later because production was idle, attack when the 11th Adept finishes rather than waiting for extra units.
+- Move the main army out as soon as 11 living Adepts have gathered. Waiting for a much larger army gives the opponent time to outgrow this one-base all-in.
+- Send later Adepts to the same attack while it remains viable. If the first army falls below about 6 Adepts without dealing decisive damage, regroup to at least 10 before attacking again.

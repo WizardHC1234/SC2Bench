@@ -6,73 +6,33 @@ kind: strategy
 
 # Macro Roach
 
-## Objective
+## Strategy
 
-Execute the `Macro Roach` plan through the cumulative targets and conditions below.
+Expand quickly to three bases and build a large Roach army from a 70-Drone economy. Ravagers and upgrades are layered onto the Roach core once the gas income can sustain them.
 
-## Count semantics
+## Development
 
-- Every unit, worker, building and expansion count is a cumulative target, not an amount to add in one decision.
-- Compare living, unfinished and queued counts before issuing the next action. Request only the missing difference.
-- `continuous` means the original plan used its unbounded default target. Continue that production only after earlier gated targets are satisfied.
-- Different plan components may run concurrently. Do not force unrelated tracks into a single serial build order.
+- Take the natural first, build the Spawning Pool after it starts, and add the third Hatchery after the Pool. Add a fourth Hatchery later as the economy and map control allow.
+- Grow steadily toward about 70 Drones. Balance Drone and army larvae according to immediate safety rather than queuing the entire worker target early.
+- Reach Lair around 80 supply. Add two Evolution Chambers around 100 supply for missile and carapace upgrades.
+- Use 1 Extractor as the Pool becomes ready, 2 when the Roach Warren is ready, 3 when the third Hatchery starts and 4 when it completes. Reach 5 after about 10 Overlords and 6 after about 20 Overlords.
+- Maintain Overlord production ahead of each large Roach round.
 
-## Procedure
+## Production and research
 
-1. Find the earliest unmet checkpoint whose stated condition is observable and satisfied.
-2. Query any missing cost, prerequisite or unit capability needed for that checkpoint.
-3. Issue only the actions needed to close the gap to the checkpoint totals and end the decision with `advance`.
-4. Use only the attack condition written below. An army-power value is not a unit count and must not be converted into one.
-5. If a step requires unsupported exact placement or unit-level control, do not invent a substitute composition or timing.
+- Begin with 2 Queens, then grow to 3 and 4 as Hatcheries are added.
+- Produce about 6 early Zerglings for safety and information.
+- Build the first 4 Roaches, then continue Roach production from the three-base larva economy.
+- When at least 200 gas is available, morph about 5 Ravagers. After the army exceeds roughly 10 Roaches and gas rises above 300, increase the Ravager component when its range and bile are useful.
+- Research Glial Reconstitution, then missile and carapace upgrades through the available levels.
 
-## Macro Roach plan
+## Combat
 
-### Economy and structures
+- Attack with a gathered Roach–Ravager group and keep reinforcements on the same objective.
+- Do not sacrifice Drone growth for isolated small waves unless immediate defense requires it.
 
-- Expand to a cumulative total of 2 `hatchery` structures.
-- When ready spawning_pool count reaches 1, expand to a cumulative total of 3 `hatchery` structures.
-- When supply used reaches 80, morph eligible `hatchery` structures into `lair`.
-- Expand to a cumulative total of 4 `hatchery` structures.
-- When supply used reaches 100, build `evolution_chamber` to a cumulative total of 2.
-- When total hatchery count reaches 2, including queued units, build `spawning_pool` to a cumulative total of 1.
-- When total queen count reaches 2, build `roach_warren` to a cumulative total of 1.
-- When one spawning_pool is at least 50% complete, build `extractor` to a cumulative total of 1.
-- When ready roach_warren count reaches 1, build `extractor` to a cumulative total of 2.
-- When total hatchery count reaches 3, build `extractor` to a cumulative total of 3.
-- When ready hatchery count reaches 3, build `extractor` to a cumulative total of 4.
-- When total overlord count reaches 10, build `extractor` to a cumulative total of 5.
-- When total overlord count reaches 20, build `extractor` to a cumulative total of 6.
-- Train `drone` to a cumulative total of 70.
-- Maintain Overlord supply as production grows.
+## Attack timing
 
-### Army production
-
-- When total spawning_pool count reaches 1, train `queen` to a cumulative total of 2.
-- When total hatchery count reaches 2, train `zergling` to a cumulative total of 6. This target is issued only once.
-- When total hatchery count reaches 2, including queued units, train `queen` to a cumulative total of 3.
-- When total hatchery count reaches 3, including queued units, train `queen` to a cumulative total of 4.
-- When total hatchery count reaches 2, train `roach` to a cumulative total of 4.
-- Train `zergling` to a cumulative total of 4.
-- When total hatchery count reaches 3, including queued units, train `roach` to a cumulative total of continuous.
-- When ready roach_warren count reaches 1, morph `ravager` to a cumulative total of 5. activate only when vespene reaches 200.
-- When ready roach count reaches 10, morph `ravager` to a cumulative total of 50. activate only when vespene reaches 300.
-
-### Research
-
-- When total roach_warren count reaches 1, research `glial_reconstitution`.
-- When total evolution_chamber count reaches 1, research `missile_attacks_1`.
-- Research `ground_carapace_1`.
-- Research `missile_attacks_2`.
-- Research `ground_carapace_2`.
-
-### Tactical behavior
-
-- Use `120` as the minimum strength value in the attack check against known enemy forces; attack regardless when supply used is above 190.
-- Clear blocked base minerals.
-- Cancel unsafe or invalid construction.
-- Spread creep.
-- Inject Larva.
-- Distribute workers.
-- Defend owned zones.
-- Gather free army before attacking.
-- Search for and destroy remaining enemy structures.
+- Roaches train in about 19 seconds and Ravagers morph from completed Roaches, so larva and resources are the main limits. On three injected Hatcheries, this timing should normally form around 7:00–8:30 as Roach speed finishes.
+- Begin the first main attack when Roach speed is ready or close to ready and the army has about 24 Roaches and 5 Ravagers. This creates a useful three-base timing without waiting until the army is nearly supply capped.
+- Continue Roach–Ravager production into the same attack. If fewer than 14 Roaches and 3 Ravagers survive, regroup instead of feeding small reinforcements into a defended position.

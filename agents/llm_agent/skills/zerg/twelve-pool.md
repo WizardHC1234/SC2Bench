@@ -4,57 +4,27 @@ race: zerg
 kind: strategy
 ---
 
-# Twelve Pool
+# Twelve-Pool Zergling Pressure
 
-## Objective
+## Strategy
 
-Execute the `Twelve Pool` plan through the cumulative targets and conditions below.
+Build an unusually early Spawning Pool and use continuous Zergling pressure to disrupt the opponent before taking the natural. If the rush does not end the game, transition through Lair and Spire rather than continuing unsupported Zerglings forever.
 
-## Count semantics
+## Development
 
-- Every unit, worker, building and expansion count is a cumulative target, not an amount to add in one decision.
-- Compare living, unfinished and queued counts before issuing the next action. Request only the missing difference.
-- `continuous` means the original plan used its unbounded default target. Continue that production only after earlier gated targets are satisfied.
-- Different plan components may run concurrently. Do not force unrelated tracks into a single serial build order.
+- Start the Spawning Pool at the early 12-pool timing and reserve larvae for the first Zerglings.
+- Produce Zerglings continuously during the pressure phase while keeping enough Overlord capacity for each wave.
+- Take the natural after the first attack is established and resume Drone production behind it.
+- If the opponent shows a flying structure after roughly 30 supply, take 2 Extractors for the first transition. After the natural and Lair are established, reach 4 total Extractors, build the Spire and produce about 10 Mutalisks.
 
-## Procedure
+## Combat
 
-1. Find the earliest unmet checkpoint whose stated condition is observable and satisfied.
-2. Query any missing cost, prerequisite or unit capability needed for that checkpoint.
-3. Issue only the actions needed to close the gap to the checkpoint totals and end the decision with `advance`.
-4. Use only the attack condition written below. An army-power value is not a unit count and must not be converted into one.
-5. If a step requires unsupported exact placement or unit-level control, do not invent a substitute composition or timing.
+- Gather the first Zerglings into a useful group and reinforce one active attack. Avoid feeding individual pairs into a defended entrance.
+- The opening originally pulls 10 Drones into the attack. Workers cannot be assigned to an army group here, so keep them mining and begin the controllable pressure with the early Zerglings.
+- If static defense or a strong ground wall stops the rush, protect the growing economy and complete the Mutalisk transition.
 
-## Twelve Pool plan
+## Attack timing
 
-### Economy and structures
-
-- Build `spawning_pool` to a cumulative total of 1. skip this step when total spawning_pool count reaches 1.
-- When a flying enemy structure exists and supply used is above 30, build `extractor` to a cumulative total of 2.
-- Expand to a cumulative total of 2 `hatchery` structures.
-- Morph eligible `hatchery` structures into `lair`.
-- Build `extractor` to a cumulative total of 4.
-- Build `spire` to a cumulative total of 1.
-- When total spawning_pool count reaches 1, train `overlord` to a cumulative total of 2. skip this step when total overlord count reaches 2.
-- When total spawning_pool count reaches 1, train `drone` to a cumulative total of 14. skip this step when total drone count reaches 14.
-- When free supply is at most 0, maintain Overlord supply as production grows.
-- Maintain Overlord supply as production grows.
-
-### Army production
-
-- Train `mutalisk` to a cumulative total of 10.
-- When total spawning_pool count reaches 1, train `zergling` to a cumulative total of continuous.
-
-### Tactical behavior
-
-- Distribute workers.
-- Inject Larva.
-- Defend owned zones.
-- Gather free army before attacking.
-- Use `2` as the minimum strength value in the attack check against known enemy forces; attack regardless when supply used is above 190.
-- Search for and destroy remaining enemy structures.
-
-## Explicit conditional rules
-
-- When the attack starts, the source selects the 10 Drones closest to the enemy start and sets the retreat multiplier to 0.
-- Drones cannot be dispatched by the available combat action, so this worker-attack part is not executable and must not be replaced with an invented army count.
+- The first three Zergling pairs take one larva cycle and about 17 seconds of training after the Pool completes, so the first attack should begin around 2:00–2:30. Waiting for 10 or more before the initial move-out wastes the opening.
+- Begin the first attack with 6 Zerglings, the first three larva pairs of the rush. Keep producing and reinforcing the same pressure instead of waiting for a macro-sized army.
+- If fewer than 4 Zerglings remain against a completed wall or static defense, stop feeding pairs into it, secure the natural and rebuild to at least 10 Zerglings before the next pressure or continue into the Mutalisk transition.

@@ -4,92 +4,35 @@ race: zerg
 kind: strategy
 ---
 
-# Mutalisk
+# Mutalisk Macro
 
-## Objective
+## Strategy
 
-Execute the `Mutalisk` plan through the cumulative targets and conditions below.
+Build a four-base economy into Mutalisks, using Zerglings and Roaches to survive before the Spire. Later, a Hive and Greater Spire allow a Brood Lord transition when the ground war demands it.
 
-## Count semantics
+## Development
 
-- Every unit, worker, building and expansion count is a cumulative target, not an amount to add in one decision.
-- Compare living, unfinished and queued counts before issuing the next action. Request only the missing difference.
-- `continuous` means the original plan used its unbounded default target. Continue that production only after earlier gated targets are satisfied.
-- Different plan components may run concurrently. Do not force unrelated tracks into a single serial build order.
+- Take the natural around 16 supply, then the first Extractor and Spawning Pool. Add 1 defensive Spine Crawler when early ground safety requires it.
+- Reach Lair, add the third Hatchery around 30 Drones and build the Spire. Add the fourth Hatchery after the Spire is underway.
+- Grow the economy through roughly 20, 25, 30, 45 and finally about 65 Drones as bases become available.
+- Start with 1 Extractor after the natural, add the second around 4:00 and the third with Lair. Grow to 5 when the gas bank is low during Spire production, then reach 8 total around 50 workers for sustained Mutalisk and late Brood Lord production.
+- After about 10 Mutalisks, add an Infestation Pit and progress to Hive. Build a Greater Spire before attempting the Brood Lord transition.
 
-## Procedure
+## Production and research
 
-1. Find the earliest unmet checkpoint whose stated condition is observable and satisfied.
-2. Query any missing cost, prerequisite or unit capability needed for that checkpoint.
-3. Issue only the actions needed to close the gap to the checkpoint totals and end the decision with `advance`.
-4. Use only the attack condition written below. An army-power value is not a unit count and must not be converted into one.
-5. If a step requires unsupported exact placement or unit-level control, do not invent a substitute composition or timing.
+- Begin with 2 Queens, then grow to 3 and about 5; add 1 Overseer for detection.
+- Build Zergling groups in stages—about 4, 12 and 16—plus 4 Roaches and later around 10 to cover the Spire timing.
+- Produce the first 4 Mutalisks as a usable harassment group, then continue toward roughly 10 and beyond when they remain effective.
+- Research flyer attacks through the available levels.
+- For the late transition, produce about 3 Corruptors first and morph toward roughly 5 Brood Lords after the Greater Spire is ready.
 
-## Mutalisk Build setup
+## Combat
 
-### Economy and structures
+- Use Mutalisks for exposed targets and map control without trading them into concentrated anti-air.
+- Keep the ground army near vulnerable bases while the air group operates elsewhere.
 
-- When total hatchery count reaches 2, build `extractor` to a cumulative total of 1.
-- Build `roach_warren` to a cumulative total of 1. activate only when vespene reaches 100.
-- When game time reaches 240 seconds, build `extractor` to a cumulative total of 2.
-- When total lair count reaches 1, build `extractor` to a cumulative total of 3.
-- Build `extractor` to a cumulative total of 5. Skip this step when vespene reaches 100.
-- When supply used reaches 50, build `extractor` to a cumulative total of 8.
-- When total drone count reaches 14, train `overlord` to a cumulative total of 2.
-- When supply used reaches 16, expand to a cumulative total of 2 `hatchery` structures.
-- When total extractor count reaches 1, build `spawning_pool` to a cumulative total of 1.
-- When ready spawning_pool count reaches 1, build `spine_crawler` defensively to a cumulative total of 1.
-- Morph eligible `hatchery` structures into `lair`. skip this step when total hive count reaches 1.
-- When total drone count reaches 30, including lost units, expand to a cumulative total of 3 `hatchery` structures.
-- When total lair count reaches 1, build `spire` to a cumulative total of 1.
-- When total spire count reaches 1, expand to a cumulative total of 4 `hatchery` structures.
-- When total mutalisk count reaches 10, including lost units, build `infestation_pit` to a cumulative total of 1.
-- When ready infestation_pit count reaches 1, morph eligible `lair` structures into `hive`.
-- Train `drone` to a cumulative total of 20.
-- Train `drone` to a cumulative total of 25.
-- Train `drone` to a cumulative total of 30.
-- Train `drone` to a cumulative total of 45.
-- Train `drone` to a cumulative total of 65.
+## Attack timing
 
-### Army production
-
-- Train `queen` to a cumulative total of 2. activate only when total spawning_pool count reaches 1.
-- Train `queen` to a cumulative total of 3.
-- Morph `overseer` to a cumulative total of 1.
-- Train `queen` to a cumulative total of 5.
-- Train `corruptor` to a cumulative total of 3. activate only when ready greater_spire count reaches 1.
-- Morph `brood_lord` to a cumulative total of 5.
-- When total spawning_pool count reaches 1, train `zergling` to a cumulative total of 4.
-- When total spawning_pool count reaches 1, train `zergling` to a cumulative total of 12.
-- Train `queen` to a cumulative total of 1.
-- Train `zergling` to a cumulative total of 16. This target is issued only once.
-- Train `roach` to a cumulative total of 4. This target is issued only once. activate only when vespene reaches 25.
-- Train `mutalisk` to a cumulative total of 4. activate only when ready spire count reaches 1.
-- Train `zergling` to a cumulative total of 16. This target is issued only once.
-- Train `roach` to a cumulative total of 10. skip this step when ready spire count reaches 1; activate only when vespene reaches 25.
-- Train `zergling` to a cumulative total of 40. activate only when (ready spire count reaches 1 and minerals reach 300).
-- Train `roach` to a cumulative total of continuous. skip this step when ready spire count reaches 1.
-- Train `zergling` to a cumulative total of 100. activate only when (ready spire count reaches 1 and minerals reach 500).
-- Train `mutalisk` to a cumulative total of continuous.
-
-### Research
-
-- Research `metabolic_boost`. activate only when vespene reaches 100.
-- Research `flyer_attacks_1`.
-- Research `flyer_attacks_2`.
-- Research `flyer_attacks_3`.
-
-## Mutalisk Bot plan
-
-### Tactical behavior
-
-- Scout with one worker. skip this step when the map has exactly one possible enemy start; activate only when supply used reaches 20.
-- Distribute workers.
-- Clear blocked base minerals.
-- Cancel unsafe or invalid construction.
-- Gather free army before attacking.
-- Defend owned zones.
-- Spread creep.
-- Inject Larva.
-- Use `20` as the minimum strength value in the attack check against known enemy forces; attack regardless when supply used is above 190.
-- Search for and destroy remaining enemy structures.
+- Mutalisks train in about 24 seconds from available larvae, so Spire completion and saved gas determine the timing. Six Mutalisks should normally begin harassment around 6:30–7:30, with the group growing toward 10 afterward.
+- Begin the first air harassment with 6 Mutalisks. Six give the group useful damage while preserving an early timing; continue production toward the planned group of about 10.
+- Continue pressure as the group reaches about 10 Mutalisks. If fewer than 4 remain or concentrated anti-air controls the target, disengage and rebuild or use the Mutalisks for scouting while the ground army develops.

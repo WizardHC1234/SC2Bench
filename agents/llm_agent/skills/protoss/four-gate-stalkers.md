@@ -4,62 +4,28 @@ race: protoss
 kind: strategy
 ---
 
-# Four Gate Stalkers
+# Four-Gateway Blink Stalkers
 
-## Objective
+## Strategy
 
-Execute the `Four Gate Stalkers` plan through the cumulative targets and conditions below.
+Use a compact one-base opening to reach 4 Gateways, Warp Gate and Blink. Two early Adepts provide safety and information before Stalkers become the main army.
 
-## Count semantics
+## Development
 
-- Every unit, worker, building and expansion count is a cumulative target, not an amount to add in one decision.
-- Compare living, unfinished and queued counts before issuing the next action. Request only the missing difference.
-- `continuous` means the original plan used its unbounded default target. Continue that production only after earlier gated targets are satisfied.
-- Different plan components may run concurrently. Do not force unrelated tracks into a single serial build order.
+- Build the first Pylon around 14 workers, the first Gateway around 16 and take two Assimilators beginning around 17.
+- Add the second Gateway near 19 supply and grow to about 22 Probes.
+- Build the Cybernetics Core, then a Twilight Council. Scale to 4 Gateways once the economy can sustain Stalker production.
+- Research Warp Gate and Blink. Keep Pylons ahead of production so the timing is not interrupted by supply.
 
-## Procedure
+## Production and combat
 
-1. Find the earliest unmet checkpoint whose stated condition is observable and satisfied.
-2. Query any missing cost, prerequisite or unit capability needed for that checkpoint.
-3. Issue only the actions needed to close the gap to the checkpoint totals and end the decision with `advance`.
-4. Use only the attack condition written below. An army-power value is not a unit count and must not be converted into one.
-5. If a step requires unsupported exact placement or unit-level control, do not invent a substitute composition or timing.
+- Produce 2 Adepts first. Use them for early defense or scouting without delaying the Stalker transition.
+- Continue Stalker production from the 4 Gateways. Gather a useful group before committing rather than sending each completed unit separately.
+- Begin pressure once a coherent Stalker group has gathered. As Blink completes, use the added mobility to focus isolated targets, withdraw damaged Stalkers and avoid fights where the one-base army is clearly outnumbered.
+- Because the build has a limited economy, sustained idle production weakens the timing. If the first pressure does not succeed, preserve the Stalkers and decide whether an expansion is necessary.
 
-## Stalkers4 Gate plan
+## Attack timing
 
-### Economy and structures
-
-- Train `probe` to a cumulative total of 14.
-- Build `pylon` to a cumulative total of 1.
-- Train `probe` to a cumulative total of 16.
-- Build `gateway` to a cumulative total of 1.
-- Train `probe` to a cumulative total of 17.
-- Build `assimilator` to a cumulative total of 2.
-- Train `probe` to a cumulative total of 19.
-- Build `gateway` to a cumulative total of 2.
-- Maintain Pylon supply as production grows.
-- Train `probe` to a cumulative total of 22.
-- When ready cybernetics_core count reaches 1, build `twilight_council` to a cumulative total of 1.
-- Build `cybernetics_core` to a cumulative total of 1. activate only when ready gateway count reaches 1.
-- When total cybernetics_core count reaches 1, build `gateway` to a cumulative total of 4.
-
-### Army production
-
-- When ready cybernetics_core count reaches 1, train `adept` to a cumulative total of 2. This target is issued only once.
-- Train `stalker` to a cumulative total of 100.
-
-### Research
-
-- When ready twilight_council count reaches 1, research `blink`.
-- Research `warp_gate`.
-
-### Tactical behavior
-
-- Use `6` as the minimum strength value in the attack check against known enemy forces; attack regardless when supply used is above 190.
-- Chrono Boost `probe` production. skip this step when total probe count reaches 20, including queued units; activate only when total assimilator count reaches 1.
-- Clear blocked base minerals.
-- Defend owned zones.
-- Restore power to unpowered structures.
-- Distribute workers.
-- Gather free army before attacking.
-- Search for and destroy remaining enemy structures.
+- Four Gateways can produce the required Stalkers within a few warp-in cycles; the normal attack window is about 4:15–5:00. Move across the map as Blink nears completion so the upgrade can finish during the approach.
+- Use the first 2 Adepts for scouting or light pressure. Start the committed four-Gateway attack when Blink is close to completion and the army has about 8 Stalkers plus the surviving Adepts; this is large enough to focus targets while the next warp-in reinforces it.
+- Keep warping Stalkers into the active attack. If fewer than 5 Stalkers survive a failed fight, withdraw and rebuild to about 8 before the next commitment.

@@ -4,87 +4,32 @@ race: zerg
 kind: strategy
 ---
 
-# Roach Hydra
+# Roach–Hydralisk Macro
 
-## Objective
+## Strategy
 
-Execute the `Roach Hydra` plan through the cumulative targets and conditions below.
+Expand through four bases, use Roaches to secure the early and middle game, then transition into Hydralisks from a 70-Drone economy. Early Zergling groups provide map presence while the heavier army develops.
 
-## Count semantics
+## Development
 
-- Every unit, worker, building and expansion count is a cumulative target, not an amount to add in one decision.
-- Compare living, unfinished and queued counts before issuing the next action. Request only the missing difference.
-- `continuous` means the original plan used its unbounded default target. Continue that production only after earlier gated targets are satisfied.
-- Different plan components may run concurrently. Do not force unrelated tracks into a single serial build order.
+- Take the natural around 16 supply, build the Spawning Pool around 18 and the first Extractor around 20.
+- Add the third Hatchery near 24 Drones, reach Lair, then add the fourth near 30 Drones and build the Hydralisk Den. A fifth Hatchery can follow around 100 supply.
+- Grow toward about 70 Drones. Add the second Extractor around 4:00, the third after the Hydralisk Den and the fourth near 60 workers. Reach 6 total around 750 minerals and 8 total around 1,000 minerals.
+- Start with 2 Queens, then grow to 3 and 4. Add more only when excess minerals and the Hatchery network justify them; maintain 1 Overseer for detection.
 
-## Procedure
+## Production
 
-1. Find the earliest unmet checkpoint whose stated condition is observable and satisfied.
-2. Query any missing cost, prerequisite or unit capability needed for that checkpoint.
-3. Issue only the actions needed to close the gap to the checkpoint totals and end the decision with `advance`.
-4. Use only the attack condition written below. An army-power value is not a unit count and must not be converted into one.
-5. If a step requires unsupported exact placement or unit-level control, do not invent a substitute composition or timing.
+- Build early Zergling groups of about 4, 12, 16 and later 24 as the mineral economy grows.
+- Produce the first 4 Roaches, then around 10 and continue Roaches until the Hydralisk Den is established.
+- Begin with about 7 Hydralisks, then continue them as the main ranged unit while keeping enough Roaches in front.
+- Research Zergling speed early.
 
-## Roach Hydra Build setup
+## Combat
 
-### Economy and structures
+- Do not send Hydralisks without a Roach or Zergling screen. Gather the mixed army before major attacks and reinforce the same front.
 
-- Build `roach_warren` to a cumulative total of 1. activate only when vespene reaches 100.
-- When game time reaches 240 seconds, build `extractor` to a cumulative total of 2. Skip this step when vespene reaches 100.
-- When total hydralisk_den count reaches 1, build `extractor` to a cumulative total of 3. Skip this step when vespene reaches 50.
-- When worker supply reaches 60, build `extractor` to a cumulative total of 4. Skip this step when vespene reaches 25.
-- When minerals reach 749, build `extractor` to a cumulative total of 6. Skip this step when vespene reaches 25.
-- When minerals reach 1000, build `extractor` to a cumulative total of 8. Skip this step when vespene reaches 25.
-- When total drone count reaches 14, train `overlord` to a cumulative total of 2.
-- When supply used reaches 16, expand to a cumulative total of 2 `hatchery` structures.
-- When supply used reaches 18, build `spawning_pool` to a cumulative total of 1.
-- When supply used reaches 20, build `extractor` to a cumulative total of 1.
-- When total drone count reaches 24, including lost units, including queued units, expand to a cumulative total of 3 `hatchery` structures.
-- Morph eligible `hatchery` structures into `lair`. skip this step when total hive count reaches 1.
-- When total drone count reaches 30, including lost units, expand to a cumulative total of 4 `hatchery` structures.
-- When ready lair count reaches 1, build `hydralisk_den` to a cumulative total of 1.
-- When supply used reaches 100, expand to a cumulative total of 5 `hatchery` structures.
-- Train `drone` to a cumulative total of 23.
-- Train `drone` to a cumulative total of 28.
-- Train `drone` to a cumulative total of 35.
-- Train `drone` to a cumulative total of 45.
-- Train `drone` to a cumulative total of 50.
-- Train `drone` to a cumulative total of 70.
+## Attack timing
 
-### Army production
-
-- Train `queen` to a cumulative total of 2. activate only when total spawning_pool count reaches 1.
-- Train `queen` to a cumulative total of 3.
-- Morph `overseer` to a cumulative total of 1.
-- Train `queen` to a cumulative total of 4.
-- Train `queen` to a cumulative total of 10. activate only when minerals reach 500.
-- When total spawning_pool count reaches 1, train `zergling` to a cumulative total of 4.
-- When total spawning_pool count reaches 1, train `zergling` to a cumulative total of 12.
-- Train `queen` to a cumulative total of 1.
-- Train `zergling` to a cumulative total of 16. This target is issued only once.
-- Train `roach` to a cumulative total of 4. This target is issued only once. activate only when vespene reaches 25.
-- Train `zergling` to a cumulative total of 100. This target is issued only once. activate only when minerals reach 750.
-- Train `hydralisk` to a cumulative total of 7. skip this step when ready hydralisk_den count reaches 1.
-- Train `zergling` to a cumulative total of 24. This target is issued only once.
-- Train `roach` to a cumulative total of 10. activate only when vespene reaches 25.
-- Train `roach` to a cumulative total of continuous. skip this step when ready hydralisk_den count reaches 1.
-- Train `hydralisk` to a cumulative total of continuous.
-
-### Research
-
-- When total hatchery count reaches 2, research `metabolic_boost`. activate only when vespene reaches 100.
-
-## Roach Hydra plan
-
-### Tactical behavior
-
-- Scout with one worker. skip this step when the map has exactly one possible enemy start; activate only when supply used reaches 20.
-- Distribute workers.
-- Clear blocked base minerals.
-- Cancel unsafe or invalid construction.
-- Gather free army before attacking.
-- Defend owned zones.
-- Spread creep.
-- Inject Larva.
-- Use `20` as the minimum strength value in the attack check against known enemy forces; attack regardless when supply used is above 190.
-- Search for and destroy remaining enemy structures.
+- Hydralisks train in about 24 seconds once the Den is ready, so the Lair, Den, larva and gas are the real constraints. The 10-Roach, 7-Hydralisk army should normally form around 7:00–8:30.
+- Use the early Zerglings and first 4 Roaches defensively while the Hydralisk transition develops. Begin the first main attack with about 10 Roaches, 7 Hydralisks and the surviving Zerglings.
+- Keep Roaches in front and add Hydralisk reinforcements behind them. If fewer than 6 Roaches or 4 Hydralisks survive, regroup and restore the mixed core before another frontal attack.

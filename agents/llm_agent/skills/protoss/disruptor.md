@@ -4,67 +4,28 @@ race: protoss
 kind: strategy
 ---
 
-# Disruptor
+# Disruptor–Stalker Macro
 
-## Objective
+## Strategy
 
-Execute the `Disruptor` plan through the cumulative targets and conditions below.
+Rush Robotics technology on one base, using an Immortal and Observer to stabilize before adding 4 Disruptors. Take the natural after the first completed Disruptor and support the fragile Robotics units with a larger Stalker force.
 
-## Count semantics
+## Development
 
-- Every unit, worker, building and expansion count is a cumulative target, not an amount to add in one decision.
-- Compare living, unfinished and queued counts before issuing the next action. Request only the missing difference.
-- `continuous` means the original plan used its unbounded default target. Continue that production only after earlier gated targets are satisfied.
-- Different plan components may run concurrently. Do not force unrelated tracks into a single serial build order.
+- Establish 2 Gateways, two Assimilators and a Cybernetics Core while growing to roughly 22 Probes on one base.
+- Build a Robotics Facility followed by a Robotics Bay. Take the natural only after the first completed Disruptor, then continue toward about 44 Probes across two bases.
+- Start with 2 Assimilators and reach 4 total after the natural begins. Add the third Gateway when minerals permit and scale toward 6 after the natural is established.
+- Research Warp Gate and keep Pylon capacity ahead of Gateway and Robotics production.
 
-## Procedure
+## Production and combat
 
-1. Find the earliest unmet checkpoint whose stated condition is observable and satisfied.
-2. Query any missing cost, prerequisite or unit capability needed for that checkpoint.
-3. Issue only the actions needed to close the gap to the checkpoint totals and end the decision with `advance`.
-4. Use only the attack condition written below. An army-power value is not a unit count and must not be converted into one.
-5. If a step requires unsupported exact placement or unit-level control, do not invent a substitute composition or timing.
+- Produce 1 Immortal first for direct fighting, then 1 Observer for vision and detection.
+- Add 4 Disruptors as the main splash-damage core. Continue Stalker production around them rather than massing unsupported Disruptors.
+- Keep the Disruptors behind the Stalker screen and avoid sending them as an independent group. Replace lost screening units before taking another frontal fight.
+- Use the first Disruptor to protect the new natural expansion while the supporting army gathers.
 
-## Distruptor Build setup
+## Attack timing
 
-### Economy and structures
-
-- Train `probe` to a cumulative total of 22.
-- When total nexus count reaches 2, train `probe` to a cumulative total of 44.
-- When ready pylon count reaches 1, maintain Pylon supply as production grows.
-- Build `pylon` to a cumulative total of 1.
-- Build `gateway` to a cumulative total of 2.
-- Build `assimilator` to a cumulative total of 2.
-- Build `cybernetics_core` to a cumulative total of 1.
-- Build `robotics_facility` to a cumulative total of 1.
-- Build `robotics_bay` to a cumulative total of 1.
-- When total disruptor count reaches 1, including lost units, expand to a cumulative total of 2 `nexus` structures.
-- Build `assimilator` to a cumulative total of 4.
-- When minerals reach 300, build `gateway` to a cumulative total of 3.
-- When ready nexus count reaches 2, build `gateway` to a cumulative total of 6.
-
-### Army production
-
-- Train `immortal` to a cumulative total of 1. This target is issued only once.
-- Train `observer` to a cumulative total of 1.
-- Train `disruptor` to a cumulative total of 4.
-- Train `stalker` to a cumulative total of continuous.
-
-### Research
-
-- Research `warp_gate`.
-
-### Tactical behavior
-
-- When ready pylon count reaches 1, chrono Boost `probe` production. skip this step when total probe count reaches 19.
-- Chrono Boost `immortal` production. skip this step when total immortal count reaches 1, including lost units.
-- Chrono Boost `observer` production. skip this step when total observer count reaches 1, including lost units.
-- Chrono Boost `disruptor` production. skip this step when total disruptor count reaches 1, including lost units.
-- Clear blocked base minerals.
-- Cancel unsafe or invalid construction.
-- Restore power to unpowered structures.
-- Distribute workers.
-- Defend owned zones.
-- Gather free army before attacking.
-- When total disruptor count reaches 1, including lost units, use `20` as the minimum strength value in the attack check against known enemy forces; attack regardless when supply used is above 190.
-- Search for and destroy remaining enemy structures.
+- The Immortal, Observer and first Disruptor share Robotics production time, so the supported move-out normally falls around 6:00–7:30. Do not demand several Disruptors before the first pressure.
+- Use the first Disruptor to secure the natural. Begin the first move-out after at least 1 Disruptor, 1 Immortal and 6 Stalkers are alive; the Observer should accompany them when enemy cloaking or high ground makes vision important.
+- Continue pressure as later Disruptors join. If the Stalker screen falls below 4 units or the only Disruptor is lost, return to a defensible position and rebuild the missing layer before attacking again.

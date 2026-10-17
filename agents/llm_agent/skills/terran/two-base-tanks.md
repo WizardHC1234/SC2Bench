@@ -4,87 +4,33 @@ race: terran
 kind: strategy
 ---
 
-# Two Base Tanks
+# Two-Base Marine–Tank
 
-## Objective
+## Strategy
 
-Execute the `Two Base Tanks` plan through the cumulative targets and conditions below.
+Establish two bases early, defend the development period with Marines and Siege Tanks, then attack with a durable Marine screen in front of a growing tank line. The intended production setup is 5 Barracks and 3 Factories, supported by about 44 SCVs.
 
-## Count semantics
+## Development
 
-- Every unit, worker, building and expansion count is a cumulative target, not an amount to add in one decision.
-- Compare living, unfinished and queued counts before issuing the next action. Request only the missing difference.
-- `continuous` means the original plan used its unbounded default target. Continue that production only after earlier gated targets are satisfied.
-- Different plan components may run concurrently. Do not force unrelated tracks into a single serial build order.
+- Open Supply Depot, Barracks and first Refinery, then take the natural Command Center promptly. Morph completed bases into Orbital Commands and maintain SCV production toward roughly 44 workers.
+- Add the first Factory after the Barracks. Take the second Refinery after the first Marine, add the third with the third-base transition, and reach 4 total before the full five-Barracks and three-Factory production setup.
+- Build toward 5 Barracks, including 1 Tech Lab and 3 Reactors. Build 3 Factories with Tech Labs for sustained Siege Tank production.
+- Take the third base when the existing mineral lines show substantial worker surplus, then take the fourth after the third is established and the same economic condition remains true.
 
-## Procedure
+## Production
 
-1. Find the earliest unmet checkpoint whose stated condition is observable and satisfied.
-2. Query any missing cost, prerequisite or unit capability needed for that checkpoint.
-3. Issue only the actions needed to close the gap to the checkpoint totals and end the decision with `advance`.
-4. Use only the attack condition written below. An army-power value is not a unit count and must not be converted into one.
-5. If a step requires unsupported exact placement or unit-level control, do not invent a substitute composition or timing.
+- Marines are the continuous frontline unit. Siege Tanks are the core damage unit and should be replaced whenever the tank count falls.
+- Do not turn the first 2 Marines or first Tank into separate attacks; gather the initial Marine screen and tank core described below.
+- Use long-term ceilings of about 100 Marines and 20 Tanks. These are production directions and replacement reserves; they do not need to coexist at once under the 200-supply limit.
 
-## Two Base Tanks plan
+## Combat
 
-### Economy and structures
+- Keep Marines in front of the tanks and reinforce the active army instead of sending isolated replacements.
+- When defending, let tanks establish a firing position and avoid chasing enemy units far beyond the defended area.
+- If the first push loses its Marine screen or most of its tanks, fall back, restore the missing layer, and attack again with a coherent force.
 
-- Train `scv` to a cumulative total of 22. skip this step when total command_center count reaches 2.
-- Train `scv` to a cumulative total of 44.
-- When supply used reaches 13, build `supply_depot` to a cumulative total of 1.
-- When one supply_depot is at least 95% complete, build `barracks` to a cumulative total of 1.
-- When supply used reaches 16, build `refinery` to a cumulative total of 1.
-- Expand to a cumulative total of 2 `command_center` structures.
-- When supply used reaches 16, build `supply_depot` to a cumulative total of 2.
-- When total marine count reaches 1, including queued units, build `refinery` to a cumulative total of 2.
-- Build `factory` to a cumulative total of 1. activate only when ready barracks count reaches 1.
-- Build `factory_techlab` on `factory` to a cumulative add-on total of 1. activate only when ready factory count reaches 1.
-- When supply used reaches 28, build `supply_depot` to a cumulative total of 4.
-- Build `factory` to a cumulative total of 2.
-- Build `factory_techlab` on `factory` to a cumulative add-on total of 2.
-- When supply used reaches 38, build `supply_depot` to a cumulative total of 5.
-- Expand to a cumulative total of 3 `command_center` structures. activate only when the total surplus harvesters across owned bases is greater than 5.
-- Expand to a cumulative total of 4 `command_center` structures. activate only when (the total surplus harvesters across owned bases is greater than 5 and ready command_center count reaches 3).
-- Build `refinery` to a cumulative total of 3.
-- When supply used reaches 45, build `supply_depot` to a cumulative total of 8.
-- Build `barracks` to a cumulative total of 2.
-- Build `barracks_techlab` on `barracks` to a cumulative add-on total of 1.
-- Build `refinery` to a cumulative total of 4.
-- When supply used reaches 75, build `supply_depot` to a cumulative total of 10.
-- Build `barracks` to a cumulative total of 5.
-- Build `barracks_reactor` on `barracks` to a cumulative add-on total of 3.
-- Build `factory` to a cumulative total of 3.
-- Build `factory_techlab` on `factory` to a cumulative add-on total of 3.
-- When supply used reaches 85, build `supply_depot` to a cumulative total of 14.
-- Morph eligible `command_center` structures into `orbital_command`. activate only when ready barracks count reaches 1.
-- Build `factory_techlab` on `factory` to a cumulative add-on total of 99.
+## Attack timing
 
-### Army production
-
-- When ready factory_techlab count reaches 1, train `siege_tank` to a cumulative total of 20.
-- When ready barracks count reaches 1, train `marine` to a cumulative total of 2.
-- When minerals reach 250, train `marine` to a cumulative total of 100.
-
-### Research
-
-- Research `combat_shield`.
-
-### Tactical behavior
-
-- Scout with one worker. activate only when total barracks count reaches 1.
-- Use `60` as the minimum strength value in the attack check against known enemy forces; attack regardless when supply used is above 190.
-- Clear blocked base minerals.
-- Cancel unsafe or invalid construction.
-- Lower Supply Depots.
-- Defend owned zones.
-- Scan enemy territory with parameter `120`.
-- Call MULEs.
-- Distribute workers.
-- Repair damaged assets.
-- Resume interrupted construction.
-- Gather free army before attacking.
-- Search for and destroy remaining enemy structures.
-
-## Explicit conditional rules
-
-- The third-base condition sums `surplus_harvesters` over owned town halls and becomes true only when that sum is greater than 5.
+- Tank production is the limiting queue: 4 Tanks take a little over two minutes from one Factory, or about one minute once two Factories are active. The 20-Marine, 4-Tank push should normally begin around 6:00–7:00.
+- Begin the first two-base push with about 20 Marines and 4 Siege Tanks. This is a practical early Marine–Tank timing; do not wait for the long-term 100-Marine and 20-Tank production ceilings.
+- Keep reinforcing toward roughly 30 Marines and 8 Tanks while the push remains favorable. If fewer than 12 Marines or 2 Tanks survive, withdraw, rebuild the frontline and tank core, and then attack again as one force.
