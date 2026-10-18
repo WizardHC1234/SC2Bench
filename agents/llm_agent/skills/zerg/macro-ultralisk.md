@@ -4,33 +4,17 @@ race: zerg
 kind: strategy
 ---
 
-# Ling–Ultralisk Macro
+# Macro Ultralisk
 
-## Strategy
+A reference for a late Ultralisk macro with Zerglings as the mineral army. Adjust it dynamically according to the game situation.
 
-Use Zerglings as the standing army while building a large multi-base economy, then transition through Lair and Hive into Ultralisks. Continue expanding while useful bases remain and grow toward a very high worker economy; this is a long-term direction, not a request for an impossible number of Hatcheries.
+## Summary
 
-## Development
+Drone to 50, and toward 100 until a Hive exists. Expand continuously. Ultralisks start once gas hits 500. Attack only with a late Ultralisk army.
 
-- Expand whenever the current economy is saturated and the army can protect another Hatchery. Build the Spawning Pool and take the first two Extractors during the early growth phase.
-- Reach roughly 50 Drones before committing heavily to late technology, then continue growing toward a late ceiling near 100 only while additional bases still have useful mineral and gas capacity.
-- Add two Evolution Chambers once about 120 gas is available. Progress through Lair, reach 4 Extractors, build the Infestation Pit and Hive, then reach 6 total Extractors before the Ultralisk Cavern.
-- Maintain Overlords ahead of larva-heavy Zergling and Drone production.
+## Details
 
-## Production and research
-
-- Produce Zerglings continuously as the mineral-heavy army and replacement screen.
-- Grow toward about 5 Queens when minerals permit and the expanding Hatchery network benefits from them.
-- Begin Ultralisks when the cavern is ready and a substantial gas reserve, around 500, can support the transition.
-- Research Zergling speed, melee and carapace upgrades, then Adrenal Glands. Add Chitinous Plating and Anabolic Synthesis for the Ultralisk army.
-
-## Combat
-
-- Avoid spending the whole gas bank before the Ultralisk transition. Zerglings provide pressure and protection while technology completes.
-- Once Ultralisks arrive, keep Zerglings with them so the expensive units are not isolated or surrounded without support.
-
-## Attack timing
-
-- Ultralisks train in about 39 seconds, but the Hive, Cavern, upgrades and gas bank determine the real timing. Six Ultralisks with their Zergling screen should normally be ready around 10:00–12:00.
-- Before the Ultralisk transition, use groups of about 20–30 Zerglings only for exposed targets and map control. Preserve the gas bank needed for the late army.
-- Begin the first main Ultralisk attack with at least 6 Ultralisks and about 40 Zerglings after the Ultralisk upgrades are underway. If fewer than 3 Ultralisks survive, withdraw and rebuild the expensive core before the next frontal attack.
+* Economy: Drones to 50, and to 100 until a Hive exists. Keep expanding; there is no fixed base cap. Queens to 5 once minerals reach 500. Inject every base that has a Queen.
+* Tech: A Spawning Pool, then Zerglings with no early cap. Extractors in pairs: 2, then 4, then 6, as the economy grows. Morph Lair and Hive on a normal late-game clock, then an Ultralisk Cavern.
+* Army: At 500 gas, Ultralisks with priority. Zerglings remain the mineral army. Build Overlords before you supply block.
+* Attack: Attack with the Ultralisk army once it is a late-game force, and keep reinforcing it.

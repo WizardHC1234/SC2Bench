@@ -4,33 +4,19 @@ race: terran
 kind: strategy
 ---
 
-# Banshee Pressure
+# Banshees
 
-## Strategy
+A reference for fast 2-base Banshee pressure, with Marines and Tanks behind the air. Adjust it dynamically according to the game situation.
 
-Take a quick natural and reach Banshees through Factory–Starport tech. A bunker and early ground units secure the expansion while Banshees create pressure; the plan then develops into Marine–Tank support behind continued air production.
+## Summary
 
-## Development
+Factory into Starport, then Banshees as the priority, up toward 20. The ground army is about 10 Siege Tanks and 50 Marines. Workers settle around 46.
 
-- Open Supply Depot, Barracks and first Refinery, then take the second Command Center early. Morph Orbitals and keep producing SCVs toward about 46 workers.
-- Build a Factory immediately after the Barracks, followed by a Starport with a Tech Lab. Defend the entrance with a Bunker during this tech window.
-- Add a Factory Tech Lab for Siege Tanks. After the first Banshee, grow to 3 Barracks and add a second Starport; both Starports eventually receive Tech Labs. Scale toward 5 Barracks after accumulating about 600 minerals, then take the third base.
-- Use a Barracks Tech Lab for Combat Shield and a Reactor for Marine volume. Grow gas income from 2 to 3, then take the fourth Refinery as Banshee production becomes established.
-- This build does not include Cloaking Field research, so do not delay the first Banshees waiting for cloak.
+## Details
 
-## Production
-
-- Prioritize Banshees from the Tech Lab Starports, with 20 as the long-term ceiling.
-- Build ground support toward roughly 50 Marines and 10 Siege Tanks. These are later targets, not prerequisites for the first Banshee pressure.
-- If Dark Templar, Banshees or their technology appear, add detection and produce up to 2 Ravens rather than relying only on scans. Do not add Ravens to the normal branch without a cloak threat.
-
-## Combat
-
-- Begin harassment as soon as a useful Banshee group exists, but preserve the aircraft when defended by strong anti-air.
-- Let the ground army hold bases and protect the production transition. Attack more directly once the combined Banshee, Marine and Tank force is strong enough to survive a frontal engagement.
-
-## Attack timing
-
-- A Banshee takes about 43 seconds to train. The first pair should normally begin harassment around 5:00–6:00, while the combined push should form around 7:00–8:30 as Tank and Marine production catches up.
-- The first Banshee may scout or pick at an undefended target, but begin sustained harassment when 2 Banshees are alive. Keep them together against light resistance and split them only when separate safe targets are known.
-- Begin the first combined push at roughly 4 Banshees, 20 Marines and 4 Siege Tanks. Reinforce it while the Marine screen remains intact; if fewer than 10 Marines or 2 Tanks survive, withdraw the valuable air units and rebuild the ground core.
+* Opening: At 13 supply, build 1 Supply Depot, then 1 Barracks, the 1st Refinery, and the 2nd base. At 20 supply, add the 2nd Supply Depot and the 2nd Refinery. Morph Orbitals, use MULEs, and scout with 1 SCV after the 1st depot.
+* Tech path: Factory as soon as the Barracks is ready, Starport as soon as the Factory is ready, Tech Labs on both. A bunker at the natural covers the transition. The 3rd and 4th Refineries come as gas is being spent.
+* Air: Banshees are the priority from the Starport Tech Lab, toward 20. A 2nd Starport with a Tech Lab doubles that. If Dark Templars or enemy Banshees show up, make up to 2 Ravens.
+* Ground: Siege Tanks from a Factory Tech Lab, toward 10. After the 1st Banshee has started, grow to 3 Barracks and then to 5 once minerals are around 600, with 1 Tech Lab for Combat Shield and Reactors on the others. Marines run toward 50. A 3rd base fits that same mineral spike.
+* Economy: SCVs go to about 46.
+* Attack: Move out when the Banshees are the core of the army and a Marine and Tank screen exists. Keep reinforcing that attack. Near 190 supply, attack with what you have.

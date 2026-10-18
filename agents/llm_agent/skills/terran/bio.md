@@ -4,34 +4,20 @@ race: terran
 kind: strategy
 ---
 
-# Bio Macro
+# Bio
 
-## Strategy
+A reference for a Marine, Marauder, and Medivac macro. Adjust it dynamically according to the game situation.
 
-Open with a Reaper expansion, stabilize with early Marines and Siege Tanks, then scale into upgraded Marine–Marauder–Medivac. Vikings and detection are added in response to enemy technology rather than produced without a target.
+## Summary
 
-## Development
+Reaper expand into upgraded bio, with a few early Tanks and Medivacs, and Vikings only if the opponent's air matters. A 3rd base comes around 40 workers. The late infantry count is large, on the order of 100 Marines, with up to 6 Medivacs.
 
-- Open with a Supply Depot around 13 supply, a Barracks, first Refinery and 1 Reaper. Take the natural Command Center unless clear early pressure makes the expansion unsafe.
-- Against an early rush, protect the ramp with a Bunker, add a second Barracks and produce at least 2 Marines. Cancel an exposed unfinished expansion only when it cannot be defended.
-- Add a Factory with a Tech Lab and produce early Siege Tanks for stability. Follow with a Starport for Medivacs.
-- Take the second Refinery as the Factory and Barracks Tech Labs come online, then reach 4 total Refineries when the five-Barracks, Starport-supported production is established.
-- At about 40 workers, take a third base. Grow toward 5 Barracks, then as high as 8 when the economy has excess minerals. Use Tech Labs for Marauders and bio upgrades and Reactors for Marine production.
+## Details
 
-## Production and research
-
-- Maintain a Marine–Marauder frontline, up to 6 Medivacs and about 2 Siege Tanks as the initial support core.
-- Research Concussive Shells, Stimpack and Combat Shield.
-- Produce a small Viking group when air control is useful. Increase it only against meaningful flying threats or air-dependent units such as Colossi.
-- If cloaked threats appear, add an Engineering Bay, defensive Missile Turrets and up to 2 Ravens.
-
-## Combat
-
-- Use the Reaper for early information without sacrificing the macro timing.
-- Keep Medivacs with the bio force and tanks behind the infantry. Reinforce the current front while it is favorable; retreat and rebuild when the bio screen or healing support is lost.
-
-## Attack timing
-
-- The Barracks units are produced in parallel, while the 2 Tanks and 2 Medivacs each occupy their own production queues. With continuous production, the first complete force should normally move out around 6:00–7:00.
-- Begin the first main attack with about 12 Marines, 4 Marauders, 2 Siege Tanks and 2 Medivacs. This gives the bio force both healing and enough tank support for the first sustained push.
-- Reinforce the active army continuously. If both Medivacs are lost, both Tanks are lost, or fewer than 10 bio units survive, pull back and rebuild those missing layers before the next frontal attack.
+* Opening: At 13 supply, build 1 Supply Depot and 1 Barracks. Take the 1st Refinery around 15 supply and expand. 1 Reaper is a reasonable 1st unit. If a rush is already on the way, hold with a bunker and a 2nd Barracks before leaving the expansion exposed.
+* Infrastructure: A Reactor on the 1st Barracks, then a Factory with a Tech Lab for 1 early Siege Tank. Add the 2nd Refinery, Barracks Tech Labs, and a Starport. Grow to 3 Barracks, then 5, with 3 Reactors. If minerals sit above 400 to 500, extend toward 8 Barracks and 6 Reactors, and add a Starport Reactor.
+* Upgrades: Research Stimpack, Concussive Shells, and Combat Shield.
+* Support: Medivacs in steps, 2 then 4 then 6. 1 Viking by default, and more Vikings if the opponent has serious air or colossi. An Engineering Bay, Missile Turrets, and up to 2 Ravens are the answer to cloaked units, not part of the opening.
+* Economy: SCVs to 22, then 44. The 3rd base comes when worker supply is about 40. The 4th gas comes with that base. Morph Orbitals and use MULEs.
+* Army: 2 Marines early, then Marines toward 100 once about 250 minerals are banked, with Marauders from the Tech Labs.
+* Attack: Move out once the upgraded bio, with Medivacs, is clearly past the opening. Keep reinforcing that attack. Near 190 supply, attack with what you have.

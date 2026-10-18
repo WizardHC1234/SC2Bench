@@ -4,28 +4,18 @@ race: protoss
 kind: strategy
 ---
 
-# Immortal–Zealot Macro
+# Robotics Immortals
 
-## Strategy
+A reference for an Immortal and Zealot macro. Adjust it dynamically according to the game situation.
 
-Establish two bases, reach Robotics technology and build an Immortal core with Zealot support. A third base around 5:00 allows the plan to sustain two Robotics Facilities and a larger Gateway army.
+## Summary
 
-## Development
+2 bases, then a 3rd around 5:00, Charge, and 2 Robotics Facilities. Attack once 3 Immortals are ready. Immortals run toward 20, Zealots toward 100.
 
-- Use a normal Gateway–Cybernetics Core opening and take the natural while growing toward about 44 Probes.
-- Begin the third Nexus around 5:00 when it can be protected, then continue toward roughly 56 Probes.
-- Take the first 2 Assimilators during the two-base opening, add the third as the economy stabilizes, and reach 5 total after starting the third Nexus. Build a Twilight Council, the first Robotics Facility and later a second.
-- Grow to about 4 Gateways, research Warp Gate and add Charge for the Zealot support.
+## Details
 
-## Production and combat
-
-- Produce an initial 2 Stalkers for early safety, followed by 1 Immortal and 1 Observer.
-- Continue Immortals from the Robotics Facilities, with 20 as a long-term ceiling rather than a required simultaneous count.
-- Use Zealots as the mineral-heavy frontline and replacement screen. Keep the Immortals behind them and preserve the Observer for vision and detection.
-- Do not attack with unsupported Robotics units. Move out when enough Zealots and early Stalkers can absorb pressure for the Immortal core.
-
-## Attack timing
-
-- The Observer and Immortals consume the same Robotics queues, so the first supported army normally forms around 6:30–7:30. Produce the Observer once, then keep the Robotics Facilities focused on Immortals.
-- Start the first move-out after at least 2 Immortals, 2 Stalkers, 1 Observer and 6 Zealots are alive. This gives the Robotics core a real frontline instead of exposing the first Immortal.
-- Warp additional Zealots into the active army. If both Immortals are lost or fewer than 4 frontline units remain, retreat and rebuild the screen before the next attack.
+* Opening: Probes to 14, 1 Pylon, Probes to 16, 1 Assimilator, 1 Gateway, Probes to 20, the natural, a Cybernetics Core, Probes to 21, the 2nd Assimilator, Probes to 22, and another Pylon. Research Warp Gate. 2 Stalkers with priority as a buffer.
+* Economy: Probes to 44 on 2 bases and 56 on 3. The 3rd base comes at 5:00. A 3rd Assimilator unless you hold 300 gas, a 5th unless you hold 200 gas, and a 4th as the Gateways come up.
+* Tech: Twilight Council and Charge. 1 Robotics Facility, then a 2nd. Gateways to 4.
+* Army: 1 Immortal and 1 Observer first, then Immortals toward 20, all with priority. Zealots toward 100 as the mineral army.
+* Attack: When 3 Immortals are ready, send them with Zealots and Stalkers, and keep reinforcing that army.

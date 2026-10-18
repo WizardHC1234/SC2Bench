@@ -4,28 +4,17 @@ race: protoss
 kind: strategy
 ---
 
-# Four-Gateway Blink Stalkers
+# Four-Gate Blink
 
-## Strategy
+A reference for a 1-base 4-Gate Blink Stalker attack. Adjust it dynamically according to the game situation.
 
-Use a compact one-base opening to reach 4 Gateways, Warp Gate and Blink. Two early Adepts provide safety and information before Stalkers become the main army.
+## Summary
 
-## Development
+4 Gateways on 1 base. Wait until Blink is about 90% finished, then attack with Stalkers. Stalkers run toward 100.
 
-- Build the first Pylon around 14 workers, the first Gateway around 16 and take two Assimilators beginning around 17.
-- Add the second Gateway near 19 supply and grow to about 22 Probes.
-- Build the Cybernetics Core, then a Twilight Council. Scale to 4 Gateways once the economy can sustain Stalker production.
-- Research Warp Gate and Blink. Keep Pylons ahead of production so the timing is not interrupted by supply.
+## Details
 
-## Production and combat
-
-- Produce 2 Adepts first. Use them for early defense or scouting without delaying the Stalker transition.
-- Continue Stalker production from the 4 Gateways. Gather a useful group before committing rather than sending each completed unit separately.
-- Begin pressure once a coherent Stalker group has gathered. As Blink completes, use the added mobility to focus isolated targets, withdraw damaged Stalkers and avoid fights where the one-base army is clearly outnumbered.
-- Because the build has a limited economy, sustained idle production weakens the timing. If the first pressure does not succeed, preserve the Stalkers and decide whether an expansion is necessary.
-
-## Attack timing
-
-- Four Gateways can produce the required Stalkers within a few warp-in cycles; the normal attack window is about 4:15–5:00. Move across the map as Blink nears completion so the upgrade can finish during the approach.
-- Use the first 2 Adepts for scouting or light pressure. Start the committed four-Gateway attack when Blink is close to completion and the army has about 8 Stalkers plus the surviving Adepts; this is large enough to focus targets while the next warp-in reinforces it.
-- Keep warping Stalkers into the active attack. If fewer than 5 Stalkers survive a failed fight, withdraw and rebuild to about 8 before the next commitment.
+* Opening: Probes to 14, 1 Pylon, Probes to 16, 1 Gateway, Probes to 17, 2 Assimilators, Probes to 19, a 2nd Gateway, Probes to 22.
+* Tech: Twilight Council and Blink when it is ready. Cybernetics Core and Warp Gate, then Gateways to 4 once the Core exists. Chronoboost the Blink research.
+* Army: 2 Adepts once, then Stalkers toward 100. Stay on 1 base and keep Pylons ahead of supply.
+* Attack: When Blink is about 90% done, send the Stalkers and reinforce them with whatever finishes behind.

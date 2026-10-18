@@ -4,27 +4,17 @@ race: terran
 kind: strategy
 ---
 
-# One-Base Marine–Tank Turtle
+# One-Base Turtle
 
-## Strategy
+A reference for a 1-base Marine and Siege Tank hold. Adjust it dynamically according to the game situation.
 
-Stay on one base, fortify the entrance and build a compact Marine–Tank army. The plan trades economy for an early defensive tank core and does not move out until the tanks have enough infantry cover.
+## Summary
 
-## Development
+22 SCVs, no expansion, a bunker, 2 Factories of Tanks and 3 Barracks of Marines. Leave home once about 18 Marines can cover the Tanks. The production caps are 20 Tanks and 100 Marines.
 
-- Produce about 22 SCVs and remain on one Command Center. Open with Supply Depots, a Barracks and the first Refinery, then morph an Orbital Command.
-- Add a Bunker after the Barracks and hold the entrance. Build a Factory quickly, then a second Factory and second Refinery.
-- Put Tech Labs on the Factories for Siege Tanks. Scale to 3 Barracks for continuous Marine production.
-- Keep Supply Depots ahead of the production queue; this plan has little economic margin for idle Barracks or Factories.
+## Details
 
-## Production and combat
-
-- Siege Tanks are the damage core, with 20 as a long-term ceiling. Marines form the screen and should be replaced continuously.
-- Stay defensive until at least 18 living Marines can protect the tank group. This is the minimum breakout condition, not a requirement to attack into a visibly stronger army.
-- On defense, keep tanks in useful positions and do not let nearby enemy units pull the army away from the base. When moving out, keep the Marine screen and tank line together.
-
-## Attack timing
-
-- Two Factories can produce the first 4 Tanks in roughly two production cycles while 3 Barracks build the Marine screen. The breakout should normally become possible around 5:30–7:00.
-- The first breakout begins after at least 18 living Marines and 4 Siege Tanks have gathered. The tank minimum prevents the defensive build from leaving its base with infantry alone.
-- Keep later Marines and Tanks reinforcing the same push. If fewer than 10 Marines or 2 Tanks survive, return to the fortified area and restore the 18-Marine, 4-Tank core before moving out again.
+* Opening: 1 Supply Depot at 13 supply, a Barracks as it finishes, the 1st Refinery, and a 2nd Supply Depot at 16 supply. Morph an Orbital Command after the Barracks. Stay on 1 base.
+* Defense: 1 bunker after the Barracks. A 3rd Supply Depot at 20 supply, then a 2nd Refinery and a 2nd Factory. Tech Labs on both Factories. Later depots can sit around 4 at 28 supply and 5 at 38 supply, then just stay ahead of the cap.
+* Army: Siege Tanks toward 20 from the Tech Labs. Marines toward 100 from 3 Barracks. The Marines exist to screen the Tanks.
+* Attack: Remain defensive until about 18 Marines have been produced, then push with the Marine and Tank army and keep reinforcing it.

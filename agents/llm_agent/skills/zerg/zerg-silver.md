@@ -4,33 +4,18 @@ race: zerg
 kind: strategy
 ---
 
-# Zerg Silver Roach–Hydralisk
+# Silver Zerg
 
-## Strategy
+A reference for a simple Roach and Zergling macro. Adjust it dynamically according to the game situation.
 
-Use a safe four-base Roach–Hydralisk structure with an explicit response to early pressure. Roaches carry the early and middle game; Hydralisks become the ranged core once the Lair and Den are ready.
+## Summary
 
-## Development
+Hatch first, Queens, a 3rd and a 4th, and a Roach and Ling army. Attack once that force is a real mid-game army. Drones stay ahead of production.
 
-- Take the natural around 16 supply, the Spawning Pool around 18 and the first Extractor near 20.
-- Add the third Hatchery around 24 Drones, reach Lair, add the fourth around 30 and then build the Hydralisk Den. A fifth Hatchery can follow around 100 supply.
-- Grow toward roughly 70 Drones. Add the second Extractor around 4:00, the third after the Hydralisk Den and the fourth near 60 workers. Reach 6 total around 750 minerals and 8 total around 1,000 minerals.
-- Maintain 2 Queens early and grow toward 4 with the base count. Against a clear air rush, increase the Queen count toward 7 rather than waiting for Hydralisks alone.
-- Keep at least 1 Overseer once detection is relevant.
+## Details
 
-## Production
-
-- Use early Zergling groups for scouting and defense, then produce about 4 Roaches and grow toward 10.
-- Continue Roaches until the Hydralisk Den is operating. Begin with roughly 7 Hydralisks and then maintain a mixed Roach–Hydralisk army.
-- Research Zergling speed and add further upgrades when the economy can support them without stopping unit production.
-
-## Combat
-
-- Against a rush, spend larvae on the units and Queens needed to survive before following the normal Drone targets.
-- Keep Roaches in front of Hydralisks and reinforce one coherent army rather than splitting production into weak groups.
-
-## Attack timing
-
-- Because Roaches and Hydralisks are produced from shared larvae, injects and gas income matter more than their roughly 19- and 24-second training times. The first mixed army should normally form around 6:30–8:00.
-- Begin the first main attack with about 10 Roaches and 5 Hydralisks; the remaining early Zerglings may screen or search for exposed targets. This preserves a durable Roach frontline without delaying pressure until every later unit target is complete.
-- Reinforce toward at least 10 Roaches and 7 Hydralisks. If fewer than 6 Roaches or 3 Hydralisks survive, regroup and restore the mixed core before the next frontal attack.
+* Opening: An Overlord at 14 Drones, the natural at 16 supply, and the 1st Extractor at 20 supply. Queens to 2.
+* Bases: A 3rd at 24 Drones, a 4th at 30, a 5th at 100 supply. Queens on new bases, and Queens to 10 at 500 minerals. Inject.
+* Gas: More Extractors as the Hydralisk Den, the worker count, and the mineral bank grow: 2 at 4:00 if gas is under 100, 3 with the den, 4 at 60 workers, 6 around 749 minerals, 8 around 1000 minerals.
+* Army: Early Roaches to 4 once gas is 25, then Roaches to 10. Lings to 20, plus extra waves of 16 and 24. Drones stay ahead of the army. Overlords before you supply block.
+* Attack: Move out with Roaches and Lings together once they are a mid-sized army, and keep reinforcing that group.

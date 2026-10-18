@@ -4,33 +4,19 @@ race: terran
 kind: strategy
 ---
 
-# Two-Base Marine–Tank
+# Two-Base Tanks
 
-## Strategy
+A reference for a 2-base Marine and Siege Tank macro. Adjust it dynamically according to the game situation.
 
-Establish two bases early, defend the development period with Marines and Siege Tanks, then attack with a durable Marine screen in front of a growing tank line. The intended production setup is 5 Barracks and 3 Factories, supported by about 44 SCVs.
+## Summary
 
-## Development
+Tech through 5 Barracks (1 Tech Lab, Reactors on the rest) and 3 Factories with Tech Labs. Build a Marine buffer first, then mass Tanks. The late shape is about 20 Siege Tanks and 100 Marines, on an economy of about 44 SCVs.
 
-- Open Supply Depot, Barracks and first Refinery, then take the natural Command Center promptly. Morph completed bases into Orbital Commands and maintain SCV production toward roughly 44 workers.
-- Add the first Factory after the Barracks. Take the second Refinery after the first Marine, add the third with the third-base transition, and reach 4 total before the full five-Barracks and three-Factory production setup.
-- Build toward 5 Barracks, including 1 Tech Lab and 3 Reactors. Build 3 Factories with Tech Labs for sustained Siege Tank production.
-- Take the third base when the existing mineral lines show substantial worker surplus, then take the fourth after the third is established and the same economic condition remains true.
+## Details
 
-## Production
-
-- Marines are the continuous frontline unit. Siege Tanks are the core damage unit and should be replaced whenever the tank count falls.
-- Do not turn the first 2 Marines or first Tank into separate attacks; gather the initial Marine screen and tank core described below.
-- Use long-term ceilings of about 100 Marines and 20 Tanks. These are production directions and replacement reserves; they do not need to coexist at once under the 200-supply limit.
-
-## Combat
-
-- Keep Marines in front of the tanks and reinforce the active army instead of sending isolated replacements.
-- When defending, let tanks establish a firing position and avoid chasing enemy units far beyond the defended area.
-- If the first push loses its Marine screen or most of its tanks, fall back, restore the missing layer, and attack again with a coherent force.
-
-## Attack timing
-
-- Tank production is the limiting queue: 4 Tanks take a little over two minutes from one Factory, or about one minute once two Factories are active. The 20-Marine, 4-Tank push should normally begin around 6:00–7:00.
-- Begin the first two-base push with about 20 Marines and 4 Siege Tanks. This is a practical early Marine–Tank timing; do not wait for the long-term 100-Marine and 20-Tank production ceilings.
-- Keep reinforcing toward roughly 30 Marines and 8 Tanks while the push remains favorable. If fewer than 12 Marines or 2 Tanks survive, withdraw, rebuild the frontline and tank core, and then attack again as one force.
+* Opening: Start with 1 Supply Depot around 13 supply, then 1 Barracks and the 1st Refinery, and expand to the 2nd base immediately. A 2nd Supply Depot follows. Once the Barracks is up, morph Command Centers to Orbital Commands and use MULEs. Scout with 1 SCV after the Barracks exists.
+* Marine buffer: Train 2 Marines for defense and take the 2nd Refinery. Scale to 5 Barracks: a Tech Lab on 1 of them for Combat Shield, and Reactors on 3. Once about 250 minerals are banked, Marines can run toward 100 while the Tanks catch up.
+* Tanks: As soon as the 1st Factory finishes, add a Tech Lab and start Siege Tanks. Scale to 3 Factories, each with a Tech Lab, and keep Tank production toward 20.
+* Supply: Stay ahead of the cap. Reasonable depot counts along the way are 4 by 28 supply, 5 by 38, 8 by 45, 10 by 75, and 14 by 85.
+* Economy: Hold SCVs at 22 until the natural is working, then go to 44. Add a 3rd and 4th base when the current bases have more than 5 spare workers and it looks safe. The 3rd gas comes with the 3rd base; the 4th gas comes before the production block is full.
+* Attack: Move out once the Marine screen and the Tanks are the bulk of the army. 20 Tanks and 100 Marines are production caps, not a reason to wait. Keep reinforcing the same attack. Near 190 supply, attack with what you have.

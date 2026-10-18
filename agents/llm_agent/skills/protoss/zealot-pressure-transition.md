@@ -4,33 +4,17 @@ race: protoss
 kind: strategy
 ---
 
-# Zealot Pressure into Air Macro
+# Zealot Pressure
 
-## Strategy
+A reference for early Zealot pressure that grows into Stalkers and Void Rays. Adjust it dynamically according to the game situation.
 
-Open with early Zealot pressure from forward Gateways, but treat that pressure as a temporary phase. Once the rush loses momentum or supply reaches roughly 50, transition into a normal multi-base Void Ray and Gateway army.
+## Summary
 
-## Opening pressure
+Zealots first, then the same macro as a Void Ray game: 2 bases, a 3rd at 5:00, Stalkers toward 30, and Void Rays toward 20. The 1st attack is the Zealot pressure.
 
-- Keep the initial economy near 17 Probes while establishing the first Pylon and Gateway access.
-- Use up to 2 forward Pylons and 4 forward Gateways. Exact proxy coordinates are unavailable, so request forward placement without inventing a wall position or map coordinate.
-- Produce Zealots continuously during the pressure phase and reinforce the same attack.
-- End the proxy phase around 50 supply or earlier when the forward production can no longer be protected.
+## Details
 
-## Transition
-
-- Establish 2 bases and grow toward about 44 Probes, then take a third base and continue toward roughly 56.
-- During the macro transition, take 2 Assimilators first, add the third as the two-base economy develops, and reach 5 total after starting the third Nexus. Develop about 4 Gateways and 2 Stargates around that gas economy.
-- Build toward a Void Ray core with Stalker support, using long-term ceilings near 20 Void Rays and 30 Stalkers.
-- Research Warp Gate, Charge and Adept Glaives as the supporting Gateway composition develops.
-
-## Combat
-
-- The first Zealots create pressure and space; do not keep replacing a failed forward position forever.
-- After transition, gather the air and Gateway forces into a coherent army and protect the expanded economy.
-
-## Attack timing
-
-- Four forward Gateways can produce 6 Zealots quickly, so the proxy pressure should begin around 3:00–4:00. The later Void Ray–Gateway force normally becomes available around 7:30–9:00 after the economy and Stargates are rebuilt.
-- Begin the proxy pressure when 6 Zealots have gathered, then reinforce it from the forward Gateways. Do not feed the first pairs of Zealots separately into a defended entrance.
-- End the proxy attack if fewer than 4 Zealots remain and the forward production is threatened. After the macro transition, wait for at least 4 Void Rays and 8 Gateway combat units before the first mixed-army attack.
+* Opening: Probes to 14, 1 Pylon, 1 Assimilator, 1 Gateway, Probes to 20, a Cybernetics Core, Probes to 21, the natural, Probes to 22, the 2nd Assimilator, and another Pylon. Research Warp Gate. 2 Stalkers with priority.
+* Economy: Probes to 44 on 2 bases and 56 on 3. The 3rd base comes at 5:00. Keep Pylons ahead of supply.
+* Transition: Twilight Council, a Stargate, Charge, and Resonating Glaives. Gateways to 4 and a 2nd Stargate. Early Zealots are the pressure unit until the Stargate exists. Then Stalkers toward 30 and Void Rays toward 20, with the Void Rays as the priority.
+* Attack: Start with the Zealots, then fold Stalkers and Void Rays into the same attack as they finish.

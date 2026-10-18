@@ -4,33 +4,17 @@ race: protoss
 kind: strategy
 ---
 
-# Cannon Pressure into Stalker Macro
+# Cannon into Stalkers
 
-## Strategy
+A reference for a Forge opening that becomes a Blink Stalker macro. Adjust it dynamically according to the game situation.
 
-Apply early Pylon and Photon Cannon pressure, then stop investing in the rush if it has not produced a decisive advantage. The follow-up is a two-base Stalker army with Blink and enough Gateways to continue playing a normal game.
+## Summary
 
-## Opening pressure
+Forge, expand, then Gateways and Blink. Stalkers are the army, toward 100, on about 44 Probes. The attack is an early Stalker timing, not a maxed army.
 
-- Use an early Probe to establish the forward Pylon and Forge. Add Photon Cannons only while the position remains viable and protected by Pylon power.
-- Choose between an aggressive Forge-and-Cannon route and a safer Cannon-expand route. In either case, add a Gateway behind the pressure and prepare the natural expansion rather than spending indefinitely on forward structures.
-- End the cannon phase around 4:00, or earlier after losing 3 Probes involved in the pressure. Do not keep rebuilding an already failed forward position.
+## Details
 
-## Macro transition
-
-- Establish 2 Nexuses and grow toward about 44 Probes.
-- Build a Cybernetics Core, begin with 2 Gateways and scale toward 7 as the economy develops.
-- Take 2 Assimilators first and later reach 4 total for sustained Stalker production and upgrades.
-- Produce an initial group of about 4 Stalkers, then continue Stalkers as the main army.
-- Research Warp Gate, add a Twilight Council and research Blink.
-
-## Combat
-
-- Use the early structures to force a response and buy room for the expansion; their purpose is not to dictate every later action.
-- After transition, gather Stalkers into a coherent force. Attack or defend according to the visible army rather than continuing the expired cannon-rush behavior.
-
-## Attack timing
-
-- Because the cannon phase ends around 4:00 and the Stalkers are produced afterward, the first mobile group should normally form around 5:30–6:30. A longer delay usually means the macro transition or Gateway production has stalled.
-- The forward Pylons and Cannons are the opening pressure. Do not send newly produced Stalkers one at a time to support a position that is already lost.
-- After the transition, begin the first mobile attack with at least 6 living Stalkers. Reinforce that group from the growing Gateway count; if it falls below 4 Stalkers, withdraw and rebuild before the next attack.
+* Opening: Probes to 14, 1 Forge, Probes to 18, then the natural, 1 Gateway, and a Cybernetics Core.
+* Production: After 2 Nexuses exist, Probes to 44. Gateways to 2, 2 Assimilators, and Warp Gate research. A 3rd Assimilator unless you already hold 300 gas. Twilight Council and Blink when it is ready. When the Core is ready, Gateways toward 7. A 4th Assimilator unless you hold 200 gas.
+* Army: Stalkers to 4 with priority, then Stalkers toward 100. Forge upgrades can follow once that production is running. Keep Pylons ahead of supply.
+* Attack: Move out with a small Stalker force once the Gateways are producing, and keep reinforcing it.

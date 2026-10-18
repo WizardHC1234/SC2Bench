@@ -4,33 +4,19 @@ race: terran
 kind: strategy
 ---
 
-# Battlecruiser Transition
+# Battlecruisers
 
-## Strategy
+A reference for a Battlecruiser macro with Marines and Siege Tanks underneath. Adjust it dynamically according to the game situation.
 
-Use a fast two-base tech opening to reach Battlecruisers while a bunker, Ravens and a small Marine–Tank force protect the economy. After the first Battlecruiser, broaden production so the army is not dependent on one expensive unit type.
+## Summary
 
-## Development
+Rush the Starport and Fusion Core, then make Battlecruisers the priority. The late shape is about 20 Battlecruisers, 10 Siege Tanks, and 50 Marines, on an economy of about 46 SCVs.
 
-- Open with Supply Depot, Barracks and first Refinery, then take an early natural Command Center and morph both bases into Orbital Commands.
-- Add the second Refinery, a Factory and then a Starport. Take the third Refinery before the Fusion Core phase. Place a defensive Bunker at the natural or main entrance while the air tech is vulnerable.
-- Build a Fusion Core and a Starport Tech Lab, then begin continuous Battlecruiser production.
-- Take the fourth Refinery around the arrival of the first Battlecruiser. After that first ship, add 3 Barracks, a Barracks Tech Lab and Reactors, plus a second Starport with a Tech Lab.
-- Add a third base once Battlecruiser production is established. Grow toward about 46 SCVs. If minerals accumulate beyond what the current production can spend, scale Barracks toward 5 rather than adding more gas-heavy tech immediately.
+## Details
 
-## Production
-
-- If Dark Templar, Banshees or their technology are observed, produce up to 2 Ravens for mobile detection. Do not add these Ravens to the normal branch without a cloak threat.
-- Build a ground backbone toward roughly 50 Marines and 10 Siege Tanks while continuing Battlecruisers.
-- Use 20 Battlecruisers as a long-term production ceiling. Together with the ground targets this exceeds normal supply, so treat all three numbers as replacement and transition goals rather than a simultaneous final composition.
-
-## Combat
-
-- Avoid committing the first Battlecruiser without ground protection if the opponent can counterattack the bases.
-- Use the air force to pressure valuable targets while the Marine–Tank army protects expansions and production. Consolidate the forces for a finishing attack when the opponent can no longer threaten the economy.
-
-## Attack timing
-
-- A Battlecruiser takes about 64 seconds to train. The first pair should normally be ready around 6:30–7:30, while the six Tanks for the combined push make that larger attack an approximately 8:00–9:30 timing.
-- Begin the first Battlecruiser raid when 2 Battlecruisers are alive. Attack an exposed production or mineral line and leave before concentrated anti-air can trap the pair.
-- Begin the first combined push after at least 2 Battlecruisers, 20 Marines and 6 Siege Tanks have gathered. If the ground screen collapses, keep the Battlecruisers alive and rebuild the Marine–Tank force instead of continuing a frontal fight with air units alone.
+* Opening: At 13 supply, build 1 Supply Depot, then 1 Barracks and the 1st Refinery, and expand to the 2nd base. At 20 supply, add the 2nd Supply Depot and the 2nd Refinery. Morph Orbitals and use MULEs once the Barracks is ready.
+* Tech path: Factory after the Barracks, Starport as soon as the Factory is ready, then a Fusion Core. Put Tech Labs on the Factory and the Starport. A bunker at the natural is a reasonable hold while this tech finishes.
+* Air: Make 2 Ravens first, for detection, then Battlecruisers without a pause, toward 20. Add a 2nd Starport with a Tech Lab after the 1st Battlecruiser. Take the 3rd and 4th gas as the 1st Battlecruiser starts or is already out.
+* Ground: A Factory Tech Lab feeds Siege Tanks toward 10. Scale Barracks to 3, then to 5 if minerals pass about 600, with 1 Tech Lab for Combat Shield and a Reactor on another. Marines run toward 50.
+* Economy: SCVs go to about 46. A 3rd base comes once the Barracks count is rising and minerals are spare, around 600.
+* Attack: Move out once 3 or more Battlecruisers are with the Marine and Tank force. 20 Battlecruisers is the production cap, not a reason to wait. Keep reinforcing the same attack. Near 190 supply, attack with what you have.

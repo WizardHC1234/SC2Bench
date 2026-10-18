@@ -4,35 +4,19 @@ race: zerg
 kind: strategy
 ---
 
-# Macro Roach
+# Macro Roaches
 
-## Strategy
+A reference for a late Roach and Ravager macro. Adjust it dynamically according to the game situation.
 
-Expand quickly to three bases and build a large Roach army from a 70-Drone economy. Ravagers and upgrades are layered onto the Roach core once the gas income can sustain them.
+## Summary
 
-## Development
+Drone to 70, take a 3rd and a 4th, then Roaches and Ravagers in large numbers. Attack only with a big Roach and Ravager army. The 1st 4 Roaches are defense.
 
-- Take the natural first, build the Spawning Pool after it starts, and add the third Hatchery after the Pool. Add a fourth Hatchery later as the economy and map control allow.
-- Grow steadily toward about 70 Drones. Balance Drone and army larvae according to immediate safety rather than queuing the entire worker target early.
-- Reach Lair around 80 supply. Add two Evolution Chambers around 100 supply for missile and carapace upgrades.
-- Use 1 Extractor as the Pool becomes ready, 2 when the Roach Warren is ready, 3 when the third Hatchery starts and 4 when it completes. Reach 5 after about 10 Overlords and 6 after about 20 Overlords.
-- Maintain Overlord production ahead of each large Roach round.
+## Details
 
-## Production and research
-
-- Begin with 2 Queens, then grow to 3 and 4 as Hatcheries are added.
-- Produce about 6 early Zerglings for safety and information.
-- Build the first 4 Roaches, then continue Roach production from the three-base larva economy.
-- When at least 200 gas is available, morph about 5 Ravagers. After the army exceeds roughly 10 Roaches and gas rises above 300, increase the Ravager component when its range and bile are useful.
-- Research Glial Reconstitution, then missile and carapace upgrades through the available levels.
-
-## Combat
-
-- Attack with a gathered Roach–Ravager group and keep reinforcements on the same objective.
-- Do not sacrifice Drone growth for isolated small waves unless immediate defense requires it.
-
-## Attack timing
-
-- Roaches train in about 19 seconds and Ravagers morph from completed Roaches, so larva and resources are the main limits. On three injected Hatcheries, this timing should normally form around 7:00–8:30 as Roach speed finishes.
-- Begin the first main attack when Roach speed is ready or close to ready and the army has about 24 Roaches and 5 Ravagers. This creates a useful three-base timing without waiting until the army is nearly supply capped.
-- Continue Roach–Ravager production into the same attack. If fewer than 14 Roaches and 3 Ravagers survive, regroup instead of feeding small reinforcements into a defended position.
+* Opening: Expand to the natural immediately. A Spawning Pool once the 2nd Hatchery has started. The 3rd base when the Pool is ready. A Lair at 80 supply, then the 4th base. 2 Evolution Chambers at 100 supply.
+* Economy: Drones to 70, and inject. Queens to 2, then 3 and 4 as bases start. 6 Zerglings once, for defense.
+* Gas: 1 Extractor as the Pool finishes, 2 when the Roach Warren is ready, 3 with the 3rd Hatchery, 4 when that Hatchery is ready, then 5 and 6 as the Overlord count passes 10 and 20. The Warren itself comes after 2 Queens.
+* Army: 4 Roaches after the natural, keep 4 Zerglings, then Roaches without a cap once the 3rd base has started. Ravagers to 5 after 4 Roaches and 200 gas, then toward 50 after 10 Roaches and 300 gas. Ravagers morph from Roaches.
+* Upgrades: At Lair, Roach speed. Missile and ground upgrades from the Evolution Chambers, level 1 then level 2.
+* Attack: Wait for a large Roach and Ravager army, and keep reinforcing it.

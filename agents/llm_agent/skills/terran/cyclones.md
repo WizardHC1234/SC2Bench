@@ -4,30 +4,19 @@ race: terran
 kind: strategy
 ---
 
-# Cyclone Mech
+# Cyclones
 
-## Strategy
+A reference for a fast-expanding Cyclone and Hellion mech game. Adjust it dynamically according to the game situation.
 
-Take a very fast natural, rush Cyclone production and its Lock On upgrade, then use the mobility of Cyclones with mineral-heavy Hellion support. The long game scales through additional bases, Factories and vehicle upgrades.
+## Summary
 
-## Development
+Natural at 16 supply, then Factories and the Cyclone lock-on upgrade. The army is mass Cyclones, toward 120, with Hellions as the mineral support. Factories scale from 2 toward 8.
 
-- Build the first Supply Depot, take the natural Command Center around 16 supply, then add the Barracks and first Refinery.
-- Produce only a small Marine safety group before Factory units take over. Add the first Factory as soon as the Barracks allows it and attach a Tech Lab.
-- Take the second Refinery after the first 2 Marines, reach 4 before the third-base economy, then add the fifth and sixth as Factory production expands. Reach 8 total Refineries with the mature four-base, six-to-eight-Factory economy.
-- Research Mag-Field Accelerator for the Cyclones early, take a third base, and later a fourth when the mobile army can cover it.
-- Grow to about 40 SCVs before the third base is established, then continue toward roughly 70 workers across the larger economy.
-- Scale from 2 Factories to 4, then 6 and eventually as many as 8 when the economy can use them. Most Cyclone-producing Factories need Tech Labs; use at least one Reactor for Hellions.
-- Research Infernal Pre-Igniter for the Hellion support after the second Factory Tech Lab is ready. Add an Engineering Bay for the planned Planetary Fortress transition, then 2 Armories around 120 supply for vehicle weapon and armor upgrades.
+## Details
 
-## Production and combat
-
-- Form the early army around Cyclones, with the first Hellion as a support unit. Continue Cyclones as the gas-heavy core and add Hellions when minerals exceed gas-limited production.
-- Use Mag-Field Accelerator nearing completion as the main pressure timing. Attack with a gathered group rather than individual Cyclones.
-- Preserve damaged Cyclones, repair between engagements and use mobility to avoid a direct fight that removes the whole core. Reinforce the same front while expanding behind it.
-
-## Attack timing
-
-- A Cyclone takes about 32 seconds and a Hellion about 21 seconds. The first mobile group should appear around 4:30–5:30; the 12-Cyclone, 8-Hellion commitment should normally form around 6:30–8:00 as additional Factories finish.
-- When Mag-Field Accelerator is nearly complete, 4 Cyclones and 1 Hellion may begin mobile pressure against isolated targets. Preserve this group and avoid a frontal engagement with a prepared army.
-- Begin the first committed attack with about 12 Cyclones and 8 Hellions. Keep new Factory units joining the same front; if fewer than 6 Cyclones survive, retreat, repair and rebuild before attacking again.
+* Opening: 1 Supply Depot at 13 supply, the natural at 16, a Barracks at 18, the 1st Refinery, and a 2nd Supply Depot at 20. Only about 4 Marines; they are a buffer, not the army. The 2nd Refinery comes after those Marines.
+* Factories: The 1st Factory and a Tech Lab follow the Barracks. Grow to 2 Factories, then 4 around 400 spare minerals, then 6 and 8. Tech Labs on 7 of them and 1 Reactor. The 3rd base comes with the 4th gas; a 4th base is for when minerals are spare again, around 400. Gases 5 through 8 follow the Factory count.
+* Upgrades: Research the Cyclone lock-on damage upgrade, then the Hellion damage upgrade after the 2nd Factory Tech Lab. At 120 supply, 2 Armories and the vehicle weapon and armor upgrades.
+* Economy: Morph the 1st 3 bases to Orbital Commands. A later base can become a Planetary Fortress after an Engineering Bay. SCVs to 40, then toward 70.
+* Army: 4 Cyclones, then 1 Hellion, then Cyclones as the priority toward 120. Hellions toward 60 while the upgrade path is still open.
+* Attack: Move out as the lock-on upgrade is nearly finished. Keep reinforcing the Cyclone army. Near 190 supply, attack with what you have.

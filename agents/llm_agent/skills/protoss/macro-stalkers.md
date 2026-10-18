@@ -4,28 +4,17 @@ race: protoss
 kind: strategy
 ---
 
-# Two-Base Stalker Macro
+# Macro Stalkers
 
-## Strategy
+A reference for a 2-base Stalker macro. Adjust it dynamically according to the game situation.
 
-Build a straightforward two-base Stalker economy. The plan emphasizes steady Probe growth, 7 Gateways and 4 Assimilators rather than a narrow one-base timing.
+## Summary
 
-## Development
+Expand, research Warp Gate, and scale to 7 Gateways. Stalkers toward 100 are the whole army. Start the attack once 4 Gateways are ready, on about 44 Probes.
 
-- Open with a Pylon, Assimilator and Gateway while growing toward roughly 20 Probes.
-- Take the natural Nexus, build the Cybernetics Core and add the second Assimilator.
-- Continue toward about 44 Probes across the two bases. Reach 3 Assimilators during the initial two-base development and 4 total as Gateway production grows.
-- Increase from the first Gateway to about 7 total. Build Pylons early enough to keep all Gateways operating.
-- Research Warp Gate for faster reinforcement.
+## Details
 
-## Production and combat
-
-- Stalkers are the primary army throughout the plan. Request only the amount needed to restore or grow the current force; the large end target represents continuous production rather than one batch.
-- Keep early Stalkers near vulnerable bases until the expansion and production are safe.
-- Once the Gateway count and two-base economy are established, form an attack group and reinforce it through Warp Gates. Preserve the force against poor engagements so the economic advantage can produce another timing.
-
-## Attack timing
-
-- On four operating Gateways, 10 Stalkers require only a few production cycles once the economy is ready. The first move-out should normally occur around 6:00–7:00 rather than waiting for the later seven-Gateway setup.
-- Keep the first Stalkers at home while the natural is vulnerable. Begin the first attack once 4 Gateways are operating and at least 10 living Stalkers have gathered.
-- Reinforce the same army through Warp Gates. After a poor fight, do not send isolated replacements; rebuild to at least 8 Stalkers and confirm the bases are safe before moving out again.
+* Opening: Probes to 14, 1 Pylon, Probes to 16, 1 Assimilator, 1 Gateway, Probes to 20, then the natural.
+* Tech: Cybernetics Core, Probes to 21, the 2nd Assimilator, Probes to 22, another Pylon, and Warp Gate research.
+* Scale: After the natural exists, Probes to 44. A 3rd Assimilator unless gas is already 300. Gateways to 7, and a 4th Assimilator unless gas is 200. Stalkers toward 100. Keep Pylons ahead of supply.
+* Attack: Once 4 Gateways are ready, send the Stalkers and keep reinforcing them. 100 Stalkers is the production cap, not a reason to wait.

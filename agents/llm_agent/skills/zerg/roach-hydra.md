@@ -4,32 +4,18 @@ race: zerg
 kind: strategy
 ---
 
-# Roach–Hydralisk Macro
+# Roach Hydra
 
-## Strategy
+A reference for a Roach and Hydralisk macro that hands the late army to Hydralisks. Adjust it dynamically according to the game situation.
 
-Expand through four bases, use Roaches to secure the early and middle game, then transition into Hydralisks from a 70-Drone economy. Early Zergling groups provide map presence while the heavier army develops.
+## Summary
 
-## Development
+Drone ahead of the army, toward 70, and tech to a Hydralisk Den. A few Roaches early, then Hydralisks with no cap once the den is ready. Attack when Hydralisks have joined the Roaches and Lings.
 
-- Take the natural around 16 supply, build the Spawning Pool around 18 and the first Extractor around 20.
-- Add the third Hatchery near 24 Drones, reach Lair, then add the fourth near 30 Drones and build the Hydralisk Den. A fifth Hatchery can follow around 100 supply.
-- Grow toward about 70 Drones. Add the second Extractor around 4:00, the third after the Hydralisk Den and the fourth near 60 workers. Reach 6 total around 750 minerals and 8 total around 1,000 minerals.
-- Start with 2 Queens, then grow to 3 and 4. Add more only when excess minerals and the Hatchery network justify them; maintain 1 Overseer for detection.
+## Details
 
-## Production
-
-- Build early Zergling groups of about 4, 12, 16 and later 24 as the mineral economy grows.
-- Produce the first 4 Roaches, then around 10 and continue Roaches until the Hydralisk Den is established.
-- Begin with about 7 Hydralisks, then continue them as the main ranged unit while keeping enough Roaches in front.
-- Research Zergling speed early.
-
-## Combat
-
-- Do not send Hydralisks without a Roach or Zergling screen. Gather the mixed army before major attacks and reinforce the same front.
-
-## Attack timing
-
-- Hydralisks train in about 24 seconds once the Den is ready, so the Lair, Den, larva and gas are the real constraints. The 10-Roach, 7-Hydralisk army should normally form around 7:00–8:30.
-- Use the early Zerglings and first 4 Roaches defensively while the Hydralisk transition develops. Begin the first main attack with about 10 Roaches, 7 Hydralisks and the surviving Zerglings.
-- Keep Roaches in front and add Hydralisk reinforcements behind them. If fewer than 6 Roaches or 4 Hydralisks survive, regroup and restore the mixed core before another frontal attack.
+* Opening: An Overlord at 14 Drones, the natural at 16 supply, and the 1st Extractor at 20 supply. Queens to 2. A 3rd base at 24 Drones, a 4th at 30, a 5th at 100 supply. Queens to 3, then 4, and toward 10 if minerals reach 500.
+* Gas: 2 Extractors at 4:00 if gas is under 100, 3 when the Hydralisk Den exists, 4 at 60 worker supply, 6 at 749 minerals, and 8 at 1000 minerals.
+* Drones and Lings: Drones to 23, 4 Lings, Drones to 28, Lings to 12, 1 Queen, Drones to 35. Then 16 Lings once, 4 Roaches once gas is 25, Lings to 100 if minerals reach 750, and Drones to 45.
+* Hydralisks: Build the Hydralisk Den. Hydralisks to 7, 24 Lings once, Drones to 50, Roaches to 10, Drones to 70. After the den is ready, stop adding Roaches and make Hydralisks with no cap. Inject, and build Overlords early.
+* Attack: Move out when Hydralisks have joined the Roach and Ling army, and keep reinforcing that group.
