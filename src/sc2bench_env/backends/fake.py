@@ -64,6 +64,7 @@ class _WorkItem:
     # Internal virtual producer/channel; never exposed in Agent Observation.
     production_slot: Optional[tuple[str, int, int]] = None
     withdrawing: bool = False
+    birth_count: int = 1
 
 
 @dataclass
@@ -191,14 +192,14 @@ class FakeBackend(Backend):
             producing = [item for item in existing_items if item.phase == "producing"]
             waiting = [item for item in existing_items if item.phase == "waiting"]
             # After cancel trims demand.count, drop surplus waiting work items.
-            allowed_unfinished = max(0, int(demand.count) - int(demand.produced))
-            keep_waiting = max(0, allowed_unfinished - len(producing))
+            allowed_orders = self._orders_needed(demand)
+            keep_waiting = max(0, allowed_orders - len(producing))
             if len(waiting) > keep_waiting:
                 drop_ids = {id(item) for item in waiting[keep_waiting:]}
                 self._queue = [item for item in self._queue if id(item) not in drop_ids]
                 waiting = waiting[:keep_waiting]
             existing = len(producing) + len(waiting)
-            needed = max(0, demand.count - demand.produced - existing)
+            needed = max(0, allowed_orders - existing)
             if demand.action == "combat":
                 pending_external: Dict[str, int] = {}
                 for transfer in demand.transfer_requests:
@@ -266,6 +267,8 @@ class FakeBackend(Backend):
                         to=demand.to,
                         route=route,
                         order_index=int(demand.order_index),
+                        birth_count=max(1, int(demand.production_batch_size or 1))
+                        if demand.action == "train" else 1,
                     )
                 )
         # Keep spend priority aligned with demand order_index.
@@ -598,6 +601,37 @@ class FakeBackend(Backend):
     def _townhalls(self) -> int:
         return sum(int(self.buildings.get(key, 0)) for key in self._townhall_keys)
 
+    @staticmethod
+    def _orders_needed(demand: Demand) -> int:
+        """Work items still required. A Zergling order births its whole batch."""
+        gap = max(0, int(demand.count) - int(demand.produced))
+        if demand.action != "train":
+            return gap
+        batch = max(1, int(demand.production_batch_size or 1))
+        return (gap + batch - 1) // batch
+
+    def _consumes_worker(self, item: _WorkItem) -> bool:
+        if self._race != "zerg" or item.action != "build":
+            return False
+        spec = get_target(item.target, race=self._race)
+        return spec is None or spec.mechanism != "structure_morph"
+
+    def _morph_source(self, item: _WorkItem) -> Optional[tuple[str, int]]:
+        if item.action != "train":
+            return None
+        spec = get_target(item.target, race=self._race)
+        if spec is None or spec.mechanism not in {"unit_morph", "merge"}:
+            return None
+        each = 2 if spec.mechanism == "merge" else 1
+        return spec.produced_at, each
+
+    def _take_units(self, name: str, count: int) -> None:
+        left = int(self.units.get(name, 0)) - int(count)
+        if left > 0:
+            self.units[name] = left
+        else:
+            self.units.pop(name, None)
+
     def _has_prereqs(self, target: str) -> bool:
         for req in self._prerequisites.get(target, []):
             owned = self._prerequisite_count(req)
@@ -696,6 +730,11 @@ class FakeBackend(Backend):
                 "prerequisite",
             )
             return f"prerequisite:{missing}"
+        morph = self._morph_source(item)
+        if morph is not None and int(self.units.get(morph[0], 0)) < morph[1]:
+            return f"source_unit_unavailable:{morph[0]}"
+        if self._consumes_worker(item) and int(self.units.get(self._worker_name, 0)) <= 0:
+            return f"prerequisite:{self._worker_name}"
         if item.action == "build" and item.target == "orbital_command":
             if int(self.buildings.get("command_center", 0)) <= 0:
                 return "prerequisite:command_center"
@@ -753,8 +792,12 @@ class FakeBackend(Backend):
             else:
                 indices = range(max(0, int(self.buildings.get(producer, 0))))
             return [(f"research:{producer}", index, 0) for index in indices]
-        if producer == "command_center":
-            return [("train:command_center", index, 0) for index in range(self._townhalls())]
+        if item.action == "train" and spec.mechanism in {"unit_morph", "merge"}:
+            each = 2 if spec.mechanism == "merge" else 1
+            slots = int(self.units.get(producer, 0)) // each
+            return [(f"morph:{producer}", index, 0) for index in range(max(0, slots))]
+        if producer in {"command_center", "hatchery"}:
+            return [(f"train:{producer}", index, 0) for index in range(self._townhalls())]
         layout = self._sync_producer_addons(producer)
         if item.action == "build":
             # Add-on construction requires an idle, bare parent and blocks it.
@@ -898,8 +941,14 @@ class FakeBackend(Backend):
             if item.action == "train":
                 self.supply_used += cost["supply"]
                 budget_supply -= need_s
+                morph = self._morph_source(item)
+                if morph is not None:
+                    self._take_units(morph[0], morph[1])
 
             if item.action == "build":
+                if self._consumes_worker(item):
+                    self._take_units(self._worker_name, 1)
+                    self.supply_used = max(0, int(self.supply_used) - 1)
                 item.phase = "en_route"
                 item.remaining_seconds = 2.0
                 self._updates.append(
@@ -1047,17 +1096,18 @@ class FakeBackend(Backend):
                 continue
 
             if item.action == "train" and item.phase == "producing":
-                self.units[item.target] = self.units.get(item.target, 0) + 1
+                born = max(1, int(item.birth_count or 1))
+                self.units[item.target] = self.units.get(item.target, 0) + born
                 if self._race == "zerg" and item.target == "overlord":
                     from sc2bench_env.catalog.knowledge import food_provided
 
-                    self.supply_cap += food_provided(self._race, "overlord")
+                    self.supply_cap += food_provided(self._race, "overlord") * born
                 self._updates.append(
                     DemandUpdate(
                         demand_id=item.demand_id,
                         action=item.action,
                         target=item.target,
-                        produced_delta=1,
+                        produced_delta=born,
                     )
                 )
                 continue

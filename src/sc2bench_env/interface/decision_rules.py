@@ -7,6 +7,7 @@ so they cannot drift apart.
 from __future__ import annotations
 
 
+import math
 import re
 from dataclasses import dataclass
 from difflib import get_close_matches
@@ -159,7 +160,11 @@ def _is_positive_int(value: Any) -> bool:
 
 
 def _is_number(value: Any) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool)
+    return (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and math.isfinite(value)
+    )
 
 
 def _validate_entry_values(raw: Mapping[str, Any], *, verb: str, index: int, race: str) -> None:

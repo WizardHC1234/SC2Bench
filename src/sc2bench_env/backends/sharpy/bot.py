@@ -130,6 +130,9 @@ class BenchBot(KnowledgeBot):
 
     def __init__(self, bridge: "_Bridge", adapter: Any, name: str = "SC2Bench"):
         super().__init__(name)
+        # SkeletonBot queues one worker before it can tell lockstep from realtime.
+        # That spends the opening minerals on a unit the agent never ordered.
+        self.realtime_worker = False
         # Scope noise filtering to this bot, not shared Sharpy/global log sinks.
         self.knowledge.log_manager = BenchLogManager()
         self.bridge = bridge
@@ -189,6 +192,10 @@ class BenchBot(KnowledgeBot):
         except Exception:
             logger.exception("pre_step_execute failed")
             raise
+
+    async def start_first_worker(self) -> None:
+        """Keep the opening worker under the agent's production orders."""
+        return
 
     async def on_before_start(self):
         await super().on_before_start()

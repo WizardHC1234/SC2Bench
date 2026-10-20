@@ -1,6 +1,7 @@
 """Agent-facing action data structures and validation."""
 from __future__ import annotations
 
+import math
 from difflib import get_close_matches
 
 
@@ -239,7 +240,12 @@ def parse_advance_action(raw: Mapping[str, Any], *, race: str = "terran") -> Adv
     if verb != "advance":
         raise ActionValidationError("trailing action must be advance")
     seconds = internal.get("seconds")
-    if not isinstance(seconds, (int, float)) or isinstance(seconds, bool) or seconds <= 0:
+    if (
+        not isinstance(seconds, (int, float))
+        or isinstance(seconds, bool)
+        or not math.isfinite(seconds)
+        or seconds <= 0
+    ):
         raise ActionValidationError("advance.seconds must be a positive number")
     return AdvanceAction(seconds=float(seconds))
 

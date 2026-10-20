@@ -343,12 +343,15 @@ class Environment:
                 for action in actions
                 if action.action in {"build", "train", "research", "scan"}
             }
+            # Copy per preview. submit_decision writes reservations back into
+            # this dict, so the last action sees earlier actions in this turn
+            # without reducing the army seen by the next preview.
             submit_kwargs = {
                 "game_time": snapshot.game_time_seconds,
                 "baseline_owned": baselines,
                 "known_upgrades": upgrades,
                 "researching": researching,
-                "idle_army": idle_army,
+                "idle_army": dict(idle_army),
                 "group_army": self._outbound_group_counts(snapshot),
                 "bunker_garrison": snapshot.info.get("bunker_garrison"),
             }

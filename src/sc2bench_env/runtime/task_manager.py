@@ -162,6 +162,11 @@ class TaskManager:
                     bunker_garrison=bunker_garrison,
                 )
             )
+        # Preview submits the same turn as two calls. Write the reserved
+        # counts back so the next call sees units already taken.
+        if idle_army is not None:
+            idle_army.clear()
+            idle_army.update(available_army)
         return receipts
 
     def _apply_game_action(
@@ -359,9 +364,12 @@ class TaskManager:
                     "type": "group_reinforced", "source": "group_0",
                     "group": destination.group, "units": requested,
                 })
+                if action.action_id:
+                    self.seen_action_ids.add(action.action_id)
                 return ActionReceipt(
                     action=action.public_action or "combat", result="accepted",
                     group=destination.group, destination=destination.group,
+                    action_id=action.action_id,
                     details={"source": "group_0", "reinforcement": requested},
                 )
 
@@ -395,9 +403,12 @@ class TaskManager:
                     "type": "group_transfer_requested", "source": source_name,
                     "destination": destination_name, "units": requested,
                 })
+                if action.action_id:
+                    self.seen_action_ids.add(action.action_id)
                 return ActionReceipt(
                     action=action.public_action or "combat", result="accepted",
                     group=destination.group, destination=destination.group,
+                    action_id=action.action_id,
                     details={"source": source_name, "reinforcement": requested,
                              "execution": "transfer_pending"},
                 )
@@ -408,6 +419,7 @@ class TaskManager:
                 action="combat", target=source.target, style="defend", units=requested,
                 source=source_name, destination="group_0",
                 public_action=action.public_action,
+                action_id=action.action_id,
             )
 
         if action.action == "combat" and action.group and action.units:
@@ -431,8 +443,6 @@ class TaskManager:
                 for name, need in requested.items() if need > available.get(name, 0)
             }
             if missing:
-                if action.action_id:
-                    self.seen_action_ids.add(action.action_id)
                 return ActionReceipt(
                     action=action.public_action or "combat", result="rejected", group=action.group,
                     reason="insufficient_units", action_id=action.action_id,
@@ -582,8 +592,6 @@ class TaskManager:
                 if need > available.get(name, 0)
             }
             if missing:
-                if action.action_id:
-                    self.seen_action_ids.add(action.action_id)
                 details = {
                     "requested": requested,
                     "available": available,

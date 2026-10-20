@@ -11,15 +11,26 @@ from sc2bench_env.runtime.task import Demand
 from sc2bench_env.runtime.task_manager import DemandUpdate
 
 
-def _snapshot(game_time: float) -> BackendSnapshot:
+def _opening(race: str) -> tuple[dict[str, int], dict[str, int], int]:
+    if race == "protoss":
+        return {"probe": 12}, {"nexus": 1}, 12
+    if race == "zerg":
+        return {"drone": 12, "overlord": 1}, {"hatchery": 1}, 12
+    return {"scv": 12}, {"command_center": 1}, 12
+
+
+def _snapshot(game_time: float, race: str = "terran") -> BackendSnapshot:
+    from sc2bench_env.catalog.knowledge import opening_supply_cap
+
+    units, buildings, supply_used = _opening(race)
     return BackendSnapshot(
         game_time_seconds=game_time,
         minerals=50,
         vespene=0,
-        supply_used=12,
-        supply_cap=15,
-        units={"scv": 12},
-        buildings={"command_center": 1},
+        supply_used=supply_used,
+        supply_cap=opening_supply_cap(race),
+        units=units,
+        buildings=buildings,
         info={
             "backend": "versus-fake",
             "base_count": 1,
@@ -86,6 +97,8 @@ class FakeVersusGame:
         self._started = True
         self.sides = (_Side(), _Side())
         self.backends = (_FakePlayerBackend(self, 0), _FakePlayerBackend(self, 1))
+        self.sides[0].snapshot = _snapshot(0.0, config.race)
+        self.sides[1].snapshot = _snapshot(0.0, config.enemy_race)
         return self.sides[0].snapshot, self.sides[1].snapshot
 
     def waiting(self) -> list[int]:

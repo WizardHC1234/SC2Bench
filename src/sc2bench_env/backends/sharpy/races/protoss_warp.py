@@ -58,6 +58,13 @@ class ActWarpGateConversion(ActBase):
         super().__init__()
         self.target_count = int(target_count)
         self.waiting_reason = None
+        self._ordered_tags: set[int] = set()
+
+    def _refresh_ordered(self) -> int:
+        """Gateways this act already told to morph, until they leave the Gateway set."""
+        gates = {int(gate.tag) for gate in self.ai.structures(UnitTypeId.GATEWAY).ready}
+        self._ordered_tags = {int(tag) for tag in self._ordered_tags if int(tag) in gates}
+        return len(self._ordered_tags)
 
     def reserve_pending_sources(self) -> None:
         """Hold a Gateway after its paid queue so a later train cannot refill it."""
@@ -66,6 +73,9 @@ class ActWarpGateConversion(ActBase):
             tags = set()
             self.ai.bench_warp_reserve_tags = tags
         done = int(self.ai.structures(UnitTypeId.WARPGATE).amount)
+        self._refresh_ordered()
+        for tag in self._ordered_tags:
+            tags.add(int(tag))
         need = max(0, int(self.target_count) - done)
         if need <= 0:
             return
@@ -93,8 +103,12 @@ class ActWarpGateConversion(ActBase):
     async def execute(self) -> bool:
         self.waiting_reason = None
         done = int(self.ai.structures(UnitTypeId.WARPGATE).amount)
+        in_flight = self._refresh_ordered()
         if done >= self.target_count:
             return True
+        if done + in_flight >= self.target_count:
+            self.waiting_reason = "waiting_for_queue"
+            return False
         if not warp_research_ready(self.ai):
             self.waiting_reason = "prerequisite:warp_gate"
             return False
@@ -102,7 +116,9 @@ class ActWarpGateConversion(ActBase):
         reserved = set(getattr(self.ai, "bench_warp_reserve_tags", set()) or ())
         idle = [
             gate for gate in self.ai.structures(UnitTypeId.GATEWAY).ready
-            if gate.tag not in used and not (getattr(gate, "orders", None) or [])
+            if gate.tag not in used
+            and int(gate.tag) not in self._ordered_tags
+            and not (getattr(gate, "orders", None) or [])
         ]
         # Prefer gateways already reserved for this earlier morph request.
         preferred = [gate for gate in idle if gate.tag in reserved] or idle
@@ -122,15 +138,17 @@ class ActWarpGateConversion(ActBase):
         ability_ids = (await _raw_ability_ids(self.ai, [gate])).get(int(gate.tag), set())
         if _FREE_WARP_ABILITY in ability_ids:
             await _issue_raw_ability(self.ai, gate, _FREE_WARP_ABILITY)
+            self._ordered_tags.add(int(gate.tag))
             reserved.discard(int(gate.tag))
-            return done + 1 >= self.target_count
+            return done + 1 + in_flight >= self.target_count
         minerals, gas = _first_conversion_price()
         if int(self.ai.minerals) < minerals or int(self.ai.vespene) < gas:
             self.waiting_reason = "resources"
             return False
         gate(AbilityId.MORPH_WARPGATE)
+        self._ordered_tags.add(int(gate.tag))
         reserved.discard(int(gate.tag))
-        return done + 1 >= self.target_count
+        return False
 
 
 class ActGatewayTrain(ActBase):

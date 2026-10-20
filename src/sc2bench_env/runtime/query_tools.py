@@ -175,9 +175,14 @@ def _lookup(name: str, *, race: str, expected_actions: Sequence[str], kind: str)
     if spec.morph_from:
         payload["morph_from"] = spec.morph_from
     if kind == "research":
-        payload["availability"] = "controllable"
+        payload["availability"] = (
+            "controllable" if knowledge.upgrade_row(race, spec.name) is not None else "unavailable"
+        )
         return payload
-    return attach(payload, race, spec.name)
+    payload = attach(payload, race, spec.name)
+    if not spec.executable:
+        payload["availability"] = "knowledge_only"
+    return payload
 
 
 def query_unit_data(names: Sequence[str], *, race: str = "terran") -> Dict[str, Any]:
@@ -271,7 +276,7 @@ def query_race_data(race: str) -> Dict[str, Any]:
             units.append(spec.name)
         elif spec.action == "build":
             buildings.append(spec.name)
-        elif spec.action == "research":
+        elif spec.action == "research" and knowledge.upgrade_row(race, spec.name) is not None:
             research.append(spec.name)
         elif spec.action == "morph_townhall":
             structure.append(spec.name)

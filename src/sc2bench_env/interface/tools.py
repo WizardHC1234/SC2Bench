@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 
+import math
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Literal, Mapping, Optional, Sequence, Tuple
 
@@ -112,9 +113,14 @@ def validate_tool_arguments(spec: ToolSpec, arguments: Mapping[str, Any]) -> Opt
         if isinstance(enum, list) and value not in enum:
             return f"{key} must be one of {enum}"
         if expected in {"integer", "number"}:
+            if isinstance(value, float) and not math.isfinite(value):
+                return f"{key} must be a finite number"
             minimum = schema.get("minimum")
             if isinstance(minimum, (int, float)) and value < minimum:
                 return f"{key} must be at least {minimum}"
+            exclusive = schema.get("exclusiveMinimum")
+            if isinstance(exclusive, (int, float)) and value <= exclusive:
+                return f"{key} must be greater than {exclusive}"
         if expected == "array":
             minimum = schema.get("minItems")
             if isinstance(minimum, int) and isinstance(value, list) and len(value) < minimum:
