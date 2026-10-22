@@ -214,6 +214,9 @@ class TrajectoryRecorder:
     _recorded_agent_call_ids: Set[str] = field(default_factory=set)
     _tool_call_records: List[Dict[str, Any]] = field(default_factory=list)
     _model_call_records: List[Dict[str, Any]] = field(default_factory=list)
+    _branch_directory: Optional[Path] = None
+    _branch_id: Optional[str] = None
+    _writes_suspended: bool = False
 
     def start(
         self, root: str | Path, *, prompt: str, backend: str,
@@ -271,7 +274,10 @@ class TrajectoryRecorder:
             + json.dumps(_json_safe(self._header_metadata), ensure_ascii=False, indent=2)
             + "\n\nPlatform contract\n" + self._header_prompt + "\n"
         )
-        self._write_atomic_text(self.directory / "episode.txt", self._episode_text + "\nStatus: in progress\n")
+        output = self._output_directory()
+        if output is None:
+            return
+        self._write_atomic_text(output / "episode.txt", self._episode_text + "\nStatus: in progress\n")
 
     def stop_console_log(self) -> None:
         log = self._console_log
@@ -336,10 +342,90 @@ class TrajectoryRecorder:
             self._write_decision_sessions()
         self._write_session()
 
-    def _write_session(self) -> None:
+    def _output_directory(self) -> Optional[Path]:
+        """Branch steps stay out of the trunk. A parked savepoint writes nowhere."""
+        if self._writes_suspended:
+            return None
+        return self._branch_directory or self.directory
+
+    def suspend_writes(self) -> None:
+        """Keep the fork cursor in memory without rewriting the trunk files."""
+        self._writes_suspended = True
+
+    def capture_cursor(self) -> dict[str, Any]:
+        """Copy the in-memory record so a later branch can start from this point."""
+        return {
+            "steps": deepcopy(self.steps),
+            "result": self.result,
+            "summary": deepcopy(self.summary),
+            "game_time": self._game_time,
+            "decision_count": self._decision_count,
+            "rejected_count": self._rejected_count,
+            "model": self._model,
+            "session_messages": deepcopy(self._session_messages),
+            "session_tools": deepcopy(self._session_tools),
+            "session_scope": self._session_scope,
+            "session_decision_index": self._session_decision_index,
+            "decision_sessions": deepcopy(self._decision_sessions),
+            "recorded_agent_call_ids": set(self._recorded_agent_call_ids),
+            "tool_call_records": deepcopy(self._tool_call_records),
+            "model_call_records": deepcopy(self._model_call_records),
+        }
+
+    def restore_cursor(self, cursor: dict[str, Any]) -> None:
+        """Rewind the in-memory record. The trunk files are left as they were."""
+        self.steps = deepcopy(cursor["steps"])
+        self.result = cursor["result"]
+        self.summary = deepcopy(cursor["summary"])
+        self._game_time = float(cursor["game_time"])
+        self._decision_count = int(cursor["decision_count"])
+        self._rejected_count = int(cursor["rejected_count"])
+        self._model = cursor["model"]
+        self._session_messages = deepcopy(cursor["session_messages"])
+        self._session_tools = deepcopy(cursor["session_tools"])
+        self._session_scope = cursor["session_scope"]
+        self._session_decision_index = cursor["session_decision_index"]
+        self._decision_sessions = deepcopy(cursor["decision_sessions"])
+        self._recorded_agent_call_ids = set(cursor["recorded_agent_call_ids"])
+        self._tool_call_records = deepcopy(cursor["tool_call_records"])
+        self._model_call_records = deepcopy(cursor["model_call_records"])
+        self._branch_directory = None
+        self._branch_id = None
+        self._writes_suspended = False
+
+    def open_branch(self, branch_id: str, *, metadata: Dict[str, Any]) -> Path:
+        """Create records/<episode>/branches/<branch_id>/ for the restored line."""
         if self.directory is None:
+            raise RuntimeError("Recorder has not started")
+        safe = re.sub(r"[^A-Za-z0-9._-]+", "_", str(branch_id)).strip("._") or "branch"
+        root = self.directory / "branches"
+        root.mkdir(parents=True, exist_ok=True)
+        suffix = 1
+        while True:
+            path = root / (safe if suffix == 1 else f"{safe}_{suffix}")
+            try:
+                path.mkdir()
+            except FileExistsError:
+                suffix += 1
+                continue
+            break
+        self._branch_directory = path
+        self._branch_id = path.name
+        self._write_atomic(path / "branch.json", {
+            "branch_id": path.name,
+            **metadata,
+        })
+        self._write_episode_header()
+        self._write_session()
+        self._write_metrics()
+        self._write_decision_sessions()
+        return path
+
+    def _write_session(self) -> None:
+        output = self._output_directory()
+        if output is None:
             return
-        self._write_atomic(self.directory / "session.json", {
+        self._write_atomic(output / "session.json", {
             "schema_version": RECORD_SCHEMA_VERSION,
             "tool_protocol_version": TOOL_PROTOCOL_VERSION,
             "episode_id": self.episode_id,
@@ -351,9 +437,10 @@ class TrajectoryRecorder:
         })
 
     def _write_metrics(self) -> None:
-        if self.directory is None:
+        output = self._output_directory()
+        if output is None:
             return
-        self._write_atomic(self.directory / "metrics.json", {
+        self._write_atomic(output / "metrics.json", {
             "schema_version": RECORD_SCHEMA_VERSION,
             "tool_protocol_version": TOOL_PROTOCOL_VERSION,
             "episode_id": self.episode_id,
@@ -364,7 +451,8 @@ class TrajectoryRecorder:
 
     def _write_decision_sessions(self) -> None:
         """Write one self-contained transcript per decision for decision-scoped Agents."""
-        if self.directory is None:
+        output = self._output_directory()
+        if output is None:
             return
         lines = [
             json.dumps(
@@ -376,7 +464,7 @@ class TrajectoryRecorder:
             for index in sorted(self._decision_sessions)
         ]
         content = "\n".join(lines) + ("\n" if lines else "")
-        self._write_atomic_text(self.directory / "decision_sessions.jsonl", content)
+        self._write_atomic_text(output / "decision_sessions.jsonl", content)
 
     def record_agent_call_failure(self, agent_context: Dict[str, Any], *, game_time: float) -> None:
         """A failed external call is not a submitted/invalid environment decision."""
@@ -728,9 +816,10 @@ class TrajectoryRecorder:
         summary["integrity"] = self._integrity()
         self.steps[-1]["integrity"] = summary["integrity"]
         self.summary = summary
-        if self.directory is not None:
+        output = self._output_directory()
+        if output is not None:
             self._write_atomic_text(
-                self.directory / "episode.txt",
+                output / "episode.txt",
                 self._episode_text + "\nResult\n"
                 + json.dumps(_json_safe(summary), ensure_ascii=False, indent=2) + "\n",
             )

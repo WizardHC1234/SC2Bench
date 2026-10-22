@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from copy import deepcopy
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from sharpy.knowledges import KnowledgeBot
@@ -100,6 +101,19 @@ def reconcile_versus_result(own_result: Any, all_results: Any) -> tuple[str, Opt
     return own, None
 
 
+def _copy_lost_units(bucket: Any) -> Dict[Any, list]:
+    """Copy lost-unit lists without sharing them with the branch being replaced."""
+    if not isinstance(bucket, dict):
+        return {}
+    copied: Dict[Any, list] = {}
+    for key, units in bucket.items():
+        try:
+            copied[key] = deepcopy(list(units))
+        except Exception:
+            copied[key] = list(units)
+    return copied
+
+
 def reconcile_versus_group(
     rows: List[tuple[str, Optional[str], bool]],
 ) -> List[tuple[str, Optional[str]]]:
@@ -142,6 +156,14 @@ class BenchBot(KnowledgeBot):
         # The independent Sharpy fork has no secondary Commander recorder.
         # SC2Bench owns episode recording through TrajectoryRecorder.
 
+    @property
+    def time(self) -> float:
+        """Logical match clock. quick_load restarts the raw loop at 0."""
+        state = getattr(self, "state", None)
+        loop = int(getattr(state, "game_loop", 0) or 0)
+        offset = float(getattr(getattr(self, "bridge", None), "time_offset_seconds", 0.0) or 0.0)
+        return loop / FRAMES_PER_SECOND + offset
+
     async def create_plan(self) -> BuildOrder:
         return BuildOrder(
             [
@@ -178,10 +200,9 @@ class BenchBot(KnowledgeBot):
                 # 1x while the model thinks; advance itself still runs at full speed.
                 if self.bridge.realtime:
                     await self._pace_realtime_until_decision()
+                    self._sync_macro_tasks()
                 else:
-                    await asyncio.to_thread(self.bridge.wait_for_decision)
-                # The agent submitted new tasks while this frame was paused.
-                self._sync_macro_tasks()
+                    await self._wait_for_release()
             if self.bridge.should_leave():
                 # Explicit leave can bypass BurnySC2's post-game replay saver.
                 await self._save_replay_once("before leave")
@@ -213,13 +234,61 @@ class BenchBot(KnowledgeBot):
         activate_game_data(matched)
         self.bridge.knowledge_snapshot = matched
 
+    async def _after_step(self) -> int:
+        # The save frame and every quick_load frame share one rule. quick_load
+        # reports game_loop 0, and a second load ignores commands issued on
+        # that same loop. Continuing straight from the save would otherwise
+        # act one step earlier than a restored branch. Hold this frame so
+        # both paths command from the next observation.
+        self._hold_load_frame_actions()
+        return await super()._after_step()
+
+    def _hold_load_frame_actions(self) -> None:
+        if not getattr(self, "_drop_actions_after_load", False):
+            return
+        self._drop_actions_after_load = False
+        actions = getattr(self, "actions", None)
+        if actions is not None:
+            actions.clear()
+        received = getattr(self, "unit_tags_received_action", None)
+        if received is not None:
+            received.clear()
+        self._clear_issued_actions()
+
+    def _clear_issued_actions(self) -> None:
+        """Forget commands recorded for a frame whose orders were not sent."""
+        action_manager = getattr(getattr(self, "knowledge", None), "action_manager", None)
+        if action_manager is None:
+            managers = getattr(getattr(self, "knowledge", None), "managers", None) or []
+            for manager in managers:
+                if manager.__class__.__name__ == "ActionManager":
+                    action_manager = manager
+                    break
+        if action_manager is None:
+            return
+        stored = getattr(action_manager, "actions", None)
+        if stored is not None:
+            stored.clear()
+        blocked = getattr(action_manager, "block_list", None)
+        if blocked is not None:
+            blocked.clear()
+
     async def on_step(self, iteration):
         # Pin before Sharpy runs. A repeated game loop must not skip this
         # client's orders or drop only this client to a one-frame step.
         pin_lockstep_step(self)
         state = getattr(self, "state", None)
         if state is not None:
-            self.last_game_loop = int(state.game_loop) - 1
+            loop = int(state.game_loop)
+            previous = getattr(self, "_observed_loop", None)
+            if previous is not None and loop <= previous:
+                # quick_load moves the loop backwards. Per-frame caches keyed by
+                # that loop would otherwise replay the other branch's units.
+                self._invalidate_frame_caches()
+            self._observed_loop = loop
+            # Sharpy skips the step when this equals the current loop. Keep it
+            # behind so a quick_load that revisits a loop still issues orders.
+            self.last_game_loop = loop - 1
         await super().on_step(iteration)
         pin_lockstep_step(self)
 
@@ -237,7 +306,8 @@ class BenchBot(KnowledgeBot):
             except Exception as exc:
                 logger.warning("realtime pace step failed: %s", exc)
                 return
-            self._note_paced_game_time(game_loop / FRAMES_PER_SECOND)
+            offset = float(getattr(self.bridge, "time_offset_seconds", 0.0) or 0.0)
+            self._note_paced_game_time(game_loop / FRAMES_PER_SECOND + offset)
             delay = realtime_sleep_seconds(frames, time.perf_counter() - started)
             if delay > 0:
                 await asyncio.sleep(delay)
@@ -284,7 +354,328 @@ class BenchBot(KnowledgeBot):
         else:
             self._replay_saved = True
 
+    async def _wait_for_release(self) -> None:
+        """Stay inside this frame until the caller asks the game to advance.
+
+        A bookmark request is handled here and does not fall through into
+        on_step, so quick_save and quick_load do not spend a game frame.
+        """
+        while True:
+            await asyncio.to_thread(self.bridge.wait_for_decision)
+            request = self.bridge.take_control_request()
+            if request is None:
+                self._sync_macro_tasks()
+                return
+            try:
+                await self._run_control(request)
+            except Exception as exc:
+                self.bridge.fail_control(request, exc)
+            else:
+                self.bridge.finish_control(request)
+
+    async def _run_control(self, request: Any) -> None:
+        if request.operation == "quick_save":
+            await self.client.quick_save()
+            # Same deferral as quick_load: this frame's new orders wait until
+            # the next observation, or a restored branch acts one step later.
+            self._drop_actions_after_load = True
+            self._remember_ability_clock()
+            self._remember_home_gather()
+            self._remember_home_micro()
+            self._remember_sightings()
+            self._remember_engine_fingerprint(request)
+            return
+        if request.operation == "inspect":
+            self._remember_engine_fingerprint(request)
+            return
+        if request.operation == "debug_end":
+            await self.client.debug_leave()
+            return
+        if request.operation == "publish":
+            # Runtime import has put the savepoint registries back. Rebuild
+            # the platform snapshot from those, not from the branch just replaced.
+            self._sync_macro_tasks()
+            self._publish_platform_snapshot()
+            return
+        if request.operation == "quick_load":
+            # QuickLoad stops the client's replay recorder. Keep the trunk
+            # timeline, which still includes this save frame.
+            await self._save_replay_once("before quick load")
+            await self.client.quick_load()
+            await self._refresh_after_quick_load(float(request.logical_time_seconds))
+            loaded = self._current_engine_fingerprint()
+            self._remember_engine_fingerprint(request, fingerprint=loaded)
+            saved = self.bridge.engine_fingerprint
+            if saved is not None and loaded.digest != saved.digest:
+                from sc2bench_env.backends.sharpy.engine_fingerprint import describe_fingerprint_diff
+                from sc2bench_env.runtime.savepoint import SavepointError
+
+                raise SavepointError(
+                    "Restored simulation does not match the savepoint:\n"
+                    + describe_fingerprint_diff(saved, loaded)
+                )
+            return
+        raise RuntimeError(f"Unknown bookmark operation {request.operation}")
+
+    def _current_engine_fingerprint(self):
+        from sc2bench_env.backends.sharpy.engine_fingerprint import fingerprint_observation
+
+        observation = getattr(getattr(self, "state", None), "observation", None)
+        if observation is None:
+            raise RuntimeError("The game has no observation to fingerprint")
+        return fingerprint_observation(observation)
+
+    def _remember_engine_fingerprint(self, request: Any, fingerprint=None) -> None:
+        current = fingerprint if fingerprint is not None else self._current_engine_fingerprint()
+        request.fingerprint = current
+        request.detail_hash = current.digest
+
+    async def _refresh_after_quick_load(self, logical_time_seconds: float) -> None:
+        """Read the loaded frame and keep logical time when raw game_loop returns to 0."""
+        from s2clientprotocol import sc2api_pb2 as sc_pb
+        from sc2.game_state import GameState
+
+        state = await self.client.observation()
+        game_state = GameState(state.observation)
+        proto_game_info = await self.client._execute(game_info=sc_pb.RequestGameInfo())
+        self._prepare_step(game_state, proto_game_info)
+        raw_loop = int(game_state.game_loop)
+        self.last_game_loop = raw_loop - 1
+        # The load happened inside an on_step that already recorded the old
+        # loop. Leaving that number in place makes every later frame look
+        # like a rewind and clears the action cache until the clock catches up.
+        self._observed_loop = raw_loop
+        raw_time = raw_loop / FRAMES_PER_SECOND
+        offset = float(logical_time_seconds) - raw_time
+        with self.bridge.lock:
+            self.bridge.time_offset_seconds = offset
+        # Zone sightings and ability timers read ai.time. The offset is already
+        # included there, so the published snapshot must not add it again.
+        self._publish_platform_snapshot()
+        await self._realign_after_quick_load()
+
+    def _publish_platform_snapshot(self) -> None:
+        """Publish the current frame without birth accounting."""
+        snapshot, in_prod, in_build, in_research = read_snapshot(
+            self,
+            self.adapter,
+            zone_registry=self.bridge.zone_registry,
+            structure_registry=self.bridge.structure_registry,
+        )
+        with self.bridge.lock:
+            self.bridge.snapshot = snapshot
+            self.bridge.in_production_units = dict(in_prod)
+            self.bridge.in_progress_buildings = dict(in_build)
+            self.bridge.in_progress_research = dict(in_research)
+
+    async def _realign_after_quick_load(self) -> None:
+        """Rebuild manager caches from the loaded frame before acts run.
+
+        Quick load happens inside this step, after Sharpy has already updated
+        roles, the unit cache, and enemy memory for the branch being replaced.
+        Act execution is still ahead of this hook, so those caches have to
+        match the loaded units or the next orders follow the other branch.
+        """
+        self._drop_actions_after_load = True
+        self._restore_ability_clock()
+        self._restore_home_gather()
+        self._restore_home_micro()
+        knowledge = getattr(self, "knowledge", None)
+        managers = list(getattr(knowledge, "managers", None) or [])
+        if knowledge is None or not managers:
+            return
+        knowledge.reserved_minerals = 0
+        knowledge.reserved_gas = 0
+        self._drop_branch_memory()
+        from sharpy.managers.extensions.custom_func_manager import CustomFuncManager
+
+        for manager in managers:
+            if isinstance(manager, CustomFuncManager):
+                break
+            await manager.update()
+
+    def _cooldown_manager(self):
+        knowledge = getattr(self, "knowledge", None)
+        return getattr(knowledge, "cooldown_manager", None) or getattr(self, "cd_manager", None)
+
+    def _remember_ability_clock(self) -> None:
+        """Keep ability-use times from this moment. A later branch must not inherit them."""
+        manager = self._cooldown_manager()
+        used = getattr(manager, "used_dict", None)
+        if isinstance(used, dict):
+            self._saved_ability_clock = deepcopy(used)
+
+    def _restore_ability_clock(self) -> None:
+        manager = self._cooldown_manager()
+        used = getattr(manager, "used_dict", None)
+        if not isinstance(used, dict):
+            return
+        saved = getattr(self, "_saved_ability_clock", None)
+        manager.used_dict = deepcopy(saved) if isinstance(saved, dict) else {}
+
+    def _remember_home_gather(self) -> None:
+        """Keep the rally already issued at this moment.
+
+        The home gather lives for the whole game. A branch that rallies a new
+        barracks would otherwise leave that tag set, and the next branch would
+        skip the same building.
+        """
+        gather = getattr(self, "bench_home_gather", None)
+        if gather is None:
+            return
+        point = getattr(gather, "_last_point", None)
+        self._saved_home_gather = {
+            "rallied_tags": set(getattr(gather, "_rallied_tags", ()) or ()),
+            "point": None if point is None else (float(point.x), float(point.y)),
+        }
+
+    def _restore_home_gather(self) -> None:
+        gather = getattr(self, "bench_home_gather", None)
+        saved = getattr(self, "_saved_home_gather", None)
+        if gather is None or not isinstance(saved, dict):
+            return
+        gather._rallied_tags = set(saved.get("rallied_tags") or ())
+        point = saved.get("point")
+        if point is None:
+            gather._last_point = None
+            return
+        from sc2.position import Point2
+
+        gather._last_point = Point2(point)
+
+    def _home_micro_objects(self):
+        gather = getattr(self, "bench_home_gather", None)
+        rules = getattr(gather, "_micro_rules", None)
+        if rules is None:
+            return []
+        found = []
+        seen = set()
+        generic = getattr(rules, "generic_micro", None)
+        candidates = [generic, *list(getattr(rules, "unit_micros", {}).values())]
+        for micro in candidates:
+            if micro is None or id(micro) in seen:
+                continue
+            seen.add(id(micro))
+            found.append(micro)
+        return found
+
+    def _remember_home_micro(self) -> None:
+        """Keep lock, claim, and siege timers on the long-lived home micro.
+
+        Combat acts build a fresh rules object after each load. The home
+        gather does not, so a branch's cyclone lock or raven claim would
+        otherwise still be there for the next branch.
+        """
+        saved = []
+        for micro in self._home_micro_objects():
+            fields = {}
+            for name in ("locks", "pending_locks", "turret_points", "prepared_at", "claimed_until", "siege_status"):
+                if hasattr(micro, name):
+                    fields[name] = deepcopy(getattr(micro, name))
+            saved.append(fields)
+        self._saved_home_micro = saved
+
+    def _restore_home_micro(self) -> None:
+        saved = getattr(self, "_saved_home_micro", None)
+        micros = self._home_micro_objects()
+        if not isinstance(saved, list) or len(saved) != len(micros):
+            return
+        for micro, fields in zip(micros, saved):
+            for name, value in fields.items():
+                setattr(micro, name, deepcopy(value))
+
+    def _remember_sightings(self) -> None:
+        """Keep enemy tags known at this moment, including ones now in fog.
+
+        A later load used to empty that memory. Continuing from the save still
+        had it, so the same orders could pick different targets.
+        """
+        enemy = getattr(self, "enemy_units_manager", None)
+        lost = getattr(self, "lost_units_manager", None)
+        if enemy is None and lost is None:
+            self._saved_sightings = None
+            return
+        known = getattr(enemy, "_known_enemy_units_dict", None) if enemy is not None else None
+        morphed = getattr(enemy, "_morphed_type", None) if enemy is not None else None
+        self._saved_sightings = {
+            "known": deepcopy(known) if isinstance(known, dict) else {},
+            "morphed": deepcopy(morphed) if isinstance(morphed, dict) else {},
+            "cloak": bool(getattr(enemy, "_enemy_cloak_trigger", False)) if enemy is not None else False,
+            "cancelled": set(getattr(lost, "_cancelled_tags", ()) or ()),
+            "cancel_commanded": set(getattr(lost, "_cancel_commanded_tags", ()) or ()),
+            "my_lost": _copy_lost_units(getattr(lost, "_my_lost_units", None)),
+            "enemy_lost": _copy_lost_units(getattr(lost, "_enemy_lost_units", None)),
+        }
+
+    def _restore_sightings(self) -> bool:
+        saved = getattr(self, "_saved_sightings", None)
+        if not isinstance(saved, dict):
+            return False
+        enemy = getattr(self, "enemy_units_manager", None)
+        lost = getattr(self, "lost_units_manager", None)
+        if enemy is not None:
+            enemy._known_enemy_units_dict = deepcopy(saved.get("known") or {})
+            enemy._morphed_type = deepcopy(saved.get("morphed") or {})
+            enemy._enemy_cloak_trigger = bool(saved.get("cloak", False))
+        if lost is not None:
+            lost._cancelled_tags = set(saved.get("cancelled") or ())
+            lost._cancel_commanded_tags = set(saved.get("cancel_commanded") or ())
+            lost._my_lost_units = _copy_lost_units(saved.get("my_lost"))
+            lost._enemy_lost_units = _copy_lost_units(saved.get("enemy_lost"))
+        return True
+
+    def _drop_branch_memory(self) -> None:
+        """Drop the replaced branch's assignments. Sightings return to the save."""
+        roles = getattr(self, "roles", None)
+        if roles is not None:
+            had_task = getattr(roles, "had_task_set", None)
+            if had_task is not None:
+                had_task.clear()
+            for role in getattr(roles, "roles", ()) or ():
+                clear = getattr(role, "clear", None)
+                if callable(clear):
+                    clear()
+        if not self._restore_sightings():
+            enemy = getattr(self, "enemy_units_manager", None)
+            known = getattr(enemy, "_known_enemy_units_dict", None)
+            if known is not None:
+                known.clear()
+            morphed = getattr(enemy, "_morphed_type", None)
+            if morphed is not None:
+                morphed.clear()
+            if enemy is not None and hasattr(enemy, "_enemy_cloak_trigger"):
+                enemy._enemy_cloak_trigger = False
+            lost = getattr(self, "lost_units_manager", None)
+            for name in ("_my_lost_units", "_enemy_lost_units", "_cancelled_tags", "_cancel_commanded_tags"):
+                bucket = getattr(lost, name, None)
+                if bucket is not None:
+                    bucket.clear()
+        previous = getattr(self, "previous_units_manager", None)
+        if previous is not None:
+            previous.previous_units = {int(unit.tag): unit for unit in self.all_units}
+        self._units_previous_map = {int(unit.tag): unit for unit in self.units}
+        self._structures_previous_map = {int(unit.tag): unit for unit in self.structures}
+        self._enemy_units_previous_map = {int(unit.tag): unit for unit in self.enemy_units}
+        self._enemy_structures_previous_map = {int(unit.tag): unit for unit in self.enemy_structures}
+        actions = getattr(self, "actions", None)
+        if actions is not None:
+            actions.clear()
+        received = getattr(self, "unit_tags_received_action", None)
+        if received is not None:
+            received.clear()
+        self._invalidate_frame_caches()
+
+    def _invalidate_frame_caches(self) -> None:
+        """Drop per-loop caches so a revisited game_loop cannot reuse old units."""
+        self._generated_frame2 = -1
+        for name in list(vars(self)):
+            if name.startswith("_frame_") or name.startswith("_cache_"):
+                delattr(self, name)
+        self._clear_issued_actions()
+
     def _sync_macro_tasks(self) -> None:
+        if self.bridge.consume_discard_macro_tasks():
+            self._macro_tasks.clear()
         specs = self.bridge.get_macro_specs()
         by_id = {task.get("task_id"): task for task in self._macro_tasks}
         desired_ids = []

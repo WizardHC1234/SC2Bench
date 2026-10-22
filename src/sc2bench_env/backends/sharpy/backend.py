@@ -9,6 +9,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
+from uuid import uuid4
 
 from sc2bench_env.backends.base import Backend, BackendSnapshot
 from sc2bench_env.backends.sharpy.structures import StructureRegistry
@@ -23,6 +24,20 @@ from sc2bench_env.runtime.task import Demand, DemandState, train_birth_allowance
 from sc2bench_env.runtime.task_manager import DemandUpdate
 
 logger = logging.getLogger("sc2bench_env.backends.sharpy")
+
+
+@dataclass
+class _ControlRequest:
+    """One quick_save or quick_load posted to the bot thread."""
+
+    request_id: str
+    operation: str
+    logical_time_seconds: float
+    done: threading.Event = field(default_factory=threading.Event)
+    error: Optional[BaseException] = None
+    bookmark_id: Optional[str] = None
+    detail_hash: Optional[str] = None
+    fingerprint: Any = None
 
 _PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
 
@@ -76,6 +91,16 @@ class _Bridge:
     raw_all_results: Dict[Any, Any] = field(default_factory=dict)
     outcome_lock: Optional[threading.Lock] = None
     outcome_published: bool = False
+    # One in-memory engine slot. A newer save replaces it.
+    control_request: Optional[_ControlRequest] = None
+    engine_bookmark: Optional[str] = None
+    bookmark_generation: int = 0
+    saved_logical_time: float = 0.0
+    time_offset_seconds: float = 0.0
+    discard_macro_tasks: bool = False
+    engine_fingerprint: Any = None
+    last_fingerprint: Any = None
+    last_detail_hash: Optional[str] = None
 
     def get_macro_specs(self) -> List[Dict[str, Any]]:
         with self.lock:
@@ -108,6 +133,90 @@ class _Bridge:
         if self.blocking_decisions:
             self.advance_allowed.wait()
 
+    def post_control(
+        self, operation: str, *, logical_time_seconds: float, timeout: float = 30.0,
+    ) -> str:
+        """Wake the paused bot, run one engine bookmark, then pause again."""
+        from sc2bench_env.runtime.savepoint import SavepointError
+
+        request = _ControlRequest(
+            request_id=uuid4().hex,
+            operation=operation,
+            logical_time_seconds=float(logical_time_seconds),
+        )
+        with self.lock:
+            if self.stopped.is_set() or not self.ready.is_set():
+                raise SavepointError("The game is not paused for a bookmark")
+            # A platform time limit keeps the client in the match when a bookmark
+            # exists, so quick_load can still return to that moment. A real
+            # result has already left the game and cannot be loaded.
+            reload_after_clock = (
+                operation == "quick_load"
+                and self.snapshot.terminated
+                and self.snapshot.end_reason == "time_limit"
+                and self.engine_bookmark
+                and not self.leave_requested
+            )
+            if self.snapshot.terminated and not reload_after_clock:
+                raise SavepointError("The episode has already ended")
+            if not self.blocking_decisions or self.realtime:
+                raise SavepointError("Savepoints require a paused blocking game")
+            if self.advance_allowed.is_set():
+                raise SavepointError("The game is still advancing")
+            if self.control_request is not None:
+                raise SavepointError("A bookmark request is already running")
+            self.control_request = request
+            self.advance_allowed.set()
+        if not request.done.wait(timeout):
+            with self.lock:
+                if self.control_request is request:
+                    self.control_request = None
+                    if not self.leave_requested:
+                        self.advance_allowed.clear()
+            raise SavepointError("The game did not finish the bookmark in time")
+        if request.error is not None:
+            raise SavepointError(str(request.error)) from request.error
+        return str(request.bookmark_id or "")
+
+    def take_control_request(self) -> Optional[_ControlRequest]:
+        """Return the posted bookmark request without treating it as a game step."""
+        with self.lock:
+            return self.control_request
+
+    def finish_control(self, request: _ControlRequest) -> None:
+        """Record a successful bookmark and pause again unless the game is closing."""
+        with self.lock:
+            if request.operation == "quick_save":
+                self.bookmark_generation += 1
+                self.engine_bookmark = str(self.bookmark_generation)
+                self.saved_logical_time = float(request.logical_time_seconds)
+                request.bookmark_id = self.engine_bookmark
+                self.engine_fingerprint = request.fingerprint
+            if request.fingerprint is not None:
+                self.last_fingerprint = request.fingerprint
+            if request.detail_hash is not None:
+                self.last_detail_hash = request.detail_hash
+            if self.control_request is request:
+                self.control_request = None
+            if not self.leave_requested and not self.stopped.is_set():
+                self.advance_allowed.clear()
+        request.done.set()
+
+    def fail_control(self, request: _ControlRequest, error: BaseException) -> None:
+        request.error = error
+        with self.lock:
+            if self.control_request is request:
+                self.control_request = None
+            if not self.leave_requested and not self.stopped.is_set():
+                self.advance_allowed.clear()
+        request.done.set()
+
+    def consume_discard_macro_tasks(self) -> bool:
+        with self.lock:
+            discard = self.discard_macro_tasks
+            self.discard_macro_tasks = False
+            return discard
+
     def on_frame(
         self,
         *,
@@ -122,6 +231,8 @@ class _Bridge:
         combat_progress: Optional[Dict[str, Any]] = None,
     ) -> bool:
         with self.lock:
+            # BenchBot.time already includes the quick_load offset.
+            snapshot.game_time_seconds = float(snapshot.game_time_seconds)
             snapshot.terminated = self.snapshot.terminated
             snapshot.result = self.snapshot.result
             snapshot.end_reason = self.snapshot.end_reason
@@ -197,17 +308,27 @@ class _Bridge:
 
             # Enforce the platform clock on EVERY frame, including asynchronous
             # agent inference. BurnySC2's legacy run_game limit uses another clock.
+            hold_for_bookmark = False
             if (not self.snapshot.terminated and self.max_game_time is not None
                     and snapshot.game_time_seconds >= self.max_game_time):
                 self.snapshot.terminated = True
                 self.snapshot.result = "Result.Tie"
                 self.snapshot.end_reason = "time_limit"
-                self.request_leave()
+                if self.engine_bookmark and not self.leave_requested:
+                    hold_for_bookmark = True
+                else:
+                    self.request_leave()
 
             if not self.ready.is_set():
                 self.ready.set()
 
-            if self.snapshot.terminated:
+            if hold_for_bookmark:
+                # Stay paused inside the match. quick_load is still possible.
+                self.advance_allowed.clear()
+                self.decision_reached.set()
+                if self.notify is not None:
+                    self.notify.set()
+            elif self.snapshot.terminated:
                 self.advance_allowed.set()
                 self.decision_reached.set()
                 if self.notify is not None:
@@ -294,6 +415,7 @@ class SharpyBackend(Backend):
         self._replay_path: Optional[Path] = None
         self._terminal_settled = threading.Event()
         self.knowledge_snapshot: Optional[Dict[str, Any]] = None
+        self._versus = False
 
     def set_replay_path(self, path: Optional[Path]) -> None:
         self._replay_path = path.resolve() if path is not None else None
@@ -301,6 +423,7 @@ class SharpyBackend(Backend):
     def start_episode(self, config: EpisodeConfig) -> BackendSnapshot:
         require_supported_own_race(config.race)
         self.close_episode()
+        self._versus = False
         self._config = config
         self._bridge = _Bridge()
         self._bridge.blocking_decisions = config.blocking_decisions
@@ -425,6 +548,7 @@ class SharpyBackend(Backend):
         if not config.blocking_decisions:
             raise ValueError("versus matches require blocking decisions")
         self.close_episode()
+        self._versus = True
         self._config = config
         self._bridge = _Bridge()
         self._bridge.blocking_decisions = True
@@ -647,6 +771,122 @@ class SharpyBackend(Backend):
                 info=dict(snap.info),
                 end_reason=snap.end_reason,
             )
+
+    def supports_savepoints(self) -> bool:
+        # One quick_save slot is the whole SC2 process. A versus match has two
+        # clients, so bookmarking one side would roll the other back with it.
+        if self._versus:
+            return False
+        config = self._config
+        return bool(config is not None and config.blocking_decisions and not config.realtime)
+
+    def debug_end_match(self) -> None:
+        """Ask SC2 to end this paused match. Used to check a real result."""
+        from sc2bench_env.runtime.savepoint import SavepointError
+
+        if not self.supports_savepoints():
+            raise SavepointError("Savepoints require a paused blocking game")
+        self._bridge.post_control("debug_end", logical_time_seconds=0.0)
+
+    def create_engine_bookmark(self) -> str:
+        from sc2bench_env.runtime.savepoint import SavepointError
+
+        if not self.supports_savepoints():
+            raise SavepointError("Savepoints require a paused blocking game")
+        logical = float(self.snapshot().game_time_seconds)
+        return self._bridge.post_control("quick_save", logical_time_seconds=logical)
+
+    def restore_engine_bookmark(self, bookmark: str) -> BackendSnapshot:
+        from sc2bench_env.runtime.savepoint import SavepointError
+
+        if not self.supports_savepoints():
+            raise SavepointError("Savepoints require a paused blocking game")
+        if bookmark != self._bridge.engine_bookmark:
+            raise SavepointError("This bookmark is no longer the live engine slot")
+        self._bridge.post_control(
+            "quick_load", logical_time_seconds=self._bridge.saved_logical_time,
+        )
+        return self.snapshot()
+
+    def publish_observation(self) -> BackendSnapshot:
+        """Rebuild the platform snapshot after the savepoint registries are restored."""
+        from sc2bench_env.runtime.savepoint import SavepointError
+
+        if not self.supports_savepoints():
+            raise SavepointError("Savepoints require a paused blocking game")
+        self._bridge.post_control("publish", logical_time_seconds=0.0)
+        return self.snapshot()
+
+    def capture_engine_detail(self) -> str:
+        """Hash the paused simulation, including every unit position and order."""
+        from sc2bench_env.runtime.savepoint import SavepointError
+
+        if not self.supports_savepoints():
+            raise SavepointError("Savepoints require a paused blocking game")
+        self._bridge.post_control("inspect", logical_time_seconds=0.0)
+        if not self._bridge.last_detail_hash:
+            raise SavepointError("The game did not return a simulation fingerprint")
+        return str(self._bridge.last_detail_hash)
+
+    def saved_engine_detail(self) -> str:
+        """Return the simulation hash stored with the current engine bookmark."""
+        from sc2bench_env.runtime.savepoint import SavepointError
+
+        fingerprint = self._bridge.engine_fingerprint
+        if fingerprint is None or not getattr(fingerprint, "digest", None):
+            raise SavepointError("This game has no saved simulation fingerprint")
+        return str(fingerprint.digest)
+
+    def export_runtime_state(self) -> dict[str, Any]:
+        """Copy accounting and registries. Macro factories are rebuilt by submit()."""
+        from copy import deepcopy
+
+        bridge = self._bridge
+        with bridge.lock:
+            return {
+                "peak_ready": dict(bridge.peak_ready),
+                "last_reported_completed": dict(bridge.last_reported_completed),
+                "baselines": dict(bridge.baselines),
+                "task_meta": {key: tuple(value) for key, value in bridge.task_meta.items()},
+                "active_task_ids": list(bridge.active_task_ids),
+                "seen_entity_tags": set(bridge.seen_entity_tags),
+                "entity_tracking_started": bool(bridge.entity_tracking_started),
+                "act_completed": dict(bridge.act_completed),
+                "in_production_units": dict(bridge.in_production_units),
+                "in_progress_buildings": dict(bridge.in_progress_buildings),
+                "in_progress_research": dict(bridge.in_progress_research),
+                "macro_errors": dict(bridge.macro_errors),
+                "waiting_reasons": dict(bridge.waiting_reasons),
+                "zone_registry": deepcopy(bridge.zone_registry),
+                "structure_registry": deepcopy(bridge.structure_registry),
+            }
+
+    def import_runtime_state(self, state: dict[str, Any]) -> None:
+        """Restore accounting after the engine bookmark. The next sync rebuilds Acts."""
+        from copy import deepcopy
+
+        bridge = self._bridge
+        with bridge.lock:
+            bridge.peak_ready = dict(state.get("peak_ready") or {})
+            bridge.last_reported_completed = dict(state.get("last_reported_completed") or {})
+            bridge.baselines = dict(state.get("baselines") or {})
+            bridge.task_meta = {
+                key: tuple(value) for key, value in dict(state.get("task_meta") or {}).items()
+            }
+            bridge.active_task_ids = list(state.get("active_task_ids") or [])
+            bridge.seen_entity_tags = set(state.get("seen_entity_tags") or set())
+            bridge.entity_tracking_started = bool(state.get("entity_tracking_started"))
+            bridge.act_completed = dict(state.get("act_completed") or {})
+            bridge.in_production_units = dict(state.get("in_production_units") or {})
+            bridge.in_progress_buildings = dict(state.get("in_progress_buildings") or {})
+            bridge.in_progress_research = dict(state.get("in_progress_research") or {})
+            bridge.macro_errors = dict(state.get("macro_errors") or {})
+            bridge.waiting_reasons = dict(state.get("waiting_reasons") or {})
+            if "zone_registry" in state:
+                bridge.zone_registry = deepcopy(state["zone_registry"])
+            if "structure_registry" in state:
+                bridge.structure_registry = deepcopy(state["structure_registry"])
+            bridge.discard_macro_tasks = True
 
     def close_episode(self) -> None:
         self._bridge.request_leave(end_reason="closed_by_caller")

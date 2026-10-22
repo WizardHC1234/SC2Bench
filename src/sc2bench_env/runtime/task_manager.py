@@ -2,8 +2,9 @@
 from __future__ import annotations
 
 
+from copy import deepcopy
 from dataclasses import dataclass, field
-from typing import Dict, Iterable, List, Optional, Sequence, Set
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Set
 from uuid import uuid4
 
 from sc2bench_env.interface.actions import (
@@ -115,6 +116,32 @@ class TaskManager:
         self._boundary_event_id = 0
         self._current_game_time = 0.0
         self.group_counter = 0
+
+    def export_state(self) -> dict[str, Any]:
+        """Copy the task book. The live demands stay independent of the copy."""
+        return {
+            "demands": deepcopy(self.demands),
+            "order_counter": self.order_counter,
+            "seen_action_ids": set(self.seen_action_ids),
+            "recent_events": deepcopy(self.recent_events),
+            "event_counter": self.event_counter,
+            "boundary_event_id": self._boundary_event_id,
+            "current_game_time": self._current_game_time,
+            "group_counter": self.group_counter,
+            "race": self.race,
+        }
+
+    def import_state(self, state: Mapping[str, Any]) -> None:
+        """Replace the live task book. The saved copy stays owned by the savepoint."""
+        self.demands = deepcopy(state["demands"])
+        self.order_counter = int(state["order_counter"])
+        self.seen_action_ids = set(state["seen_action_ids"])
+        self.recent_events = deepcopy(state["recent_events"])
+        self.event_counter = int(state["event_counter"])
+        self._boundary_event_id = int(state["boundary_event_id"])
+        self._current_game_time = float(state["current_game_time"])
+        self.group_counter = int(state["group_counter"])
+        self.race = state["race"]
 
     def find_active_research(self, target: str) -> Optional[Demand]:
         for demand in self.demands.values():

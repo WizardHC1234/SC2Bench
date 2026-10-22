@@ -83,3 +83,22 @@ class Backend(ABC):
     @abstractmethod
     def close_episode(self) -> None:
         raise NotImplementedError
+
+    def supports_savepoints(self) -> bool:
+        """True when this backend can bookmark and restore one live episode."""
+        return False
+
+    def create_engine_bookmark(self) -> str:
+        """Bookmark the live engine. The returned token identifies that slot."""
+        raise NotImplementedError(f"{type(self).__name__} has no engine bookmark")
+
+    def restore_engine_bookmark(self, bookmark: str) -> BackendSnapshot:
+        """Return the engine to ``bookmark`` and publish one fresh frame."""
+        raise NotImplementedError(f"{type(self).__name__} cannot restore an engine bookmark")
+
+    def export_runtime_state(self) -> dict[str, Any]:
+        """Copy backend bookkeeping that is not inside the engine bookmark."""
+        return {}
+
+    def import_runtime_state(self, state: dict[str, Any]) -> None:
+        """Replace backend bookkeeping after the engine itself has been restored."""

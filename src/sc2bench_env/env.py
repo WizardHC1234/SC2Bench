@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Callable
 from copy import deepcopy
 from pathlib import Path
 from typing import Any, Mapping, Optional, Sequence, Tuple
@@ -25,6 +26,14 @@ from sc2bench_env.interface.feedback import Feedback
 from sc2bench_env.interface.observations import Observation
 from sc2bench_env.recording.trajectory import TrajectoryRecorder
 from sc2bench_env.paths import resolve_record_dir
+from sc2bench_env.runtime.savepoint import (
+    BranchResult,
+    PlatformCheckpoint,
+    SavepointError,
+    SavepointHandle,
+    describe_engine,
+    engine_state_hash,
+)
 from sc2bench_env.runtime.scheduler import Scheduler, trigger_from_advance
 from sc2bench_env.runtime.task_manager import TaskManager
 
@@ -72,6 +81,11 @@ class Environment:
         self._pending_release: Optional[dict[str, Any]] = None
         self._active_turn = None
         self._on_record_started = on_record_started
+        self._episode_id: Optional[str] = None
+        self._savepoint: Optional[PlatformCheckpoint] = None
+        self._savepoint_generation = 0
+        self._holding_savepoint = False
+        self._exploring = False
 
     @property
     def has_pending_decision(self) -> bool:
@@ -105,12 +119,19 @@ class Environment:
         self.config = config
         self.task_manager.reset(race=config.race)
         self._closed = False
+        self._savepoint = None
+        self._savepoint_generation = 0
+        self._holding_savepoint = False
+        self._exploring = False
 
         if self._record_trajectory:
             self.recorder = TrajectoryRecorder(
                 episode_id=uuid4().hex,
                 config=self.config.to_dict(),
             )
+            self._episode_id = self.recorder.episode_id
+        else:
+            self._episode_id = uuid4().hex
         try:
             if self.recorder is not None:
                 self.recorder.start(
@@ -149,6 +170,10 @@ class Environment:
         self.task_manager.reset(race=episode_config.race)
         self._closed = False
         self._pending_release = None
+        self._savepoint = None
+        self._savepoint_generation = 0
+        self._holding_savepoint = False
+        self._exploring = False
         self.latest_feedback = None
         self._last_feedback = None
         self._previous_observation = None
@@ -157,10 +182,13 @@ class Environment:
         recorded["player_name"] = folder_name
         if self._record_trajectory:
             self.recorder = TrajectoryRecorder(episode_id=uuid4().hex, config=recorded)
+            self._episode_id = self.recorder.episode_id
             self.recorder.start(
                 self._record_dir, prompt=self._platform_contract(),
                 backend="versus", folder_name=folder_name,
             )
+        else:
+            self._episode_id = uuid4().hex
         observation = self._build_observation(snapshot)
         if self.recorder is not None:
             self.recorder.record_reset(observation.to_dict())
@@ -176,6 +204,7 @@ class Environment:
         agent_context: Optional[dict[str, Any]] = None,
     ) -> bool:
         """Submit one side's decision and let that bot run. Return True if it stayed paused."""
+        self._require_active_line()
         if self._closed or self.config is None:
             raise RuntimeError("Environment is closed; call reset() first")
         if not isinstance(decision, DecisionBatch):
@@ -312,6 +341,7 @@ class Environment:
     def begin_tool_turn(self):
         from sc2bench_env.runtime.tool_turn import ToolTurn, ToolTurnError
 
+        self._require_active_line()
         if self._last_observation is None or self.config is None:
             raise RuntimeError("Call reset() before using tools")
         if self._active_turn is not None and self._active_turn.active:
@@ -430,6 +460,7 @@ class Environment:
 
     def record_agent_calls(self, agent_context: Optional[dict[str, Any]]) -> None:
         """Write harness model-call records without applying actions."""
+        self._require_active_line()
         if self.recorder is None or self._closed or self.config is None:
             return
         if not isinstance(agent_context, dict):
@@ -439,6 +470,7 @@ class Environment:
 
     def record_agent_call_failure(self, agent_context: dict[str, Any]) -> dict[str, Any]:
         """Record an external harness failure without applying actions or waiting."""
+        self._require_active_line()
         if self._closed or self.config is None:
             raise RuntimeError("Environment is closed; call reset() first")
         snapshot = self.backend.snapshot()
@@ -462,6 +494,7 @@ class Environment:
         retry_ids: Sequence[Optional[str]] | None = None,
         agent_context: Optional[dict[str, Any]] = None,
     ) -> Tuple[Observation, Feedback, bool, dict[str, Any]]:
+        self._require_active_line()
         if decision is None:
             return self._ended_without_decision(agent_context)
         if not isinstance(decision, DecisionBatch):
@@ -681,6 +714,202 @@ class Environment:
             error=snapshot.result if status == "failed" else None,
             observation=observation,
         )
+
+    def create_savepoint(
+        self, label: str = "", *, context: Any = None, replace: bool = False,
+    ) -> SavepointHandle:
+        """Keep this paused moment as the exploration root.
+
+        The engine has one bookmark. Another call keeps that root unless
+        ``replace`` is true. ``context`` is an optional caller value, such as
+        the model conversation at this decision, and is returned unchanged by
+        ``saved_context``.
+        """
+        self._require_savepoint_boundary()
+        if self._exploring:
+            raise SavepointError("A branch cannot move the savepoint being explored")
+        if self._savepoint is not None and not replace:
+            raise SavepointError(
+                "This episode already has a savepoint. Pass replace=True to move it."
+            )
+        try:
+            stored_context = deepcopy(context)
+        except Exception as exc:
+            raise SavepointError("Savepoint context must be copyable") from exc
+        bookmark = self.backend.create_engine_bookmark()
+        snapshot = self.backend.snapshot()
+        self._savepoint_generation += 1
+        handle = SavepointHandle(
+            episode_id=str(self._episode_id),
+            generation=self._savepoint_generation,
+            label=str(label or ""),
+            base_game_time_seconds=float(snapshot.game_time_seconds),
+            engine_state_hash=engine_state_hash(snapshot),
+        )
+        self._savepoint = PlatformCheckpoint(
+            handle=handle,
+            bookmark=bookmark,
+            task_state=self.task_manager.export_state(),
+            runtime_state=self.backend.export_runtime_state(),
+            previous_observation=deepcopy(self._previous_observation),
+            recorder_cursor=(
+                self.recorder.capture_cursor() if self.recorder is not None else None
+            ),
+            context=stored_context,
+        )
+        self._holding_savepoint = False
+        return handle
+
+    def saved_context(self, savepoint: SavepointHandle) -> Any:
+        """Return a copy of the caller value stored with this savepoint."""
+        return deepcopy(self._require_live_savepoint(savepoint).context)
+
+    def restore_savepoint(
+        self, savepoint: SavepointHandle, *, branch_id: Optional[str] = None,
+    ) -> Observation:
+        """Return this episode to ``savepoint`` and continue as ``branch_id``."""
+        if self.recorder is not None and not branch_id:
+            raise SavepointError("Restoring a recorded episode needs a branch_id")
+        return self._apply_savepoint(savepoint, branch_id=branch_id)
+
+    def run_branch(
+        self,
+        savepoint: SavepointHandle,
+        *,
+        branch_id: str,
+        policy: Callable[["Environment"], Any],
+    ) -> Any:
+        """Restore ``savepoint`` and leave the game at the end of this branch."""
+        self.restore_savepoint(savepoint, branch_id=branch_id)
+        return policy(self)
+
+    def explore(
+        self,
+        savepoint: SavepointHandle,
+        branches: Mapping[str, Callable[["Environment"], Any]],
+    ) -> tuple[BranchResult, ...]:
+        """Play each branch from the same moment, then park the game there.
+
+        One branch raising does not cancel the others. The game is back at the
+        savepoint afterwards, and further decisions wait for ``run_branch``.
+        """
+        if not isinstance(branches, Mapping) or not branches:
+            raise SavepointError("explore requires at least one named branch")
+        self._require_live_savepoint(savepoint)
+        results: list[BranchResult] = []
+        self._exploring = True
+        park_error: Optional[BaseException] = None
+        try:
+            for branch_id, policy in branches.items():
+                self.restore_savepoint(savepoint, branch_id=str(branch_id))
+                try:
+                    value = policy(self)
+                except Exception as exc:
+                    results.append(BranchResult(str(branch_id), error=exc))
+                else:
+                    results.append(BranchResult(str(branch_id), value=value))
+        finally:
+            self._exploring = False
+            try:
+                self._apply_savepoint(savepoint, branch_id=None)
+            except Exception as exc:
+                park_error = exc
+            else:
+                self._holding_savepoint = True
+        if park_error is not None:
+            finished = tuple(results)
+            raise SavepointError(
+                "Branches finished, but the game could not return to the savepoint: "
+                + str(park_error),
+                results=finished,
+            ) from park_error
+        return tuple(results)
+
+    def _apply_savepoint(
+        self, savepoint: SavepointHandle, *, branch_id: Optional[str],
+    ) -> Observation:
+        self._require_savepoint_boundary(restoring=True)
+        stored = self._require_live_savepoint(savepoint)
+        self.backend.restore_engine_bookmark(stored.bookmark)
+        self.task_manager.import_state(stored.task_state)
+        self.backend.import_runtime_state(stored.runtime_state)
+        self.backend.submit(self.task_manager.active_demands())
+        # submit() rebuilds macro specs and may reset completion peaks.
+        self.backend.import_runtime_state(stored.runtime_state)
+        publish = getattr(self.backend, "publish_observation", None)
+        if callable(publish):
+            publish()
+        if self.recorder is not None and stored.recorder_cursor is not None:
+            self.recorder.restore_cursor(stored.recorder_cursor)
+            if branch_id:
+                self.recorder.open_branch(str(branch_id), metadata={
+                    "parent_episode_id": savepoint.episode_id,
+                    "generation": savepoint.generation,
+                    "label": savepoint.label,
+                    "base_game_time_seconds": savepoint.base_game_time_seconds,
+                    "engine_state_hash": savepoint.engine_state_hash,
+                })
+            else:
+                self.recorder.suspend_writes()
+        self._pending_release = None
+        self._retire_tool_turn()
+        self._previous_observation = deepcopy(stored.previous_observation)
+        observation = self._build_observation(self.backend.snapshot())
+        self._last_observation = observation.to_dict()
+        observation.text_previous = self._previous_observation
+        self.latest_observation = observation
+        self.latest_feedback = None
+        self._last_feedback = None
+        restored_snapshot = self.backend.snapshot()
+        restored = engine_state_hash(restored_snapshot)
+        if restored != savepoint.engine_state_hash:
+            raise SavepointError(
+                "Restored engine state does not match the savepoint: "
+                + describe_engine(restored_snapshot)
+            )
+        self._holding_savepoint = False
+        return observation
+
+    def _require_active_line(self) -> None:
+        if self._holding_savepoint:
+            raise SavepointError(
+                "The game is parked at the savepoint. Continue with run_branch()."
+            )
+
+    def _require_savepoint_boundary(self, *, restoring: bool = False) -> None:
+        if self._closed or self.config is None or self._episode_id is None:
+            raise SavepointError("Environment is closed")
+        if not self.config.blocking_decisions or self.config.realtime:
+            raise SavepointError("Savepoints require a paused blocking game")
+        if not self.backend.supports_savepoints():
+            raise SavepointError("This backend cannot bookmark a game")
+        if self._pending_release is not None:
+            raise SavepointError("A decision is still in progress")
+        turn = self._active_turn
+        if turn is not None and getattr(turn, "active", False):
+            raise SavepointError("Finish the tool turn before using a savepoint")
+        if (
+            not restoring
+            and self.recorder is not None
+            and self.recorder.summary is not None
+        ):
+            raise SavepointError("The episode record is already closed")
+        if not restoring and self.backend.snapshot().terminated:
+            raise SavepointError("The episode has already ended")
+
+    def _require_live_savepoint(self, savepoint: SavepointHandle) -> PlatformCheckpoint:
+        if not isinstance(savepoint, SavepointHandle):
+            raise TypeError("restore_savepoint requires a SavepointHandle")
+        stored = self._savepoint
+        if (
+            stored is None
+            or savepoint.episode_id != self._episode_id
+            or savepoint.generation != stored.handle.generation
+            or savepoint.episode_id != stored.handle.episode_id
+            or savepoint.engine_state_hash != stored.handle.engine_state_hash
+        ):
+            raise SavepointError("This savepoint is no longer valid")
+        return stored
 
     def close(self, *, end_reason: str = "closed_by_caller") -> None:
         from sc2bench_env.catalog.knowledge import clear_game_data

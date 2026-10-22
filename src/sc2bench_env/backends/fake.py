@@ -2,8 +2,9 @@
 from __future__ import annotations
 
 
+from copy import deepcopy
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set
 
 from sc2bench_env.backends.base import Backend, BackendSnapshot
 from sc2bench_env.catalog.registry import cost_table, prerequisite_table, get_target
@@ -109,6 +110,9 @@ class FakeBackend(Backend):
     _prerequisites: Dict[str, List[str]] = field(default_factory=lambda: prerequisite_table(race="terran"), init=False)
     _producer_addons: Dict[tuple[str, int], Optional[str]] = field(default_factory=dict)
     end_reason: Optional[str] = None
+    _bookmark_generation: int = 0
+    _engine_bookmark: Optional[str] = None
+    _bookmark_state: Optional[dict] = None
 
     def start_episode(self, config: EpisodeConfig) -> BackendSnapshot:
         from sc2bench_env.interface.races import require_supported_own_race
@@ -171,6 +175,9 @@ class FakeBackend(Backend):
         self._known.clear()
         self._applied_transfers.clear()
         self._producer_addons.clear()
+        self._bookmark_generation = 0
+        self._engine_bookmark = None
+        self._bookmark_state = None
         return self.snapshot()
 
     def submit(self, tasks: List[Demand]) -> None:
@@ -584,6 +591,58 @@ class FakeBackend(Backend):
         self._active_ids.clear()
         self._known.clear()
         self._producer_addons.clear()
+
+    def supports_savepoints(self) -> bool:
+        return True
+
+    def create_engine_bookmark(self) -> str:
+        """Keep one deterministic copy of the simulated match."""
+        self._bookmark_generation += 1
+        self._engine_bookmark = str(self._bookmark_generation)
+        self._bookmark_state = self._capture_engine_state()
+        return self._engine_bookmark
+
+    def restore_engine_bookmark(self, bookmark: str) -> BackendSnapshot:
+        from sc2bench_env.runtime.savepoint import SavepointError
+
+        if bookmark != self._engine_bookmark or self._bookmark_state is None:
+            raise SavepointError("This bookmark is no longer the live engine slot")
+        self._apply_engine_state(self._bookmark_state)
+        return self.snapshot()
+
+    def _capture_engine_state(self) -> dict[str, Any]:
+        return {
+            "minerals": self.minerals,
+            "vespene": self.vespene,
+            "supply_used": self.supply_used,
+            "supply_cap": self.supply_cap,
+            "units": deepcopy(self.units),
+            "buildings": deepcopy(self.buildings),
+            "under_construction": deepcopy(self.under_construction),
+            "upgrades": set(self.upgrades),
+            "in_progress_research": set(self.in_progress_research),
+            "structure_types": deepcopy(self.structure_types),
+            "orbital_energy": self.orbital_energy,
+            "supply_drops_used": self.supply_drops_used,
+            "game_time_seconds": self.game_time_seconds,
+            "mineral_income_per_second": self.mineral_income_per_second,
+            "vespene_income_per_second": self.vespene_income_per_second,
+            "game_time_limit_seconds": self.game_time_limit_seconds,
+            "terminated": self.terminated,
+            "result": self.result,
+            "end_reason": self.end_reason,
+            "_active_ids": set(self._active_ids),
+            "_queue": deepcopy(self._queue),
+            "_updates": deepcopy(self._updates),
+            "_known": deepcopy(self._known),
+            "_applied_transfers": set(self._applied_transfers),
+            "_producer_addons": deepcopy(self._producer_addons),
+        }
+
+    def _apply_engine_state(self, state: dict[str, Any]) -> None:
+        fresh = deepcopy(state)
+        for key, value in fresh.items():
+            setattr(self, key, value)
 
     def _tick(self, dt: float) -> None:
         self.game_time_seconds += dt
