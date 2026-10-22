@@ -100,12 +100,19 @@ class CodexCliAdapter:
 
     def __init__(self, *, grace_seconds: float = 5.0) -> None:
         self.grace_seconds = grace_seconds
+        self._transcript = None
+
+    def bind_transcript(self, transcript) -> None:
+        """Receive the model's visible text. Reasoning stays out of the match record."""
+        self._transcript = transcript
 
     def open(self, context: AgentContext, first_input: TurnInput) -> AgentHandle:
         from sc2bench_env.external.adapters.codex_session import CodexAppSession
 
         self._record(context, first_input.render(first=True))
-        session = CodexAppSession(context, grace_seconds=self.grace_seconds)
+        session = CodexAppSession(
+            context, grace_seconds=self.grace_seconds, transcript=self._transcript,
+        )
         session.start()
         try:
             thread_id = session.open_thread()

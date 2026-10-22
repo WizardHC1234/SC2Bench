@@ -64,6 +64,34 @@ class EpisodeDrive:
         self.error: Optional[str] = None
         self.model: Optional[str] = None
         self.messages: list[dict[str, Any]] = []
+        self._notes_lock = threading.Lock()
+        self._commentary: list[str] = []
+        self._final_answer: list[str] = []
+
+    def note_assistant(self, text: str, phase: str) -> None:
+        """Keep the model's visible reply. Encrypted reasoning never reaches this method."""
+        with self._notes_lock:
+            if phase == "final_answer":
+                self._final_answer.append(text)
+            else:
+                self._commentary.append(text)
+
+    def _take_commentary(self) -> Optional[str]:
+        with self._notes_lock:
+            if not self._commentary:
+                return None
+            text = "\n\n".join(self._commentary)
+            self._commentary.clear()
+            return text
+
+    def flush_assistant(self) -> None:
+        """Append text that arrived after the tool calls, including the turn's final answer."""
+        with self._notes_lock:
+            pending = self._commentary + self._final_answer
+            self._commentary.clear()
+            self._final_answer.clear()
+        for text in pending:
+            self.messages.append({"role": "assistant", "content": text})
 
     def agent_context(self) -> dict[str, Any]:
         return {
@@ -89,7 +117,7 @@ class EpisodeDrive:
         call_id = "call_{0}".format(len(self.messages))
         self.messages.append({
             "role": "assistant",
-            "content": None,
+            "content": self._take_commentary(),
             "tool_calls": [{
                 "id": call_id,
                 "type": "function",
@@ -283,6 +311,9 @@ def run_builtin_mcp(
                 previous=getattr(agent_input.observation, "text_previous", None),
             )
             drive.add_observation(turn_input, context.model)
+            bind = getattr(adapter, "bind_transcript", None)
+            if bind is not None:
+                bind(drive.note_assistant)
             try:
                 if handle is None:
                     handle = _drive(
@@ -299,9 +330,11 @@ def run_builtin_mcp(
             except Exception as error:
                 drive.end_reason = "agent_protocol_error"
                 drive.error = "{0}: {1}".format(type(error).__name__, error)
+                drive.flush_assistant()
                 env.record_protocol_error("agent_protocol_error", agent_context=drive.agent_context())
                 env.close(end_reason="agent_protocol_error")
                 break
+            drive.flush_assistant()
             if not channel.committed or drive.batch is None:
                 drive.end_reason = "agent_protocol_error"
                 env.record_protocol_error("missing_advance", agent_context=drive.agent_context())

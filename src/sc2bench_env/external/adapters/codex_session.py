@@ -92,9 +92,10 @@ def codex_app_server_command(*, mcp_url: str, use_token: bool, reasoning_effort:
 class CodexAppSession:
     """Stdio session: initialize, one thread, then one user message per decision."""
 
-    def __init__(self, context: AgentContext, *, grace_seconds: float = 5.0) -> None:
+    def __init__(self, context: AgentContext, *, grace_seconds: float = 5.0, transcript=None) -> None:
         self.context = context
         self.grace_seconds = grace_seconds
+        self._transcript = transcript
         self.thread_id = ""
         self.process: Optional[subprocess.Popen] = None
         self._next_id = 1
@@ -219,6 +220,8 @@ class CodexAppSession:
                     event.set()
                 continue
             method = payload.get("method")
+            if method == "item/completed":
+                self._capture_agent_message(payload)
             if method == "turn/completed":
                 with self._lock:
                     done = self._turn_done
@@ -252,6 +255,17 @@ class CodexAppSession:
             chunks.append(line)
         work, _home, _workspace = codex_directories(self.context.work_dir)
         (work / "stderr.txt").write_text("".join(chunks), encoding="utf-8")
+
+    def _capture_agent_message(self, payload: dict[str, Any]) -> None:
+        params = payload.get("params") if isinstance(payload.get("params"), dict) else {}
+        item = params.get("item") if isinstance(params.get("item"), dict) else {}
+        if item.get("type") != "agentMessage" or self._transcript is None:
+            return
+        text = item.get("text")
+        if not isinstance(text, str) or not text.strip():
+            return
+        phase = item.get("phase") if isinstance(item.get("phase"), str) else "commentary"
+        self._transcript(text.strip(), phase)
 
     def _remember(self, line: str) -> None:
         if self._events_path is None:
