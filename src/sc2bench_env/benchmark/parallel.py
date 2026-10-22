@@ -249,3 +249,14 @@ def run_parallel(configs: Sequence[EpisodeConfig], payload: bytes, record_dir: P
         # A failed index write must not leave the remaining workers running.
         for index, row in results:
             on_result(index, row)
+
+
+def external_match_worker(config_path: str, record_dir: str) -> dict[str, Any]:
+    """Run one external-Agent match in this process.
+
+    The caller gives this worker its own config, record directory and MCP port.
+    A second match needs another process so the games do not share a client.
+    """
+    from sc2bench_env.external.runner import run_config_file
+
+    return run_config_file(config_path, record_dir=record_dir)

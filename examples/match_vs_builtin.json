@@ -1,0 +1,20 @@
+{
+  "match": {
+    "backend": "sharpy",
+    "map": "KairosJunctionLE",
+    "race": "terran",
+    "enemy_race": "terran",
+    "opponent": "easy",
+    "enemy_style": "random",
+    "max_decisions": 500,
+    "game_time_limit_seconds": 1800
+  },
+  "validation": {
+    "model": "gpt-5.6-luna",
+    "reasoning_effort": "low"
+  },
+  "players": [
+    {"id": "player_0", "agent": {"adapter": "codex_cli"}},
+    {"id": "computer", "agent": {"adapter": "builtin"}}
+  ]
+}

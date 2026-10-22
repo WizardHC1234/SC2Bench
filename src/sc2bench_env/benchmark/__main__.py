@@ -49,6 +49,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     doctor.add_argument("--json", action="store_true", help="print structured check results")
     evaluate = commands.add_parser("evaluate", help="recompute facts without SC2 or model calls")
     evaluate.add_argument("batch", type=Path)
+    match = commands.add_parser("match", help="play one external Agent against the builtin AI, or two external Agents")
+    match_commands = match.add_subparsers(dest="match_command", required=True)
+    match_run = match_commands.add_parser("run", help="run the match described by a JSON or YAML config")
+    match_run.add_argument("--config", type=Path, required=True)
+    match_run.add_argument("--record-dir", type=Path, default=None)
+    match_run.add_argument("--parallel", type=_positive_int, default=1,
+                           help="matches to run at once; each match is its own process")
     args = parser.parse_args(argv)
     try:
         if args.command == "doctor":
@@ -64,6 +71,15 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             return 0
         if args.command == "evaluate":
             print(json.dumps(Evaluator.evaluate_batch(args.batch), ensure_ascii=False, indent=2))
+            return 0
+        if args.command == "match":
+            from sc2bench_env.external.runner import run_concurrent_matches, run_config_file
+
+            if args.parallel > 1:
+                outcome = run_concurrent_matches(args.config, args.parallel, record_dir=args.record_dir)
+            else:
+                outcome = run_config_file(args.config, record_dir=args.record_dir)
+            print(json.dumps(outcome, ensure_ascii=False, indent=2, default=str))
             return 0
         suite = BenchmarkSuite.load(args.suite)
         metadata: Any = None

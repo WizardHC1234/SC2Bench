@@ -3,6 +3,8 @@ from __future__ import annotations
 
 
 import os
+import shutil
+import stat
 from pathlib import Path
 from typing import Optional
 
@@ -28,6 +30,27 @@ def default_output_root() -> Path:
 
 def resolve_record_dir(path: Optional[str | Path] = None) -> Path:
     return Path(path).expanduser().resolve() if path is not None else default_output_root() / "records"
+
+
+def match_agent_directory(record_dir: str | Path) -> Path:
+    """Codex files for one player, inside that player's episode record."""
+    path = Path(record_dir).expanduser().resolve() / "agent"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def remove_agent_workspace(work_dir: str, record_dir: Optional[str | Path]) -> None:
+    """Drop the temporary agent files after their session has been copied into the record."""
+    if record_dir is None:
+        return
+    path = Path(work_dir).resolve()
+    record = Path(record_dir).resolve()
+    if path.name != "agent" or record not in path.parents or not path.is_dir():
+        return
+    def _make_writable(function, target, _error) -> None:
+        os.chmod(target, stat.S_IWRITE)
+        function(target)
+    shutil.rmtree(path, onerror=_make_writable)
 
 
 def default_paths() -> dict[str, str]:
