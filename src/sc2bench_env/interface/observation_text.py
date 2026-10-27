@@ -40,7 +40,7 @@ def fields(items, indent=""):
     for key, item in items.items():
         title = label(key)
         if isinstance(item, dict):
-            if key in {"requested", "available", "missing", "units", "alive"} and all(
+            if key in {"requested", "requested_units", "available", "missing", "units", "alive"} and all(
                     isinstance(number, (int, float)) for number in item.values()):
                 lines.append(f"{indent}{title}: {counts(item)}")
                 continue
@@ -107,13 +107,13 @@ def resource_lines(rows):
         for row in rows
     )
     if compact:
-        lines = ["Base resources:"]
+        lines = ["Resource deposits:"]
         for row in rows:
             lines.append(
                 f"- {value(row.get('zone_id'))}: "
                 f"minerals {resource_amount(row.get('minerals_remaining'))}; "
                 f"vespene {resource_amount(row.get('vespene_remaining'))}; "
-                f"gas structures {value(row.get('owned_gas_structure_count'))}; "
+                f"own gas structures {value(row.get('owned_gas_structure_count'))}; "
                 f"free geysers {value(row.get('available_geyser_slots'))}"
             )
             lines.extend(extras(row, {
@@ -223,7 +223,7 @@ def brief_economy_lines(economy, map_control=None, *, race="terran"):
         f"Income/min: minerals {value(economy.get('mineral_income_per_minute'))}; "
         f"vespene {value(economy.get('vespene_income_per_minute'))}",
         f"Supply: {value(economy.get('supply_used'))}/{value(economy.get('supply_cap'))}; "
-        f"free {value(economy.get('supply_left'))}; army {value(economy.get('army_supply'))}"
+        f"free {value(economy.get('supply_left'))}; army supply {value(economy.get('army_supply'))}"
         + ("; SUPPLY BLOCKED" if supply_blocked else ""),
         f"Workers ({worker_name}): {value(economy.get('worker_count'))}; "
         f"minerals {value(economy.get('workers_on_minerals'))}/"
@@ -589,7 +589,12 @@ def event_lines(events, *, omit_types=(), historical=False):
                 f" @ {time_value(row.get('game_time_seconds'))}]"
             )
         lines.append(f"{index}. {value(row.get('type'))}{stamp}")
-        lines.extend(extras(row, {"type", "event_id", "game_time_seconds"}))
+        details = {key: item for key, item in row.items() if key not in {"type", "event_id", "game_time_seconds"}}
+        if row.get("type") == "train_completed" and "count" in details:
+            details = {("requested_count" if key == "count" else key): item for key, item in details.items()}
+        if row.get("type") == "combat_ended" and "units" in details:
+            details = {("requested_units" if key == "units" else key): item for key, item in details.items()}
+        lines.extend(fields(details, "  "))
     return lines
 
 

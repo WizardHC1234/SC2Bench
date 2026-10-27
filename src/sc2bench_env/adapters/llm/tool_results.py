@@ -341,7 +341,7 @@ def _render_army_state(result: Mapping[str, Any]) -> str:
         lines.append(f"Non-combat support: {_display_counts(own.get('support'))}")
     lines.extend((
         f"Available from group_0: {_display_counts(own.get('free'))}",
-        f"Assigned outbound: {_display_counts(own.get('assigned'))}",
+        f"Unavailable for new dispatch (groups, morphs or other reservations): {_display_counts(own.get('assigned'))}",
         f"Bunker garrison: {_display_counts(own.get('bunker_garrison'))}",
         "Groups:",
     ))

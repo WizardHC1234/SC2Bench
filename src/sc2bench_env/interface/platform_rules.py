@@ -11,6 +11,7 @@ CONTROL_RULES = """Control boundary:
 
 INTERACTION_RULES = """- Changes reports execution progress since the previous decision. Use Read tools for omitted match-state detail and Knowledge tools for static game data when the decision needs them.
 - Queries read one frozen snapshot and do not advance time. Each Action immediately returns whether it was staged, rejected or a no-op, together with its effect on unfinished work when relevant. Staged actions are stored for this decision only; they are not paid for, started or completed yet.
+- Queries and Action calls may be interleaved within a tool turn; query results still describe the same frozen snapshot.
 - Query and Action calls made before advance use the same frozen decision snapshot. Review Action results before calling advance. Call advance exactly once as the final tool call to submit staged actions and continue the game. With no new action, call advance by itself.
 """
 
@@ -96,7 +97,7 @@ ACTION_RULES = {
     "inject_larva": "Spend 25 energy from one ready Queen to inject one town hall the backend chooses. It is not cast automatically. Transfuse remains backend combat micro.",
     "spawn_creep_tumor": "Plant one creep tumor on creep, toward the enemy. A burrowed tumor spreads the next one for free. If none can, one ready Queen spends 25 energy. It is not cast automatically.",
     "scout": 'Send one SCV along the ordered route; route="all" performs one expansion-zone sweep. A new scout command replaces existing scout work, and the scout\'s death fails the task without automatic replacement. Arrival does not guarantee full-zone visibility or that every enemy was found.',
-    "morph_townhall": "Morph the selected town hall to the requested form. The request completes when the morph command is issued, not when the new form finishes.",
+    "morph_townhall": "Morph the selected town hall to the requested form. The request completes when a native morph order or the resulting form is observed, not when a command is merely queued locally. The new form may still be unfinished.",
     "dispatch_group": "Split the requested units from group_0 or another active group into a new group and give it an attack or defend order. The split is all-or-nothing; the source keeps its own ID and order. group_0 remains the home pool.",
     "attack_group": "Order an existing outbound group to attack a zone, whether or not the zone is currently visible. This changes that group's order and does not create a group or change its membership.",
     "defend_group": "Order an existing outbound group to defend a zone. This changes that group's order and does not create a group or change its membership. Defending groups stay near the target, do not chase across the map and do not proactively attack structures.",

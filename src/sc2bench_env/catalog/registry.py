@@ -353,6 +353,9 @@ def render_observation_guide() -> str:
         "- Brief Observation covers ordinary economy, production, army, threats and feedback. Use Read tools for omitted match-state detail and Knowledge tools for static game data when needed.",
         "- Queries inspect one frozen snapshot and do not advance time. Action calls are validated and staged; only advance submits them and continues the game.",
         "- unknown means that information is unavailable, while none means that the observed value is empty.",
+        "- Supply used includes supply reserved for units in production; a supply increase alone does not show that a unit has finished. Worker and army counts describe observed units.",
+        "- Workers gives the total worker count, followed by mineral assignments, vespene assignments and other workers. Each assignment/saturation pair is the current assignment count and its saturation target, not two worker totals.",
+        "- Infrastructure distinguishes ready structures from structures under construction. A structure listed in a zone inventory can still be under construction; use readiness or production detail to establish completion. Income rates describe current collection, not lifetime totals.",
         "- Names and IDs keep their exact platform spelling. Copy zone_id and group_id from Observation.",
     ]) + "\n"
 

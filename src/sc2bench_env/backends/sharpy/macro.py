@@ -60,6 +60,8 @@ class ActOngoingMacroTasks(ActBase):
     def _prereq_blocked(self, task: Dict[str, Any]) -> bool:
         task.pop("_waiting_for", None)
         action = str(task.get("action") or "")
+        if action == "spawn_creep_tumor" and getattr(task.get("_act"), "energy_cost", None) == 0:
+            return False
         if action == "scout":
             # Preserve the existing scout reporting boundary while taking the
             # required worker from the selected race catalog, not a fixed SCV.
@@ -88,6 +90,12 @@ class ActOngoingMacroTasks(ActBase):
         return self.adapter.execution_blocker(self.ai, task)
 
     def _resource_committed(self, task: Dict[str, Any]) -> bool:
+        if getattr(task.get("_act"), "_pending_cast", None) is not None:
+            return True
+        if task.get("action") == "morph_townhall":
+            observed_start = getattr(task.get("_act"), "has_observed_start", None)
+            if callable(observed_start) and observed_start():
+                return True
         committed = self.adapter.resource_committed(self.ai, task)
         if not committed or task.get("_resource_committed"):
             return committed
@@ -127,7 +135,8 @@ class ActOngoingMacroTasks(ActBase):
         if after_m < before_m or after_v < before_v:
             task["_paid"] = True
             task["_resource_committed"] = True
-        elif self._resource_committed(task):
+        elif (getattr(task.get("_act"), "_pending_cast", None) is None
+              and self._resource_committed(task)):
             task["_resource_committed"] = True
 
     def _should_hold_budget(self, task: Dict[str, Any], to_count: int) -> bool:
@@ -138,6 +147,8 @@ class ActOngoingMacroTasks(ActBase):
         until payment is observed. After a unit finishes, clear paid so the next
         absolute unit in the same act still reserves.
         """
+        if getattr(task.get("_act"), "_pending_cast", None) is not None:
+            return False
         action = str(task.get("action") or "")
         if action in {"build", "train"}:
             progress = self._ready_progress(task)
@@ -151,7 +162,9 @@ class ActOngoingMacroTasks(ActBase):
             else:
                 task.setdefault("_ready_seen", progress)
             return not bool(task.get("_paid"))
-        if action in {"research", "morph_townhall"}:
+        if action == "morph_townhall":
+            return not self._resource_committed(task)
+        if action == "research":
             return not bool(task.get("_paid"))
         return not bool(task.get("_act_done"))
 
@@ -237,7 +250,12 @@ class ActOngoingMacroTasks(ActBase):
             if hasattr(act, "reserve_pending_sources"):
                 act.reserve_pending_sources()
 
+            if hasattr(act, "prepare_cast") and getattr(act, "_pending_cast", None) is None:
+                await act.prepare_cast()
+
             cost = _estimate_cost(task, race=self.race)
+            if task.get("action") == "spawn_creep_tumor":
+                cost["energy"] = act.energy_cost
             if task.get("action") == "combat":
                 if hasattr(act, "sync_membership"):
                     pending_external: Dict[str, int] = {}

@@ -7,6 +7,7 @@ from typing import Dict, List, Mapping, Optional, Sequence
 
 from sc2.ids.ability_id import AbilityId
 from sc2.ids.buff_id import BuffId
+from sc2.ids.effect_id import EffectId
 from sc2.ids.unit_typeid import UnitTypeId
 from sc2.position import Point2
 from sharpy.plans.acts import ActBase
@@ -78,7 +79,73 @@ def _scan_hotspot_position(hotspot) -> Optional[Point2]:
     return None
 
 
-class ActScanZone(ActBase):
+class _ObservedAbilityAct(ActBase):
+    """Confirm a queued cast from a buff, new own entity, or scanner effect."""
+
+    def __init__(self):
+        super().__init__()
+        self._pending_cast = None
+        self.waiting_reason = None
+
+    def _queue_cast(self, caster, ability, target, *, buff=None, unit_types=(), effect=None):
+        own = list(self.ai.all_own_units)
+        point = getattr(target, "position", target)
+        if caster(ability, target):
+            self._pending_cast = {
+                "caster": caster.tag, "ability": ability,
+                "target": getattr(target, "tag", None), "point": point,
+                "buff": buff, "unit_types": unit_types, "effect": effect,
+                "old_tags": {unit.tag for unit in own},
+                "time": float(self.ai.time), "energy": float(caster.energy),
+            }
+        return False
+
+    def _observe_cast(self):
+        pending = self._pending_cast
+        if pending is None:
+            return None
+        own = {unit.tag: unit for unit in self.ai.all_own_units}
+        caster = own.get(pending["caster"])
+        target = own.get(pending["target"])
+        now = float(self.ai.time)
+        if now <= pending["time"]:
+            return False
+        errors = getattr(getattr(self.ai, "state", None), "action_errors", ())
+        if any(error.unit_tag == pending["caster"] and error.ability_id == pending["ability"].value
+               for error in errors):
+            self._pending_cast = None
+            return False
+        confirmed = target is not None and pending["buff"] is not None and _has_buff(target, pending["buff"])
+        if pending["unit_types"]:
+            confirmed = any(unit.tag not in pending["old_tags"]
+                            and unit.type_id in pending["unit_types"]
+                            and unit.distance_to(pending["point"]) <= 3 for unit in own.values())
+        if pending["effect"] is not None and caster is not None:
+            # Debit plus effect also distinguishes a new scan at an already
+            # scanned location. Energy alone is never cast confirmation.
+            confirmed = caster.energy < pending["energy"] - _SCAN_ENERGY / 2 and any(
+                effect.id == pending["effect"] and any(
+                    point.distance_to(pending["point"]) <= 1 for point in effect.positions)
+                for effect in getattr(self.ai.state, "effects", ()))
+        if confirmed:
+            self._done = True
+            self._pending_cast = None
+            return True
+        if caster is None:
+            self.failure_reason = "caster_lost_before_cast_confirmation"
+            self._pending_cast = None
+            return True
+        has_order = any(order.ability.id == pending["ability"] for order in caster.orders)
+        if now - pending["time"] >= 5 and not has_order:
+            self.failure_reason = "cast_effect_not_observed"
+            self._pending_cast = None
+            return True
+        else:
+            self.ai.unit_tags_received_action.add(caster.tag)
+        return False
+
+
+class ActScanZone(_ObservedAbilityAct):
     """Cast one Scanner Sweep on a stable zone_id when an Orbital has energy."""
 
     def __init__(self, zone_id: str):
@@ -90,6 +157,9 @@ class ActScanZone(ActBase):
     async def execute(self) -> bool:
         if self._done or self.failure_reason:
             return True
+        observed = self._observe_cast()
+        if observed is not None:
+            return observed
 
         registry = getattr(self.ai, "zone_registry", None)
         zone = None
@@ -120,9 +190,7 @@ class ActScanZone(ActBase):
             return True
 
         for orbital in available_orbitals(self.ai, _SCAN_ENERGY):
-            if orbital(AbilityId.SCANNERSWEEP_SCAN, target):
-                self._done = True
-                return True
+            return self._queue_cast(orbital, AbilityId.SCANNERSWEEP_SCAN, target, effect=EffectId.SCANNERSWEEP)
         return False
 
 
@@ -135,6 +203,24 @@ class ActMorphTownhall(ActBase):
         self.to = to
         self._done = False
         self.failure_reason: Optional[str] = None
+
+    def has_observed_start(self) -> bool:
+        """Only a native order or target form confirms that morphing started."""
+        if self._done:
+            return True
+        spec = _UPGRADE_SPECS.get(self.to)
+        registry = getattr(self.ai, "structure_registry", None)
+        if spec is None or registry is None:
+            return False
+        tag = registry.tag_for_id(self.structure_id)
+        unit = self.ai.structures.find_by_tag(tag) if tag is not None else None
+        if unit is None:
+            return False
+        _source, ability, result_type = spec
+        return unit.type_id == result_type or any(
+            getattr(getattr(order, "ability", None), "id", None) == ability
+            for order in unit.orders
+        )
 
     async def execute(self) -> bool:
         if self._done or self.failure_reason:
@@ -161,7 +247,7 @@ class ActMorphTownhall(ActBase):
             return True
 
         # Already morphing / already the target type => action success.
-        if unit.type_id == result_type:
+        if self.has_observed_start():
             self._done = True
             return True
         if unit.type_id != from_type:
@@ -184,13 +270,19 @@ class ActMorphTownhall(ActBase):
         if self.to == "hive" and self.ai.structures(UnitTypeId.INFESTATIONPIT).ready.amount <= 0:
             return False
 
+        if tag in getattr(self.ai, "unit_tags_received_action", set()):
+            return False
+        if self.to in {"orbital_command", "planetary_fortress"} and unit.orders:
+            return False
+        if ability not in await self.ai.get_available_abilities(unit):
+            return False
         unit(ability)
-        # Issuing the morph ends the upgrade action; completion is world state.
-        self._done = True
-        return True
+        # A queued client command may be rejected by SC2. Keep this demand alive
+        # until a later observation exposes the morph order or the target form.
+        return False
 
 
-class ActCallMule(ActBase):
+class ActCallMule(_ObservedAbilityAct):
     """Call down one MULE on a safe mineral-rich own base."""
 
     def __init__(self):
@@ -201,6 +293,9 @@ class ActCallMule(ActBase):
     async def execute(self) -> bool:
         if self._done or self.failure_reason:
             return True
+        observed = self._observe_cast()
+        if observed is not None:
+            return observed
 
         orbitals = available_orbitals(self.ai, _MULE_ENERGY)
         if not orbitals:
@@ -212,9 +307,7 @@ class ActCallMule(ActBase):
             return True
 
         for orbital in orbitals:
-            if orbital(AbilityId.CALLDOWNMULE_CALLDOWNMULE, target):
-                self._done = True
-                return True
+            return self._queue_cast(orbital, AbilityId.CALLDOWNMULE_CALLDOWNMULE, target, unit_types=(UnitTypeId.MULE,))
         return False
 
     def _solve_target(self):
@@ -241,7 +334,7 @@ class ActCallMule(ActBase):
         return best
 
 
-class ActSupplyDrop(ActBase):
+class ActSupplyDrop(_ObservedAbilityAct):
     """Spend one Orbital's energy on one completed Supply Depot the platform chooses."""
 
     def __init__(self):
@@ -253,6 +346,12 @@ class ActSupplyDrop(ActBase):
     async def execute(self) -> bool:
         if self._done or self.failure_reason:
             return True
+        observed = self._observe_cast()
+        if observed is not None:
+            if observed and self._done:
+                from sc2bench_env.catalog.knowledge import food_provided
+                self.supply_granted = int(food_provided("terran", "supply_depot"))
+            return observed
         orbitals = available_orbitals(self.ai, _SUPPLY_DROP_ENERGY)
         if not orbitals:
             return False
@@ -262,13 +361,7 @@ class ActSupplyDrop(ActBase):
             return True
         orbital = max(orbitals, key=lambda unit: float(getattr(unit, "energy", 0) or 0))
         depot = min(depots, key=lambda unit: unit.distance_to(orbital))
-        if orbital(AbilityId.SUPPLYDROP_SUPPLYDROP, depot):
-            from sc2bench_env.catalog.knowledge import food_provided
-
-            self.supply_granted = int(food_provided("terran", "supply_depot"))
-            self._done = True
-            return True
-        return False
+        return self._queue_cast(orbital, AbilityId.SUPPLYDROP_SUPPLYDROP, depot, buff=BuffId.SUPPLYDROP)
 
 
 def _eligible_supply_depots(ai):
@@ -292,7 +385,7 @@ def _has_buff(unit, buff) -> bool:
     return buff in (getattr(unit, "buffs", ()) or ())
 
 
-class ActChrono(ActBase):
+class ActChrono(_ObservedAbilityAct):
     """Spend one Nexus Chrono Boost on a structure the backend chooses."""
 
     def __init__(self):
@@ -303,6 +396,9 @@ class ActChrono(ActBase):
     async def execute(self) -> bool:
         if self._done or self.failure_reason:
             return True
+        observed = self._observe_cast()
+        if observed is not None:
+            return observed
         used = getattr(self.ai, "unit_tags_received_action", set())
         nexuses = [
             nexus for nexus in self.ai.structures(UnitTypeId.NEXUS).ready
@@ -315,10 +411,7 @@ class ActChrono(ActBase):
             self.failure_reason = "no_chrono_target"
             return True
         caster = min(nexuses, key=lambda nexus: nexus.distance_to(target))
-        if caster(AbilityId.EFFECT_CHRONOBOOSTENERGYCOST, target):
-            self._done = True
-            return True
-        return False
+        return self._queue_cast(caster, AbilityId.EFFECT_CHRONOBOOSTENERGYCOST, target, buff=BuffId.CHRONOBOOSTENERGYCOST)
 
     def _target(self):
         skipped = {UnitTypeId.PYLON, UnitTypeId.ASSIMILATOR}
@@ -335,7 +428,7 @@ class ActChrono(ActBase):
         return (producing or pool)[0]
 
 
-class ActInject(ActBase):
+class ActInject(_ObservedAbilityAct):
     """Spend one Queen inject on a town hall that does not already have larva incoming."""
 
     def __init__(self):
@@ -347,6 +440,9 @@ class ActInject(ActBase):
     async def execute(self) -> bool:
         if self._done or self.failure_reason:
             return True
+        observed = self._observe_cast()
+        if observed is not None:
+            return observed
         self.waiting_reason = None
         queens = [
             queen for queen in self.ai.units(UnitTypeId.QUEEN).ready
@@ -369,13 +465,10 @@ class ActInject(ActBase):
             ((queen, hall) for queen in queens for hall in halls),
             key=lambda pair: pair[0].distance_to(pair[1]),
         )
-        if queen(AbilityId.EFFECT_INJECTLARVA, hall):
-            self._done = True
-            return True
-        return False
+        return self._queue_cast(queen, AbilityId.EFFECT_INJECTLARVA, hall, buff=BuffId.QUEENSPAWNLARVATIMER)
 
 
-class ActSpawnCreepTumor(ActBase):
+class ActSpawnCreepTumor(_ObservedAbilityAct):
     """Plant one creep tumor. A burrowed tumor spreads first; otherwise a Queen does."""
 
     def __init__(self):
@@ -383,21 +476,40 @@ class ActSpawnCreepTumor(ActBase):
         self._done = False
         self.failure_reason: Optional[str] = None
         self.waiting_reason = None
+        self.energy_cost = _TUMOR_ENERGY
+        self._prepared_at = None
+        self._free_spreaders = []
+
+    async def prepare_cast(self):
+        """Probe a free spread before the macro scheduler checks Queen energy."""
+        now = float(self.ai.time)
+        if self._prepared_at == now:
+            return
+        self._prepared_at = now
+        self._free_spreaders = []
+        used = getattr(self.ai, "unit_tags_received_action", set())
+        for tumor in self.ai.structures(UnitTypeId.CREEPTUMORBURROWED).ready:
+            if tumor.tag in used:
+                continue
+            abilities = await self.ai.get_available_abilities(tumor)
+            if AbilityId.BUILD_CREEPTUMOR_TUMOR in abilities:
+                point = self._ahead(tumor.position, 8)
+                if point is not None:
+                    self._free_spreaders.append((tumor, point))
+        self.energy_cost = 0 if self._free_spreaders else _TUMOR_ENERGY
 
     async def execute(self) -> bool:
         if self._done or self.failure_reason:
             return True
+        observed = self._observe_cast()
+        if observed is not None:
+            return observed
         self.waiting_reason = None
         used = getattr(self.ai, "unit_tags_received_action", set())
-        tumors = [
-            tumor for tumor in self.ai.structures(UnitTypeId.CREEPTUMORBURROWED).ready
-            if tumor.tag not in used
-        ]
-        for tumor in tumors:
-            point = self._ahead(tumor.position, 8)
-            if point is not None and tumor(AbilityId.BUILD_CREEPTUMOR_TUMOR, point):
-                self._done = True
-                return True
+        await self.prepare_cast()
+        for tumor, point in self._free_spreaders:
+            if tumor.tag not in used:
+                return self._queue_cast(tumor, AbilityId.BUILD_CREEPTUMOR_TUMOR, point, unit_types=(UnitTypeId.CREEPTUMOR, UnitTypeId.CREEPTUMORQUEEN, UnitTypeId.CREEPTUMORBURROWED))
         queens = [
             queen for queen in self.ai.units(UnitTypeId.QUEEN).ready
             if float(getattr(queen, "energy", 0) or 0) >= _TUMOR_ENERGY
@@ -413,10 +525,7 @@ class ActSpawnCreepTumor(ActBase):
         if point is None:
             self.failure_reason = "no_creep_for_tumor"
             return True
-        if queen(AbilityId.BUILD_CREEPTUMOR_QUEEN, point):
-            self._done = True
-            return True
-        return False
+        return self._queue_cast(queen, AbilityId.BUILD_CREEPTUMOR_QUEEN, point, unit_types=(UnitTypeId.CREEPTUMOR, UnitTypeId.CREEPTUMORQUEEN, UnitTypeId.CREEPTUMORBURROWED))
 
     def _ahead(self, origin, distance: float):
         """A creep point toward the enemy, or back on the town hall's creep."""
