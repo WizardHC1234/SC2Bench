@@ -22,30 +22,77 @@ def user_codex_home() -> Path:
     return Path.home() / ".codex"
 
 
+def _api_provider_lines(config_text: str) -> list[str]:
+    """Keep the active API provider. A match must not inherit chats, memory, or login state."""
+    kept: list[str] = []
+    in_provider = False
+    for line in config_text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            in_provider = stripped.startswith("[model_providers.")
+            if in_provider:
+                kept.append(line)
+            continue
+        if in_provider:
+            kept.append(line)
+            continue
+        key = stripped.split("=", 1)[0].strip()
+        if key in {"model_provider", "model", "model_reasoning_effort", "model_catalog_json"}:
+            kept.append(line)
+    return kept
+
+
 def prepare_clean_codex_home(work_dir: str) -> Path:
-    """A match-local Codex home: the user's login, and no other conversations or memory."""
+    """A match-local Codex home: the user's login or API provider, and nothing else."""
     home = Path(work_dir).resolve() / "codex_clean"
     if home.exists():
         shutil.rmtree(home)
     home.mkdir(parents=True)
-    auth = user_codex_home() / "auth.json"
-    if not auth.is_file():
+    source = user_codex_home()
+    auth = source / "auth.json"
+    provider_lines: list[str] = []
+    user_config = source / "config.toml"
+    if user_config.is_file():
+        provider_lines = _api_provider_lines(user_config.read_text(encoding="utf-8"))
+    has_provider = any(line.strip().startswith("[model_providers.") for line in provider_lines)
+    if auth.is_file():
+        shutil.copy2(auth, home / "auth.json")
+    elif not has_provider:
         raise RuntimeError("Codex login was not found. Sign in with Codex once, then run the match again.")
-    shutil.copy2(auth, home / "auth.json")
-    (home / "config.toml").write_text(
-        "\n".join([
-            "suppress_unstable_features_warning = true",
-            "",
-            "[features]",
-            "memories = false",
-            "skip_host_skill_discovery = true",
-            "",
-            "[skills]",
-            "include_instructions = false",
-            "",
-        ]) + "\n",
-        encoding="utf-8",
-    )
+    catalog_name = ""
+    for line in provider_lines:
+        if line.strip().startswith("model_catalog_json"):
+            catalog_name = line.split("=", 1)[1].strip().strip('"').strip("'")
+    if catalog_name:
+        catalog = source / catalog_name
+        if catalog.is_file():
+            shutil.copy2(catalog, home / catalog.name)
+    root_keys: list[str] = []
+    provider_tables: list[str] = []
+    in_table = False
+    for line in provider_lines:
+        if line.strip().startswith("["):
+            in_table = True
+        if in_table:
+            provider_tables.append(line)
+        else:
+            root_keys.append(line)
+    # Root keys must stay above the first table. TOML keeps later keys in that table.
+    lines = [
+        "suppress_unstable_features_warning = true",
+        "",
+        *root_keys,
+        "",
+        "[features]",
+        "memories = false",
+        "skip_host_skill_discovery = true",
+        "",
+        "[skills]",
+        "include_instructions = false",
+        "",
+        *provider_tables,
+    ]
+    (home / "config.toml").write_text("\n".join(lines) + "\n", encoding="utf-8")
     return home
 
 

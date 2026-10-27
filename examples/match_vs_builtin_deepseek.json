@@ -1,0 +1,20 @@
+{
+  "match": {
+    "backend": "sharpy",
+    "map": "KairosJunctionLE",
+    "race": "terran",
+    "enemy_race": "terran",
+    "opponent": "veryhard",
+    "enemy_style": "macro",
+    "max_decisions": 500,
+    "game_time_limit_seconds": 1800
+  },
+  "validation": {
+    "model": "/data1/models/DeepSeek-V4-Flash-0731",
+    "reasoning_effort": "none"
+  },
+  "players": [
+    { "id": "player_0", "agent": { "adapter": "codex_cli" } },
+    { "id": "computer", "agent": { "adapter": "builtin" } }
+  ]
+}

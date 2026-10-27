@@ -61,6 +61,34 @@ def install_unknown_unit_type_fallback() -> None:
     Unit._sc2bench_unknown_types = True
 
 
+def _is_sc2_client(command: list) -> bool:
+    return any(item == "-listen" or str(item).endswith(("SC2_x64", "SC2_x64.exe")) for item in command)
+
+
+def quiet_sc2_client() -> None:
+    """Keep the SC2 client's protocol trace off the match console."""
+    import subprocess
+
+    import sc2.sc2process as sc2process
+
+    if getattr(sc2process, "_sc2bench_quiet", False):
+        return
+    original = sc2process.subprocess.Popen
+
+    def popen(args, *pargs, **kwargs):
+        # sc2process.subprocess is the process-wide subprocess module.
+        # Only the game client is silenced; Codex and other children keep their pipes.
+        command = list(args) if isinstance(args, (list, tuple)) else None
+        if command and _is_sc2_client(command):
+            args = [item for item in command if item != "-verbose"]
+            kwargs["stdout"] = subprocess.DEVNULL
+            kwargs["stderr"] = subprocess.DEVNULL
+        return original(args, *pargs, **kwargs)
+
+    sc2process.subprocess.Popen = popen
+    sc2process._sc2bench_quiet = True
+
+
 def register_modern_terran_abilities() -> None:
     install_unknown_unit_type_fallback()
     for name, value in (

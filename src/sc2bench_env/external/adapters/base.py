@@ -133,6 +133,14 @@ class CodexCliAdapter:
             raise RuntimeError("Codex CLI started a new thread instead of continuing the match")
         return TurnRun()
 
+    def remind(self, handle: AgentHandle, text: str) -> None:
+        """Send a correction on the open decision. The game snapshot stays frozen."""
+        session = handle.extras.get("session")
+        if session is None:
+            raise RuntimeError("missing Codex session on the resume handle")
+        self._record(context_from(handle), text)
+        session.user_turn(text)
+
     def close(self, handle: AgentHandle) -> None:
         session = handle.extras.get("session")
         if session is not None:

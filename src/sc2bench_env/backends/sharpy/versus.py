@@ -164,9 +164,10 @@ class SharpyVersusGame:
         self._thread = None
 
     def _run(self) -> None:
-        from sc2bench_env.backends.sharpy.compat import register_modern_terran_abilities
+        from sc2bench_env.backends.sharpy.compat import quiet_sc2_client, register_modern_terran_abilities
         from sc2bench_env.backends.sharpy.backend import _ensure_runtime_paths
 
+        quiet_sc2_client()
         register_modern_terran_abilities()
         try:
             _ensure_runtime_paths()

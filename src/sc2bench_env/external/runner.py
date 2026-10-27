@@ -171,6 +171,25 @@ def execute_environment_command(channel: PlayerChannel, drive: EpisodeDrive, com
     })
 
 
+_ADVANCE_REMINDERS = 3
+_ADVANCE_REMINDER = (
+    "This decision is still open. advance was not submitted, so the game has not continued. "
+    "Staged actions are unchanged. Call advance exactly once as the final tool call to submit them. "
+    "With no further action, call advance by itself."
+)
+
+
+def _prompt_for_advance(adapter: Any, handle: Any, channel: PlayerChannel, execute, drive: Optional[EpisodeDrive] = None) -> bool:
+    """Ask the Agent to submit the open decision. A new observation is not sent."""
+    remind = getattr(adapter, "remind", None)
+    if remind is None or handle is None or channel.closed_turn:
+        return False
+    if drive is not None:
+        drive.messages.append({"role": "user", "content": _ADVANCE_REMINDER})
+    _drive(lambda: remind(handle, _ADVANCE_REMINDER), channel, execute)
+    return True
+
+
 def _drive(function, channel: PlayerChannel, execute) -> Any:
     box: dict[str, Any] = {}
 
@@ -246,11 +265,35 @@ def run_versus_mcp(
                         channels[player],
                         lambda command, channel=channels[player], player=player: execute_command(channel, match, player, command),
                     )
-            except Exception:
-                match.record_protocol_error(player, "agent_protocol_error")
-                match.close(end_reason="agent_protocol_error")
+            except Exception as error:
+                from sc2bench_env.external.codex_quota import codex_quota_exhausted
+
+                reason = "codex_quota_exhausted" if codex_quota_exhausted(error) else "agent_protocol_error"
+                match.record_protocol_error(player, reason)
+                match.close(end_reason=reason)
                 break
-            if not channels[player].committed:
+            channel = channels[player]
+            handle = handles[player]
+            reminded = 0
+            while not channel.committed and not channel.closed_turn and reminded < _ADVANCE_REMINDERS:
+                reminded += 1
+                try:
+                    if not _prompt_for_advance(
+                        adapter, handle, channel,
+                        lambda command, channel=channel, player=player: execute_command(channel, match, player, command),
+                    ):
+                        break
+                except Exception as error:
+                    from sc2bench_env.external.codex_quota import codex_quota_exhausted
+
+                    reason = "codex_quota_exhausted" if codex_quota_exhausted(error) else "agent_protocol_error"
+                    match.record_protocol_error(player, reason)
+                    match.close(end_reason=reason)
+                    channel = None
+                    break
+            if channel is None:
+                break
+            if not channel.committed:
                 match.record_protocol_error(player, "missing_advance")
                 match.close(end_reason="agent_protocol_error")
                 break
@@ -328,13 +371,43 @@ def run_builtin_mcp(
                         lambda command, channel=channel, drive=drive: execute_environment_command(channel, drive, command),
                     )
             except Exception as error:
-                drive.end_reason = "agent_protocol_error"
+                from sc2bench_env.external.codex_quota import codex_quota_exhausted
+
                 drive.error = "{0}: {1}".format(type(error).__name__, error)
+                drive.end_reason = (
+                    "codex_quota_exhausted" if codex_quota_exhausted(drive.error) else "agent_protocol_error"
+                )
                 drive.flush_assistant()
-                env.record_protocol_error("agent_protocol_error", agent_context=drive.agent_context())
-                env.close(end_reason="agent_protocol_error")
+                env.record_protocol_error(drive.end_reason, agent_context=drive.agent_context())
+                env.close(end_reason=drive.end_reason)
                 break
             drive.flush_assistant()
+            reminded = 0
+            aborted = False
+            while (not channel.committed or drive.batch is None) and not channel.closed_turn and reminded < _ADVANCE_REMINDERS:
+                reminded += 1
+                try:
+                    if not _prompt_for_advance(
+                        adapter, handle, channel,
+                        lambda command, channel=channel, drive=drive: execute_environment_command(channel, drive, command),
+                        drive,
+                    ):
+                        break
+                except Exception as error:
+                    from sc2bench_env.external.codex_quota import codex_quota_exhausted
+
+                    drive.error = "{0}: {1}".format(type(error).__name__, error)
+                    drive.end_reason = (
+                        "codex_quota_exhausted" if codex_quota_exhausted(drive.error) else "agent_protocol_error"
+                    )
+                    drive.flush_assistant()
+                    env.record_protocol_error(drive.end_reason, agent_context=drive.agent_context())
+                    env.close(end_reason=drive.end_reason)
+                    aborted = True
+                    break
+                drive.flush_assistant()
+            if aborted:
+                break
             if not channel.committed or drive.batch is None:
                 drive.end_reason = "agent_protocol_error"
                 env.record_protocol_error("missing_advance", agent_context=drive.agent_context())

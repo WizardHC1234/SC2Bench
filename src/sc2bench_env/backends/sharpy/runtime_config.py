@@ -35,7 +35,18 @@ def get_version() -> tuple[str, str]:
     return __version__, "SC2Bench"
 
 
+def apply_sc2_path() -> None:
+    """Lock the client directory to the configured path before burnysc2 resolves it."""
+    config = get_config()
+    if not config.has_section("sc2"):
+        return
+    path = config.get("sc2", "path", fallback="").strip()
+    if path:
+        os.environ["SC2PATH"] = str(Path(path).expanduser())
+
+
 def register_sharpy_config() -> None:
     """Configure the maintained library through its explicit host-provider API."""
+    apply_sc2_path()
     from sharpy.runtime_config import configure
     configure(get_config, get_version)

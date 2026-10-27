@@ -902,7 +902,8 @@ class SharpyBackend(Backend):
 
     def _run_game_thread(self) -> None:
         assert self._config is not None
-        from sc2bench_env.backends.sharpy.compat import register_modern_terran_abilities
+        from sc2bench_env.backends.sharpy.compat import quiet_sc2_client, register_modern_terran_abilities
+        quiet_sc2_client()
         register_modern_terran_abilities()
         assert self._adapter is not None
         try:
