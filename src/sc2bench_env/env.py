@@ -64,7 +64,10 @@ class Environment:
         record_trajectory: bool = True,
         record_dir: Optional[str | Path] = None,
         on_record_started: Optional[Any] = None,
+        evaluation_interval_seconds: float = 1.0,
     ) -> None:
+        from sc2bench_env.recording.engine import validate_interval
+        self._evaluation_interval_seconds = validate_interval(evaluation_interval_seconds)
         self.backend: Backend = _resolve_backend(backend)
         self.task_manager = TaskManager()
         self.scheduler = Scheduler()
@@ -128,6 +131,7 @@ class Environment:
             self.recorder = TrajectoryRecorder(
                 episode_id=uuid4().hex,
                 config=self.config.to_dict(),
+                evaluation_interval_seconds=self._evaluation_interval_seconds,
             )
             self._episode_id = self.recorder.episode_id
         else:
@@ -143,6 +147,7 @@ class Environment:
             self.backend.set_replay_path(
                 self.record_path / "replay.SC2Replay" if self.record_path is not None else None
             )
+            self._bind_evaluation_sink()
             snapshot = self.backend.start_episode(self.config)
             if getattr(self.backend, "knowledge_snapshot", None) is not None and self.recorder is not None:
                 self.recorder.bind_knowledge()
@@ -181,7 +186,8 @@ class Environment:
         recorded["opponent"] = "agent"
         recorded["player_name"] = folder_name
         if self._record_trajectory:
-            self.recorder = TrajectoryRecorder(episode_id=uuid4().hex, config=recorded)
+            self.recorder = TrajectoryRecorder(episode_id=uuid4().hex, config=recorded,
+                                               evaluation_interval_seconds=self._evaluation_interval_seconds)
             self._episode_id = self.recorder.episode_id
             self.recorder.start(
                 self._record_dir, prompt=self._platform_contract(),
@@ -189,6 +195,7 @@ class Environment:
             )
         else:
             self._episode_id = uuid4().hex
+        self._bind_evaluation_sink(include_current=True)
         observation = self._build_observation(snapshot)
         if self.recorder is not None:
             self.recorder.record_reset(observation.to_dict())
@@ -946,6 +953,14 @@ class Environment:
     def _stop_console_log(self) -> None:
         if self.recorder is not None:
             self.recorder.stop_console_log()
+
+    def _bind_evaluation_sink(self, *, include_current: bool = False) -> None:
+        setter = getattr(self.backend, "set_evaluation_sink", None)
+        if callable(setter):
+            setter(self.recorder.record_engine_sample if self.recorder is not None else None)
+            current = getattr(self.backend, "record_current_evaluation", None)
+            if include_current and self.recorder is not None and callable(current):
+                current()
 
     @property
     def record_path(self) -> Optional[Path]:

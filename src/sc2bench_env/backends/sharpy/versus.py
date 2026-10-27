@@ -70,6 +70,12 @@ class _SharpyPlayerBackend(Backend):
     def snapshot(self) -> BackendSnapshot:
         return self._player().snapshot()
 
+    def set_evaluation_sink(self, sink) -> None:
+        self._player().set_evaluation_sink(sink)
+
+    def record_current_evaluation(self) -> None:
+        self._player().record_current_evaluation()
+
     def close_episode(self) -> None:
         self._game.close()
 

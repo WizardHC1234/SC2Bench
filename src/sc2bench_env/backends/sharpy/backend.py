@@ -80,6 +80,8 @@ class _Bridge:
     zone_registry: ZoneRegistry = field(default_factory=ZoneRegistry)
     structure_registry: StructureRegistry = field(default_factory=StructureRegistry)
     replay_path: Optional[Path] = None
+    evaluation_sink: Optional[Callable[[Dict[str, Any]], None]] = None
+    last_evaluation_sample: Optional[Dict[str, Any]] = None
     seen_entity_tags: set = field(default_factory=set)
     entity_tracking_started: bool = False
     # Versus games share one notify event and wake the other bot on game end.
@@ -413,12 +415,21 @@ class SharpyBackend(Backend):
         self._adapter = None
         self._game_error: Optional[BaseException] = None
         self._replay_path: Optional[Path] = None
+        self._evaluation_sink: Optional[Callable[[Dict[str, Any]], None]] = None
         self._terminal_settled = threading.Event()
         self.knowledge_snapshot: Optional[Dict[str, Any]] = None
         self._versus = False
 
     def set_replay_path(self, path: Optional[Path]) -> None:
         self._replay_path = path.resolve() if path is not None else None
+
+    def set_evaluation_sink(self, sink: Optional[Callable[[Dict[str, Any]], None]]) -> None:
+        self._evaluation_sink = sink
+        self._bridge.evaluation_sink = sink
+
+    def record_current_evaluation(self) -> None:
+        if self._evaluation_sink is not None and self._bridge.last_evaluation_sample is not None:
+            self._evaluation_sink(self._bridge.last_evaluation_sample)
 
     def start_episode(self, config: EpisodeConfig) -> BackendSnapshot:
         require_supported_own_race(config.race)
@@ -432,6 +443,7 @@ class SharpyBackend(Backend):
             self._bridge.advance_allowed.set()
         self._bridge.max_game_time = config.game_time_limit_seconds
         self._bridge.replay_path = self._replay_path
+        self._bridge.evaluation_sink = self._evaluation_sink
         self._bridge.zone_registry.reset()
         self._bridge.structure_registry.reset()
         self._game_error = None
@@ -548,6 +560,9 @@ class SharpyBackend(Backend):
         if not config.blocking_decisions:
             raise ValueError("versus matches require blocking decisions")
         self.close_episode()
+        # New side recorders attach after the shared game reaches its opening
+        # decision. Never write the new game's opening into a prior match.
+        self._evaluation_sink = None
         self._versus = True
         self._config = config
         self._bridge = _Bridge()
@@ -555,6 +570,7 @@ class SharpyBackend(Backend):
         self._bridge.realtime = config.realtime
         self._bridge.max_game_time = config.game_time_limit_seconds
         self._bridge.replay_path = self._replay_path
+        self._bridge.evaluation_sink = self._evaluation_sink
         self._bridge.zone_registry.reset()
         self._bridge.structure_registry.reset()
         self._game_error = None

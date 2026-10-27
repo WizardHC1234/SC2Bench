@@ -37,7 +37,10 @@ class VersusMatch:
         self, *, backend: str = "sharpy",
         record_trajectory: bool = True,
         record_dir: Optional[str | Path] = None,
+        evaluation_interval_seconds: float = 1.0,
     ) -> None:
+        from sc2bench_env.recording.engine import validate_interval
+        self._evaluation_interval_seconds = validate_interval(evaluation_interval_seconds)
         if backend == "fake":
             self._game = FakeVersusGame()
         elif backend == "sharpy":
@@ -81,6 +84,7 @@ class VersusMatch:
         ):
             environment = Environment(
                 backend, record_trajectory=self._record_trajectory, record_dir=self._match_dir,
+                evaluation_interval_seconds=self._evaluation_interval_seconds,
             )
             observations.append(environment.open_player(
                 player_config, snapshot, folder_name=f"player_{index}",

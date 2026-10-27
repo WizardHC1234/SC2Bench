@@ -183,6 +183,11 @@ class BenchBot(KnowledgeBot):
                 zone_registry=self.bridge.zone_registry,
                 structure_registry=self.bridge.structure_registry,
             )
+            opening_frame = not self.bridge.ready.is_set()
+            if opening_frame:
+                # Versus side recorders attach after ready is signaled. Cache
+                # their opening evidence before waking the caller.
+                self._record_engine_observation(snapshot)
             decision_boundary = self.bridge.on_frame(
                 snapshot=snapshot,
                 in_production_units=in_prod,
@@ -195,6 +200,8 @@ class BenchBot(KnowledgeBot):
                 scout_progress=self._collect_scout_progress(),
                 combat_progress=self._collect_combat_progress(),
             )
+            if not opening_frame:
+                self._record_engine_observation(snapshot)
             if decision_boundary:
                 # Lockstep stays paused. Realtime mode keeps the clock moving at
                 # 1x while the model thinks; advance itself still runs at full speed.
@@ -217,6 +224,18 @@ class BenchBot(KnowledgeBot):
     async def start_first_worker(self) -> None:
         """Keep the opening worker under the agent's production orders."""
         return
+
+    def _record_engine_observation(self, snapshot, *, response=None) -> None:
+        from sc2bench_env.recording.engine import observation_sample
+        sink = getattr(self.bridge, "evaluation_sink", None)
+        if sink is None and getattr(self.bridge, "last_evaluation_sample", None) is not None:
+            return
+        sample = observation_sample(self, snapshot, response=response)
+        if sample is None:
+            return
+        self.bridge.last_evaluation_sample = sample
+        if sink is not None:
+            sink(sample)
 
     async def on_before_start(self):
         await super().on_before_start()
@@ -308,6 +327,15 @@ class BenchBot(KnowledgeBot):
                 return
             offset = float(getattr(self.bridge, "time_offset_seconds", 0.0) or 0.0)
             self._note_paced_game_time(game_loop / FRAMES_PER_SECOND + offset)
+            # Pacing already receives this message. Keep it without preparing
+            # a new bot step or altering the controller's state during thinking.
+            from sc2bench_env.backends.base import BackendSnapshot
+            self._record_engine_observation(
+                BackendSnapshot(game_time_seconds=game_loop / FRAMES_PER_SECOND + offset,
+                                info={"sample_phase": "realtime_pacing",
+                                      "controller_state": "not refreshed during pacing"}),
+                response=observed.observation,
+            )
             delay = realtime_sleep_seconds(frames, time.perf_counter() - started)
             if delay > 0:
                 await asyncio.sleep(delay)
@@ -346,6 +374,8 @@ class BenchBot(KnowledgeBot):
             return
         try:
             await self.client.save_replay(str(path))
+            if not path.is_file() or path.stat().st_size == 0:
+                raise OSError("SC2 exported an empty or missing replay")
         except Exception as exc:
             # Replay is an artifact, not the game outcome. A connection that
             # closes during replay export must never resign or invalidate the

@@ -18,6 +18,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 from uuid import uuid4
+from sc2bench_env.recording.engine import CompactEngineState, validate_interval
 
 RECORD_SCHEMA_VERSION = "0.8"
 TOOL_PROTOCOL_VERSION = "tool_turn_v3"
@@ -194,6 +195,7 @@ class TrajectoryRecorder:
 
     episode_id: str = "episode"
     config: Dict[str, Any] = field(default_factory=dict)
+    evaluation_interval_seconds: float = 1.0
     steps: List[Dict[str, Any]] = field(default_factory=list)
     result: Optional[str] = None
     directory: Optional[Path] = None
@@ -217,6 +219,28 @@ class TrajectoryRecorder:
     _branch_directory: Optional[Path] = None
     _branch_id: Optional[str] = None
     _writes_suspended: bool = False
+    _evaluation_lock: Any = field(default_factory=threading.Lock, repr=False)
+    _engine_trace: Any = field(default_factory=CompactEngineState, repr=False)
+
+    def __post_init__(self) -> None:
+        self.evaluation_interval_seconds = validate_interval(self.evaluation_interval_seconds)
+
+    def _write_evaluation(self, output: Path, row: Dict[str, Any]) -> None:
+        from sc2bench_env.recording.engine import append_engine_sample
+        append_engine_sample(output / "evaluation.jsonl.gz", {
+            **_json_safe(row), "episode_id": self.episode_id,
+            "branch_id": self._branch_id, "recorded_at": _utc_now(),
+        })
+
+    def record_engine_sample(self, sample: Dict[str, Any]) -> None:
+        """Write evaluation-only native state into the active timeline."""
+        with self._evaluation_lock:
+            output = self._output_directory()
+            if output is None:
+                return
+            row = self._engine_trace.update(sample, self.evaluation_interval_seconds)
+            if row is not None:
+                self._write_evaluation(output, row)
 
     def start(
         self, root: str | Path, *, prompt: str, backend: str,
@@ -250,6 +274,8 @@ class TrajectoryRecorder:
                 **_knowledge_fields(),
                 "timestamp_timezone": "UTC",
                 "platform_prompt_char_count": len(prompt),
+                "evaluation_recording": {"schema_version": "2", "mode": "compact",
+                                         "interval_game_seconds": self.evaluation_interval_seconds},
             }
         self._header_prompt = prompt
         self._header_metadata = metadata_payload
@@ -354,6 +380,11 @@ class TrajectoryRecorder:
 
     def capture_cursor(self) -> dict[str, Any]:
         """Copy the in-memory record so a later branch can start from this point."""
+        with self._evaluation_lock:
+            output = self._output_directory()
+            pending = self._engine_trace.flush() if output is not None else None
+            if pending is not None:
+                self._write_evaluation(output, pending)
         return {
             "steps": deepcopy(self.steps),
             "result": self.result,
@@ -370,6 +401,7 @@ class TrajectoryRecorder:
             "recorded_agent_call_ids": set(self._recorded_agent_call_ids),
             "tool_call_records": deepcopy(self._tool_call_records),
             "model_call_records": deepcopy(self._model_call_records),
+            "engine_trace": deepcopy(self._engine_trace),
         }
 
     def restore_cursor(self, cursor: dict[str, Any]) -> None:
@@ -389,6 +421,7 @@ class TrajectoryRecorder:
         self._recorded_agent_call_ids = set(cursor["recorded_agent_call_ids"])
         self._tool_call_records = deepcopy(cursor["tool_call_records"])
         self._model_call_records = deepcopy(cursor["model_call_records"])
+        self._engine_trace = deepcopy(cursor.get("engine_trace", CompactEngineState()))
         self._branch_directory = None
         self._branch_id = None
         self._writes_suspended = False
@@ -411,6 +444,11 @@ class TrajectoryRecorder:
             break
         self._branch_directory = path
         self._branch_id = path.name
+        self._engine_trace.last_emitted_at = None
+        self._engine_trace.contacts = {}
+        self._engine_trace.tasks = {}
+        self._engine_trace.combat_groups = {}
+        self._engine_trace.combat_trace_seen = False
         self._write_atomic(path / "branch.json", {
             "branch_id": path.name,
             **metadata,
@@ -558,6 +596,24 @@ class TrajectoryRecorder:
         if self.summary is not None:
             raise RuntimeError("Cannot append to a finalized trajectory")
         self.steps.append(json.loads(json.dumps(_json_safe(entry), ensure_ascii=False)))
+        # session.json is a model transcript and metrics.json is an aggregate.
+        # Preserve structured query results, task receipts and observations too.
+        self._persist_event(self.steps[-1])
+
+    def _persist_event(self, entry: Dict[str, Any]) -> None:
+        from sc2bench_env.recording.engine import compact_event
+        if entry.get("type") == "agent_call":
+            # Already retained in metrics.json; do not duplicate provider usage.
+            return
+        with self._evaluation_lock:
+            output = self._output_directory()
+            if output is None:
+                return
+            if entry.get("type") == "end":
+                pending = self._engine_trace.flush()
+                if pending is not None:
+                    self._write_evaluation(output, pending)
+            self._write_evaluation(output, compact_event(entry))
 
     @staticmethod
     def _tool_error_code(payload: Any) -> Optional[str]:
@@ -815,6 +871,7 @@ class TrajectoryRecorder:
         summary["replay_saved"] = self.steps[-1]["replay_saved"]
         summary["integrity"] = self._integrity()
         self.steps[-1]["integrity"] = summary["integrity"]
+        self._persist_event(self.steps[-1])
         self.summary = summary
         output = self._output_directory()
         if output is not None:
