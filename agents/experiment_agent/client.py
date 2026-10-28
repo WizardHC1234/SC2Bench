@@ -19,6 +19,24 @@ from .config import PROVIDERS
 from .protocol import parse_json
 
 
+def plan_response_format(provider):
+    """Use a constrained plan object on the verified SGLang transport."""
+    if provider != "deepseek_sglang":
+        return {"type": "json_object"}
+    return {"type": "json_schema", "json_schema": {
+        "name": "plan_update", "strict": True,
+        "schema": {
+            "type": "object",
+            "properties": {
+                "plan": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+                "completed_steps": {"type": "array", "items": {"type": "string"}},
+            },
+            "required": ["plan", "completed_steps"],
+            "additionalProperties": False,
+        },
+    }}
+
+
 def build_payload(*, model, provider, messages, tools=None, max_output_tokens=None, temperature=0.5,
                   response_format=None, tool_choice=None, native_thinking=False):
     if provider not in PROVIDERS:
@@ -80,6 +98,9 @@ class ChatClient:
     temperature: float = 0.5
     timeout: float = 120.0
     native_thinking: bool = False
+
+    def plan_response_format(self):
+        return plan_response_format(self.provider)
 
     def __post_init__(self):
         if type(self.native_thinking) is not bool:

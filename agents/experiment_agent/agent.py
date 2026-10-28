@@ -68,6 +68,7 @@ class ExperimentAgent:
         self._failures = []
         self._events = []
         self._pending_tool_calls = {}
+        self._active_role = None
 
     def __call__(self, request: AgentInput) -> AgentTurn:
         self._calls, self._failures, self._events = [], [], []
@@ -96,10 +97,10 @@ class ExperimentAgent:
             self._last_time = now
             if self.config.harness == "plan_and_execute":
                 self.current_step = self.plan[0]
-                self._user(prompts.EXECUTE + "\nCurrent remaining plan: " + json.dumps(self.plan, ensure_ascii=False)
-                           + "\nYour current task is step 1: " + self.current_step)
+                self._instruction(prompts.EXECUTE + "\nCurrent remaining plan: " + json.dumps(self.plan, ensure_ascii=False)
+                           + "\nYour current task is step 1: " + self.current_step, role="executor")
             elif self.config.harness != "act_only":
-                self._user(prompts.ACT)
+                self._instruction(prompts.ACT)
             return self._act(request)
         except _CallFailed:
             failure = self._failures[-1]
@@ -111,6 +112,16 @@ class ExperimentAgent:
         self.messages.append({"role": "user", "content": content})
         if content.startswith("[Harness control]") or "[Harness feedback]" in content:
             emit("Harness feedback", content)
+
+    def _instruction(self, content, *, role="actor"):
+        # Append role changes to the actual transcript. Earlier observations,
+        # assistant replies and native tool pairs remain intact and replayable.
+        if self._active_role != role:
+            self.messages.append({"role": "system", "content": prompts.ROLE_INSTRUCTIONS[role]})
+            self._active_role = role
+        # Keep a user task after the system role. Chat templates require a
+        # generation turn after user/tool input, not after a bare system turn.
+        self._user(content)
 
     def _context(self, stop_reason=None):
         context = {
@@ -169,7 +180,10 @@ class ExperimentAgent:
             try:
                 options = {"tools": deepcopy(tools), "max_output_tokens": output_cap}
                 if role in ("planner", "replanner"):
-                    options["response_format"] = {"type": "json_object"}
+                    plan_format = getattr(self.call_llm, "plan_response_format", None)
+                    options["response_format"] = (
+                        plan_format() if callable(plan_format) else {"type": "json_object"}
+                    )
                 if tools and self.config.harness == "act_only":
                     options["tool_choice"] = "required"
                 response = self.call_llm(deepcopy(self.messages), **options)
@@ -281,18 +295,18 @@ class ExperimentAgent:
             self._tool_response(call["id"], json.dumps({"status": "not_submitted", "reason": reason}))
 
     def _text_stage(self, role, instruction):
-        self._user(instruction)
+        self._instruction(instruction, role=role)
         while True:
             response = self._complete(role)
             calls = response.get("tool_calls") or []
             if calls:
                 self._reject_calls(calls, "text_only_stage")
-                self._user(prompts.stage_repair(instruction, prompts.TEXT_ONLY_STAGE))
+                self._instruction(prompts.stage_repair(instruction, prompts.TEXT_ONLY_STAGE), role=role)
             elif contains_tool_markup(response["content"]):
                 self._events.append({"type": "not_submitted", "reason": "text_stage_tool_markup"})
-                self._user(prompts.stage_repair(instruction, prompts.TOOL_MARKUP_REPAIR))
+                self._instruction(prompts.stage_repair(instruction, prompts.TOOL_MARKUP_REPAIR), role=role)
             elif not response.get("content", "").strip() or response.get("finish_reason") == "length":
-                self._user(prompts.stage_repair(instruction, "The previous response was empty or truncated. Return a complete response in this stage's format."))
+                self._instruction(prompts.stage_repair(instruction, "The previous response was empty or truncated. Return a complete response in this stage's format."), role=role)
             else:
                 return response["content"]
 
@@ -302,7 +316,7 @@ class ExperimentAgent:
         if not initial:
             instruction += "\nPrevious remaining plan: " + json.dumps(self.plan, ensure_ascii=False)
             if self.execution_history:
-                instruction += "\nLatest executor attempt (tool replies are receipts, not proof of completion): " + json.dumps(
+                instruction += "\nLatest executor attempt: " + json.dumps(
                     self.execution_history[-1], ensure_ascii=False)
         current_instruction = instruction
         while True:
@@ -324,7 +338,7 @@ class ExperimentAgent:
         execution_results = []
         while True:
             if self.config.harness == "act_only":
-                self._user(prompts.ACT_ONLY)
+                self._instruction(prompts.ACT_ONLY)
             response = self._complete(role, self._tools)
             calls = response.get("tool_calls") or []
             if self.config.harness == "act_only" and (response.get("content") or "").strip():
@@ -332,15 +346,17 @@ class ExperimentAgent:
                 self._user(prompts.ACT_ONLY_REPAIR)
                 continue
             if not calls:
-                self._user(prompts.NO_TOOLS)
+                self._user(prompts.CONTINUE_ANALYSIS if response['content'].strip()
+                           and self.config.harness != 'act_only' else prompts.NO_TOOLS)
                 continue
             if response.get("finish_reason") == "length":
                 self._reject_calls(calls, "truncated_reply")
                 self._user("The reply was truncated. Submit a complete tool reply.")
                 continue
             advances = [i for i, call in enumerate(calls) if call["name"] == "advance"]
-            if advances and advances != [len(calls) - 1]:
-                self._reject_calls(calls, "advance_must_be_last_and_unique")
+            if advances and len(calls) != 1:
+                self._reject_calls(calls, "advance_requires_separate_reply")
+                self._user(prompts.ADVANCE_SEPARATE)
                 continue
             if any(not isinstance(call.get("arguments"), dict) for call in calls):
                 self._reject_calls(calls, "arguments_must_be_JSON_objects")

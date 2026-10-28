@@ -313,14 +313,14 @@ def _action_description(name: str, race: str) -> str:
     if race == "terran" and name == "morph_townhall":
         return (
             "Morph the selected Command Center, identified by a townhall ID from Structures, into "
-            "an Orbital Command or Planetary Fortress. The request completes when issued, not when "
-            "the morph finishes."
+            "an Orbital Command or Planetary Fortress. The request completes when a native morph order or the resulting form is observed. "
+            "The new form may still be unfinished."
         )
     if race == "zerg" and name == "morph_townhall":
         return (
             "Morph the selected Hatchery or Lair, identified by a townhall ID from Structures, "
-            "into a Lair or Hive respectively. The request completes when issued, not when the "
-            "morph finishes."
+            "into a Lair or Hive respectively. The request completes when a native morph order "
+            "or the resulting form is observed. The new form may still be unfinished."
         )
     return ACTION_RULES[name]
 

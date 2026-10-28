@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import hashlib
 import os
+from itertools import count
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, Mapping, Optional, Sequence
@@ -276,8 +277,9 @@ class BenchmarkRunner:
         else:
             plan = None
             max_decisions = 200 if max_decisions is None else max_decisions
-        if not configs or type(max_decisions) is not int or max_decisions < 1:
-            raise ValueError("Provide at least one episode and a positive max_decisions")
+        if not configs or (max_decisions is not None
+                           and (type(max_decisions) is not int or max_decisions < 1)):
+            raise ValueError("Provide at least one episode and positive or null max_decisions")
         if any(not isinstance(config, EpisodeConfig) for config in configs):
             raise TypeError("Every benchmark configuration must be an EpisodeConfig")
         if type(max_parallel) is not int or max_parallel < 1:
@@ -376,7 +378,7 @@ class BenchmarkRunner:
     def _run_one(
         self, config: EpisodeConfig,
         agent_factory: Callable[[], Callable[[AgentInput], AgentTurn | Any]],
-        max_decisions: int,
+        max_decisions: Optional[int],
         *, cancel_event: Any = None, record_callback: Optional[Callable[[Path], None]] = None,
     ) -> Dict[str, Any]:
         env: Optional[Environment] = None
@@ -394,7 +396,7 @@ class BenchmarkRunner:
             runtime_versions = {"game_version": env.backend.snapshot().info.get("game_version")}
             agent = agent_factory()
             feedback = None
-            for _ in range(max_decisions):
+            for _ in (range(max_decisions) if max_decisions is not None else count()):
                 if cancel_event is not None and cancel_event.is_set():
                     env.close(end_reason="caller_interrupted")
                     break

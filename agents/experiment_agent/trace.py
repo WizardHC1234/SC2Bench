@@ -47,7 +47,7 @@ def attributed_replies(messages, model_calls=None):
     result, previous_user, legacy_role = [], "", "actor"
     for index, message in enumerate(messages):
         content = message.get("content") or ""
-        if message["role"] == "user":
+        if message["role"] in ("user", "system"):
             previous_user = content
             match = re.match(r"\[Stage: (actor|executor|planner|replanner|reflector)", content)
             if match:

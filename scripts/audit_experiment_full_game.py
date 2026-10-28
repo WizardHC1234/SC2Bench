@@ -26,6 +26,27 @@ def text(value):
     return value.decode("utf-8", "replace") if isinstance(value, bytes) else str(value)
 
 
+def role_instruction_checks(messages, calls):
+    """Each saved call role must use its own consistent system instruction."""
+    roles = [c['role'] for c in calls if c['status'] == 'ok']
+    actual = []
+    instruction = None
+    for message in messages:
+        if message['role'] == 'system':
+            instruction = message.get('content')
+        elif message['role'] == 'assistant':
+            actual.append(instruction)
+    if len(actual) != len(roles) or not actual:
+        return False
+    by_role = defaultdict(set)
+    for role, content in zip(roles, actual):
+        if not content or content == messages[0].get('content'):
+            return False
+        by_role[role].add(content)
+    return all(len(values) == 1 for values in by_role.values()) and len({
+        next(iter(values)) for values in by_role.values()}) == len(by_role)
+
+
 def saved_tool_status(name, content):
     match = re.search(r"(?m)^Status: (\S+)", content)
     if match:
@@ -142,8 +163,23 @@ def termination_checks(summary, episode_config, replay):
     }
 
 
+def load_manifest(root):
+    """Read either a pilot manifest or a single-episode formal CLI batch."""
+    if (root / 'run.json').exists():
+        return json.loads((root / 'run.json').read_text(encoding='utf-8'))
+    batch_path, = root.glob('*/batch.json')
+    batch = json.loads(batch_path.read_text(encoding='utf-8'))
+    if batch['status'] == 'running':
+        raise ValueError('Game still running; audit after finalization')
+    row, = batch['episodes']
+    return {'status': batch['status'], 'record_directory': row['record_directory'],
+            'episode_config': row['config'], 'agent_metadata': batch['agent_metadata'],
+            'max_decisions': batch['max_decisions'], 'batch_episode': row,
+            'batch_file': str(batch_path)}
+
+
 def audit(root):
-    manifest = json.loads((root / "run.json").read_text(encoding="utf-8"))
+    manifest = load_manifest(root)
     if manifest["status"] == "running":
         raise ValueError("Game still running; audit after finalization")
     episode_dir = Path(manifest["record_directory"])
@@ -156,9 +192,9 @@ def audit(root):
     missing_log_bodies = []
     for index, message in enumerate(episode["messages"]):
         content = message.get("content") or ""
-        if message["role"] == "user":
+        if message["role"] in ("user", "system"):
             if pending:
-                problems.append({"message": index, "reason": "user_before_tool_results"})
+                problems.append({"message": index, "reason": "instruction_before_tool_results"})
             if content.startswith("[Current Observation]"):
                 match = re.search(r"(?m)^Time (\d+):(\d+)", content)
                 now = int(match[1]) * 60 + int(match[2]) if match else now
@@ -209,7 +245,9 @@ def audit(root):
             "max_calls_per_decision", "max_calls_per_episode", "max_output_tokens", "max_episode_output_tokens")),
         "full_session_requested": settings.get("conversation_mode") == "full_session",
         "no_cross_episode_memory": settings.get("cross_episode_memory") is False,
-        "single_full_session": sum(m["role"] == "system" for m in episode["messages"]) == 1,
+        "single_full_session": (episode["session"].get("scope") == "episode"
+            and not episode["decision_sessions"] and bool(episode["messages"])
+            and episode["messages"][0] == {"role": "system", "content": episode["platform_prompt"]}),
         "complete_tool_pairs": not pending and not problems,
         "all_observations_retained": len(observations) == summary["decision_count"],
         "worker_inventory_matches_native_replay": len(observations) == len(replay.get("worker_samples", [])) and not worker_mismatches,
@@ -224,9 +262,21 @@ def audit(root):
         "replay_duration_matches_platform": isinstance(replay.get("duration_seconds"), (int, float))
             and abs(summary["game_time_seconds"] - replay["duration_seconds"]) < 2,
     }
+    if settings.get('role_instruction_role') == 'system':
+        checks['role_instructions_match_saved_call_roles'] = role_instruction_checks(episode['messages'], calls)
+    if 'batch_episode' in manifest:
+        row = manifest['batch_episode']
+        checks['batch_result_matches_episode'] = (
+            row['result'] == summary['result'] and row['end_reason'] == summary['end_reason']
+            and row['decision_count'] == summary['decision_count']
+            and abs(row['game_time_seconds'] - summary['game_time_seconds']) < 1e-6)
     if settings.get("native_thinking_requested"):
         checks["thinking_responses_saved"] = any(m.get("reasoning_content")
             for m in episode["messages"] if m["role"] == "assistant")
+    if settings.get("advance_policy") == "separate_reply":
+        checks["advance_submitted_in_separate_replies"] = all(
+            len(episode["messages"][t["assistant_message_index"]].get("tool_calls", [])) == 1
+            for t in tools if t["name"] == "advance" and t["status"] == "decision_ready")
     harness = settings["harness"]
     log_calls = [(role, float(clock)) for role, clock in re.findall(
         r"(?m)^\[Model call #\d+ \| (\w+) \| game_time=([\d.]+)s\]$", log)]
@@ -252,7 +302,8 @@ def audit(root):
                     if not item["next_instruction"].endswith("Your current task is step 1: " + plan[0]):
                         focus_errors.append(index)
                     if item["role"] == "replanner":
-                        marker = "Latest executor attempt (tool replies are receipts, not proof of completion): "
+                        marker = ("Latest executor attempt: " if "Latest executor attempt: " in item["instruction"]
+                                  else "Latest executor attempt (tool replies are receipts, not proof of completion): ")
                         raw = item["instruction"].split(marker, 1)[1]
                         attempt = json.JSONDecoder().raw_decode(raw)[0]
                         observed = episode["messages"][attempt["observation_message_index"]]

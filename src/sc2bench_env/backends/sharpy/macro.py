@@ -3,6 +3,7 @@ from __future__ import annotations
 
 
 import logging
+from contextlib import nullcontext
 from typing import Any, Callable, Dict, List, Optional
 
 from sharpy.plans.acts.act_base import ActBase
@@ -168,6 +169,38 @@ class ActOngoingMacroTasks(ActBase):
             return not bool(task.get("_paid"))
         return not bool(task.get("_act_done"))
 
+    def _refresh_production_targets(self, ordered) -> set:
+        """Convert remaining outputs to stock targets using this native frame.
+
+        A target frozen until the next Agent decision replaces casualties in
+        addition to the requested outputs. Birth credit and current inventory
+        already update every frame; consume both before issuing another order.
+        """
+        bridge = getattr(self.ai, "bridge", None)
+        if bridge is None:
+            return set()
+        with getattr(bridge, "lock", nullcontext()):
+            snapshot = getattr(bridge, "snapshot", None)
+            meta = dict(getattr(bridge, "task_meta", {}))
+            completed = dict(getattr(bridge, "peak_ready", {}))
+        if snapshot is None:
+            return set()
+        prefixes, fulfilled = {}, set()
+        for task in ordered:
+            task_id = task.get("task_id")
+            item = meta.get(task_id)
+            if not item or item[0] not in {"train", "build"}:
+                continue
+            action, target, count = item[:3]
+            remaining = max(0, int(count) - int(completed.get(task_id, 0)))
+            if not remaining:
+                fulfilled.add(task_id)
+                continue
+            key = (action, target)
+            prefixes[key] = prefixes.get(key, 0) + remaining
+            task["to_count"] = self.adapter.production_owned_count(snapshot, action, target) + prefixes[key]
+        return fulfilled
+
     async def execute(self) -> bool:
         # Preserve JSON array spend priority (PLATFORM_PLAN §5.3).
         ordered = sorted(
@@ -177,6 +210,8 @@ class ActOngoingMacroTasks(ActBase):
                 str(task.get("task_id") or ""),
             ),
         )
+
+        fulfilled = self._refresh_production_targets(ordered)
 
         budget_m = float(getattr(self.ai, "minerals", 0) or 0)
         budget_v = float(getattr(self.ai, "vespene", 0) or 0)
@@ -201,6 +236,10 @@ class ActOngoingMacroTasks(ActBase):
             if task.get("_disabled", False):
                 continue
             task.pop("_waiting_for", None)
+            if task.get("task_id") in fulfilled:
+                task["_act_done"] = True
+                task.pop("_execution_error", None)
+                continue
 
             try:
                 to_count = int(task.get("to_count", 1))

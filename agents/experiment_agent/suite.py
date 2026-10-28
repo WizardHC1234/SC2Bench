@@ -9,7 +9,7 @@ DIFFICULTIES = ("mediumhard", "hard", "harder", "veryhard")
 STYLES = ("rush", "timing", "power", "macro", "air")
 
 
-def build_suite(*, repetitions=20, max_decisions=500, game_time_limit_seconds=1800,
+def build_suite(*, repetitions=20, max_decisions=None, game_time_limit_seconds=1800,
                 game_seeds=None):
     if type(repetitions) is not int or repetitions < 1:
         raise ValueError("repetitions must be positive")

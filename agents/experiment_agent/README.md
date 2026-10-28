@@ -3,22 +3,27 @@
 独立于 `agents/llm_agent/` 的研究实现，只依赖平台的公开 Agent、工具和记录接口。
 四种 Harness 共用模型客户端、种族规则、工具集、Full Session 会话和预算统计。
 没有加载种族打法 skill、回放真值、外部记忆或前局经验。
+共同角色以 `You are an expert StarCraft II player.` 开头，随后说明当前种族、平台工具与任务。
 
 ## 四种流程
 
 | 参数 | 单局内流程 |
 | --- | --- |
 | `act_only` | 每次调用前明确要求只返回工具调用，正文为空；收到工具结果后继续选择动作。带正文的工具回复会原样留档并返回修正提示，本批次不执行。 |
-| `react` | 提示模型先给简短分析，再调用工具，根据返回结果继续决策。 |
+| `react` | 提示模型先给分析，再调用工具，根据返回结果继续决策。 |
 | `plan_and_execute` | 首次观测调用 Planner；Executor 使用 ReAct 工具循环执行剩余计划的第一步；游戏时间推进后，新观测和该步骤的执行反馈触发 Replanner。计划步骤可以跨多次推进，执行器提交动作不等于步骤完成。 |
 | `reflection` | 首次决策使用 ReAct；每次游戏时间推进、收到新观测后，先调用 Reflector，再继续 ReAct。反思针对本局实际反馈，随本局结束销毁。 |
 
 所有模块使用同一模型、同一份本局历史和平台提供的有限视野信息。Planner、Replanner、Reflector
-不执行环境工具；Executor/Actor 可以交错查询和动作。`advance` 必须是回复中的最后一个调用。
+不执行环境工具；Executor/Actor 按需查询、选择并暂存本轮动作、检查回执并完成更正，然后单独调用 `advance`。
+混合其他调用与 `advance` 的整条回复不会提交；更正时保留此前回复已经暂存的工作。没有新动作时可以直接等待。
 反思和重规划不在工具暂存反馈上触发；同一游戏时刻再次决策也不重复触发。
 反思阶段若输出 DSML/XML 等工具调用文本，会被要求重写；这类文本从不解析为环境操作。
 Act-only 请求使用 `tool_choice=required`，由支持该模式的服务约束为原生工具输出；其他 Harness 的执行阶段保持 auto。
-Planner/Replanner 使用服务端 JSON 对象模式，再校验计划字段；Actor 与 Reflector 不使用 JSON 模式。
+Planner/Replanner 在已验证的 `deepseek_sglang` 服务上使用 JSON Schema，要求返回 `plan` 和 `completed_steps`；其他服务配置保留 JSON 对象模式。收到返回后仍校验计划内容。Actor 与 Reflector 不使用 JSON 模式。
+角色切换使用系统指令，具体任务随后作为用户消息提供；切回行动时恢复 Actor/Executor 指令。
+角色指令、观测、模型输出和工具回执均按实际顺序保留在同一 Session，不改写此前消息。
+Full Session 允许本局内追加角色系统指令，不以“只有一条 system 消息”作为会话完整性的判断。
 
 Reflection 是**局内适配版本**，借鉴反馈—反思—后续行动的组织方式，不是原始 Reflexion
 跨次尝试、积累经验后重试的复现。当前触发规则固定为每个新决策观测，不按输赢或模型表现临时挑选。
@@ -26,6 +31,7 @@ ReAct 是统一平台接口下的提示词适配；Plan-and-Execute 采用 Plann
 结构，没有引入 LangChain 运行时，也不声称复现某个论文的全部实现细节。
 
 公开代码依据与逐项检查见 [实现核查报告](../../analysis/metric_design/harness_audit/implementation_verification.md)。
+version 3 的四种完整对局、源码冻结及角色切换核查见 [最新验证记录](../../records/experiments/harness_revision_20261028_104113/review_report.md)。
 本次核查固定了 ReAct 作者仓库、LangGraph 官方教程、Reflexion 作者仓库以及 τ-bench
 的 Act/ReAct 实现版本。四种方法都适配为原生工具接口，允许一条回复包含多个调用；
 Plan-and-Execute 在新观测到达后重规划，是连续 SC2 环境的适配。
@@ -34,13 +40,20 @@ Executor 的当前任务明确为 `plan[0]`；每次执行保留任务名、工�
 
 阶段指令直接说明任务，不添加 `[Stage: ...]` 前缀。日志和核查从 `metrics.json` 的调用角色关联模型回复，保留对旧记录的兼容。
 工人计数修复的完整验证见 [记录核查](../../records/experiments/full_validation_20261027_210319/detailed_review.md)：原始四局发现气矿内部工人漏计并已修复，修复后的三局模型完整复测和一局固定工人请求验证单独保存。
-当前 30 分钟配置和 Thinking 接口验证见 [平台复查](../../records/experiments/limited_recheck_20261027_232753/review_report.md)。
+四种 Thinking 完整对局、执行数量修复及复测见 [平台复查](../../records/experiments/thinking_all_harnesses_20261027_235715/review_report.md)。
 
 ## 提示词与外围约束
 
 共同提示词要求以最新观测为准：历史状态、计划、反思和动作暂存结果都不能替代实际执行反馈。
+四种方式共用经济、人口、生产队列、阻塞、军队命令和可见威胁的操作检查，不规定固定开局或数量阈值。
 拒绝或 no-op 不会撤销此前暂存的工作；修正时只调整需要修正的部分，避免重复添加持续任务。
 四种 Harness 共享这些规则，区别保留在各自的分析与执行流程中。
+平台公共 `game_background` 提供经济与生产、科技转型、军队组成、空间时间、信息和目标调整的背景。
+它显示在 `Game basics` 下的 `Game background` 段，与方法指导分开。
+三个种族及四种 Harness 共用这一段；替换 `decision_guidance` 时仍保留，并单独记录提示词哈希。
+它描述决策因素之间的关系，不设置固定打法、数量阈值、思考顺序或输出篇幅。
+分析和反思不限制篇幅；允许使用星际知识与雾战推理，并区分推测和已观测事实。
+非 Act-only 的纯分析回复可以继续推理，再选择工具；不将这种回复作为格式错误处理。
 
 平台共同说明明确区分人口预占和单位完成、工人总数和采集分配、建筑出现和建筑就绪。
 扫描、MULE、空投补给、时空加速、注卵和菌毯瘤通过后续原生观测的效果确认施放，
@@ -49,6 +62,9 @@ Executor 的当前任务明确为 `plan[0]`；每次执行保留任务名、工�
 
 - Planner 生成具有可观察完成条件的步骤；Replanner 的完成项必须逐字引用上一次计划，
   不能同时出现在剩余步骤中，也不能把放弃的项目写成已完成。程序校验结构和引用，实际执行状态仍由平台提供。
+- 计划面向获胜目标，由模型按局势选择规划范围和细节，步骤具有可观察的完成条件。
+  Replanner 可替换模糊、受阻或已不合适的步骤，无需把旧计划原样保留。
+- Plan-and-Execute 的首步是主目标；持续经营、生产和紧急防御与有限里程碑并行处理。
 - 格式修正保留原阶段指令、旧计划和证据要求，不会退化为仅让模型随意重写一段 JSON。
 - Actor/Executor 根据真实工具反馈修正动作；反思阶段只评估结果，不能代替 Actor 发出操作。
 - 工具异常时保存此前已有的返回结果；报错调用标为执行状态不确定，后续未调用部分标为未提交，
@@ -121,7 +137,7 @@ Qwen 的模型 ID 使用部署服务暴露的名称。vLLM 服务还需要正确
 
 默认采用 Full Session；每个环境决策不设 API 调用次数上限，API 请求不传 `max_tokens`。
 以下调用数、输出 token 上限均为可选项，不设置就不启用。
-网络错误默认每个请求最多尝试 3 次，实验套件默认每局最多 500 次环境决策。
+网络错误默认每个请求最多尝试 3 次。自动生成的实验套件不限制环境决策次数，由对局结束或 30 分钟游戏时限结束；传入套件或命令行显式设置的决策上限仍然生效。
 
 - `--max-calls-per-decision`：包括 Actor、Planner、Executor、Replanner、Reflector 和 API 重试。
 - `--max-calls-per-episode`：可选整局调用上限，跨环境决策累计。

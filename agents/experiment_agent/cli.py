@@ -11,7 +11,7 @@ from pathlib import Path
 from sc2bench_env.benchmark import BenchmarkRunner, BenchmarkSuite
 
 from .agent import ExperimentAgent
-from .client import ChatClient
+from .client import ChatClient, plan_response_format
 from .config import HARNESSES, PROVIDERS, HarnessConfig
 from .prompts import fingerprints
 from .suite import build_suite
@@ -37,18 +37,23 @@ def metadata(args, config):
         schedule["reflection_trigger"] = "new_observation_after_game_time_advance"
     elif config.harness == "plan_and_execute":
         schedule["replan_trigger"] = "new_observation_after_game_time_advance"
-        schedule["planner_response_format"] = "json_object"
+        response_format = plan_response_format(args.provider)
+        schedule["planner_response_format"] = response_format["type"]
+        if "json_schema" in response_format:
+            schedule["planner_response_schema"] = response_format["json_schema"]["schema"]
         schedule["executor_task_policy"] = "first_remaining_plan_step"
         schedule["execution_feedback"] = "tool_result_references_and_next_observation"
     elif config.harness == "act_only":
         schedule["tool_choice"] = "required"
     return {
-        "name": "sc2bench_" + config.harness, "version": "1", "model": args.model,
+        "name": "sc2bench_" + config.harness, "version": "3", "model": args.model,
         "implementation": "agents.experiment_agent.ExperimentAgent", "source_sha256": source_hash(),
         "settings": {**config.to_dict(), "provider": args.provider, "temperature": args.temperature,
                      "api_timeout_seconds": args.api_timeout, "conversation_mode": "full_session",
                      "native_thinking_requested": config.native_thinking, "cross_episode_memory": False,
                      "context_overflow_policy": "stop_without_truncation",
+                     "advance_policy": "separate_reply",
+                     "role_instruction_role": "system",
                      "uncertain_tool_error_policy": "record_and_stop_without_replay",
                      **schedule,
                      "prompt_fingerprints": fingerprints()},
@@ -88,7 +93,7 @@ def main(argv=None):
             suite = BenchmarkSuite.load(args.suite).with_overrides(
                 repetitions=args.repetitions, max_decisions=args.max_decisions)
         else:
-            suite = build_suite(repetitions=args.repetitions or 20, max_decisions=args.max_decisions or 500)
+            suite = build_suite(repetitions=args.repetitions or 20, max_decisions=args.max_decisions)
         # All four methods use the agreed blocking, single-game protocol.
         for item in suite.episode_plan():
             episode = item["config"]
