@@ -88,8 +88,7 @@ class BenchmarkSuite:
         if not isinstance(data["purpose"], str) or data["purpose"] not in {"workflow_pilot", "evaluation"}:
             raise ValueError("purpose must be workflow_pilot or evaluation")
         _positive_integer(data["repetitions"], "repetitions")
-        if data["max_decisions"] is not None:
-            _positive_integer(data["max_decisions"], "max_decisions")
+        _positive_integer(data["max_decisions"], "max_decisions")
         defaults = data["episode_defaults"]
         if not isinstance(defaults, dict) or set(defaults) - _CONFIG_FIELDS:
             raise ValueError("Unsupported episode_defaults fields; seed is not supported")
@@ -135,7 +134,7 @@ class BenchmarkSuite:
         return hashlib.sha256(self._canonical_json.encode("utf-8")).hexdigest()
 
     @property
-    def max_decisions(self) -> Optional[int]:
+    def max_decisions(self) -> int:
         return self.to_dict()["max_decisions"]
 
     def with_overrides(self, *, repetitions: Optional[int] = None,

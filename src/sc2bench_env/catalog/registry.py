@@ -349,13 +349,10 @@ def render_decision_guide(*, race: str = "terran") -> str:
 def render_observation_guide() -> str:
     return "\n".join([
         "Observation contract:",
-        "- The latest Brief Observation is the compact state summary for this decision. It replaces older changing values; earlier observations are history.",
-        "- Brief Observation covers ordinary economy, production, army, threats and feedback.",
+        "- The latest Brief Observation is the self-contained snapshot for this decision. It replaces older changing values; earlier observations are history.",
+        "- Brief Observation covers ordinary economy, production, army, threats and feedback. Use Read tools for omitted match-state detail and Knowledge tools for static game data when needed.",
+        "- Queries inspect one frozen snapshot and do not advance time. Action calls are validated and staged; only advance submits them and continues the game.",
         "- unknown means that information is unavailable, while none means that the observed value is empty.",
-        "- Supply used includes supply reserved for units in production. Worker and army counts describe observed units.",
-        "- Workers gives the total worker count, followed by mineral assignments, vespene assignments and other workers. Each assignment/saturation pair is the current assignment count and its saturation target.",
-        "- Infrastructure distinguishes ready structures from structures under construction. A structure listed in a zone inventory can still be under construction; use readiness or production detail to establish completion.",
-        "- Research states: waiting_to_start means not started; waiting_for:<reason> reports a blocker; in_progress means underway; completed means the upgrade has finished. Income rates describe current collection.",
         "- Names and IDs keep their exact platform spelling. Copy zone_id and group_id from Observation.",
     ]) + "\n"
 

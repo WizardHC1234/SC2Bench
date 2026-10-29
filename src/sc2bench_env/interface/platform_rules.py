@@ -1,43 +1,34 @@
 """Model-facing contract text; each rule has one presentation owner."""
 
-ROLE_RULES = """Your objective is to destroy enemy structures before the time limit. Fog may conceal surviving enemy units and structures, including flying buildings. If play continues with no enemy structures visible, use last-seen information, scouting or scans to search unconfirmed areas. The platform-reported game status and result establish the outcome, and reaching the time limit results in a Tie.
+ROLE_RULES = """Your objective is to destroy enemy structures before the time limit. Fog may hide surviving enemies, including flying structures, so an empty visible-enemy list is not proof of victory. If play continues with no enemy structures visible, use last-seen information, scouting or scans to search unconfirmed areas. Only Observation.terminated/result establishes the outcome, and reaching the time limit results in a Tie.
 """
 
 CONTROL_RULES = """Control boundary:
 - You make the strategic decisions for construction, production, research, town-hall morphs, scouting, scan and MULE use, and army orders.
-- The backend handles building placement, worker assignment, pathfinding, mining, repair, interrupted-construction continuation, local defense and combat micro.
+- The backend handles building placement, worker assignment, pathfinding, mining, repair, interrupted-construction continuation and local combat micro.
 - Supply Depots, MULEs, Supply Drops, town-hall morphs, strategic scans and reinforcements require explicit actions. The backend does not automatically replace destroyed production, add technology, train units or reinforce an outbound group.
 """
 
 INTERACTION_RULES = """- Changes reports execution progress since the previous decision. Use Read tools for omitted match-state detail and Knowledge tools for static game data when the decision needs them.
-- Each Action immediately returns whether it was staged, rejected or a no-op, together with its effect on unfinished work when relevant. Staged actions are stored for this decision only; they are not paid for, started or completed yet.
-- Queries and Action calls may be interleaved within a tool turn. Queries use the same frozen decision snapshot and do not advance time.
-- Review Action results before calling advance. Call advance exactly once as the final tool call to submit staged actions and continue the game. With no new action, call advance by itself.
+- Queries read one frozen snapshot and do not advance time. Each Action immediately returns whether it was staged, rejected or a no-op, together with its effect on unfinished work when relevant. Staged actions are stored for this decision only; they are not paid for, started or completed yet.
+- Query and Action calls made before advance use the same frozen decision snapshot. Review Action results before calling advance. Call advance exactly once as the final tool call to submit staged actions and continue the game. With no new action, call advance by itself.
 """
 
 PLANNING_RULES = """Planning context:
-- Treat each decision as part of the same continuing match. Use the current Observation, the previous Feedback and persistent accepted work when choosing the next actions.
+- Treat each decision as part of the same continuing match. Use the current Observation, the previous Feedback and persistent accepted work rather than planning from the current resource bank alone.
 - When adding work, consider its mineral and gas requirements together with continuing income, supply, prerequisites, completion times and existing unfinished work.
-"""
-
-GAME_BACKGROUND = """- Economy and production: Income, available resources, production capacity and supply jointly determine how quickly forces can be fielded. Workers, expansions, production facilities, technology and combat units compete for resources and time; their value depends on current threats and intended objectives.
-- Technology and transitions: Technology and upgrades change the capabilities available to an army. Their benefits arrive after their prerequisites, costs and completion times; existing forces and production remain relevant during a transition.
-- Army composition: Combat effectiveness depends on ground and air attack capabilities, damage and defensive attributes, unit roles, numbers, upgrades and positioning. Damage, protection, support, scouting and detection contribute in different ways. Version-matched unit and research queries describe specific capabilities and effects.
-- Space and time: Travel, assembly and reinforcement take time. Total forces across the map differ from those able to participate at a particular location. Routes, force concentration, coverage and access to reinforcements affect the opportunities and risks of an operation.
-- Information: Visible enemies, last-seen information and inferred developments have different certainty and freshness. Enemy composition, infrastructure, expansion and movement inform strategic choices; scouting can resolve uncertainties relevant to those choices.
-- Objectives and adaptation: Growth, force preservation, map control and attacks contribute to defeating the opponent. Their relative priority changes with threats, losses, new information and the ability to act.
 """
 
 EXECUTION_RULES = """Execution model:
 - Accepted build and train requests persist across decisions until completed, cancelled or failed. Repeating one requests additional work. Check existing persistent work before adding more; cancel edits the queue by removing matching unstarted work.
-- Runnable requests use resources in submission order. Missing prerequisites do not reserve resources. Production and Changes report observed blockers.
-- Actions that fail tool validation are rejected without being staged; other staged actions remain. Valid production requests can wait for resources, supply, prerequisites or production capacity. After advance, Changes reports execution progress, blockers, completion and failure.
+- Runnable requests use resources in submission order. Missing prerequisites do not reserve resources, and waiting_for reports observed blockers.
+- Actions that fail tool validation are rejected without being staged; actions already staged in this decision remain. Valid production requests can wait for resources, supply, prerequisites or production capacity. After advance, Changes reports execution progress, blockers, completion and failure.
 - Production buildings add capacity; units and research still require explicit train or research actions.
 - The backend may cancel an unfinished building when it is low on health and still taking damage.
 """
 
 ARMY_RULES = """Army groups:
-- group_0 is the permanent home pool. Eligible new combat units gather at a completed natural base when available, otherwise at the main. Use its available counts for dispatch or reinforcement; units performing another platform-managed role, scouting, transporting or assigned to an outbound group are unavailable. A returned group joins it only after arriving home.
+- group_0 is the permanent home pool. Eligible new army units gather at a completed natural base when available, otherwise at the main. Use its available counts for dispatch or reinforcement; units performing another platform-managed role, scouting, transporting or assigned to an outbound group are unavailable. A returned group joins it only after arriving home.
 - New units do not automatically reinforce outbound groups.
 - Army orders persist until changed. Reassess existing groups as objectives, positions and threats change, and issue new orders when appropriate.
 - Zone numbers do not imply adjacency; query routes when path choice matters.
@@ -52,40 +43,39 @@ GAME_RULES = """- Minerals and gas pay for buildings, units and research. Comple
 - Mining, construction, production, research, scouting and combat continue concurrently while game time advances.
 """
 
-PROTOSS_ROLE_RULES = """Your objective is to destroy enemy structures before the time limit. Fog may conceal surviving enemy units and structures, including flying buildings. If play continues with no enemy structures visible, use last-seen information or scouting to search unconfirmed areas. The platform-reported game status and result establish the outcome, and reaching the time limit results in a Tie.
+PROTOSS_ROLE_RULES = """Your objective is to destroy enemy structures before the time limit. Fog may hide surviving enemies, including flying structures, so an empty visible-enemy list is not proof of victory. If play continues with no enemy structures visible, use last-seen information or scouting to search unconfirmed areas. Only Observation.terminated/result establishes the outcome, and reaching the time limit results in a Tie.
 """
 
 PROTOSS_CONTROL_RULES = """Control boundary:
 - You make the strategic decisions for construction, production, research, scouting and army orders.
-- The backend handles building placement, worker assignment, pathfinding, mining, local defense and combat micro.
+- The backend handles building placement, worker assignment, pathfinding, mining and local combat micro. warp_gate research does not morph Gateways.
 - Pylons, chrono_boost and reinforcements require explicit actions. The backend does not automatically replace destroyed production, add technology, train units or reinforce an outbound group.
 """
 
 PROTOSS_GAME_RULES = """- Minerals and gas pay for buildings, units and research. Completed Probes generate income while gathering resources; Probes occupied by other work are not gathering. Additional eligible gathering Probes increase income until the available mineral or gas worker capacity is reached.
 - Units queued in the game commit resources and supply; unstarted platform training requests have not paid those costs. Completed supply-providing structures increase the supply cap, unfinished ones provide no supply, and total supply is capped at 200. A unit cannot begin production while its required supply is unavailable. Query the relevant building data when the exact amount is needed.
-- Buildings and research require completed prerequisites. Gateways, Warp Gates, Robotics Facilities and Stargates need power; Nexuses do not. Unit production requires a completed compatible producer; accepted work waits while compatible producers are busy. A Warp Gate instead warps one unit when its cooldown is ready.
-- Gateways, Robotics Facilities and Stargates do not take add-ons. warp_gate research does not automatically convert Gateways; build warpgate converts one available completed Gateway after research. Train names stay the same, and warp-ins join group_0 at home.
-- Nexuses train Probes. Probes construct buildings and do not repair.
-- train archon merges two available High or Dark Templars from the home pool.
+- Buildings and research require completed prerequisites. Gateways, Warp Gates, Robotics Facilities and Stargates require power; a Nexus does not. Unit production requires a completed compatible producer; accepted work waits while compatible producers are busy. Gateways, Robotics Facilities and Stargates hold a short queue. A Warp Gate instead warps one unit when its cooldown is ready.
+- Gateways, Robotics Facilities and Stargates do not take add-ons. build warpgate converts one completed Gateway after research. Train names stay the same, and warp-ins join group_0 at home.
+- A Nexus trains Probes. Probes initiate building construction and can then return to other work. Probes do not repair.
 - Cloaked or burrowed enemies require detection before they can be targeted.
 - Mining, construction, production, research, scouting and combat continue concurrently while game time advances.
 """
 
-ZERG_ROLE_RULES = """Your objective is to destroy enemy structures before the time limit. Fog may conceal surviving enemy units and structures, including flying buildings. If play continues with no enemy structures visible, use last-seen information or scouting to search unconfirmed areas. The platform-reported game status and result establish the outcome, and reaching the time limit results in a Tie.
+ZERG_ROLE_RULES = """Your objective is to destroy enemy structures before the time limit. Fog may hide surviving enemies, including flying structures, so an empty visible-enemy list is not proof of victory. If play continues with no enemy structures visible, use last-seen information or scouting to search unconfirmed areas. Only Observation.terminated/result establishes the outcome, and reaching the time limit results in a Tie.
 """
 
 ZERG_CONTROL_RULES = """Control boundary:
 - You make the strategic decisions for construction, production, research, scouting and army orders.
-- The backend handles building placement, worker assignment, pathfinding, mining, local defense and combat micro.
-- Overlords, inject_larva, spawn_creep_tumor and reinforcements require explicit actions. Queen energy is reported. Burrow, unburrow and Overlord Generate Creep stay on the backend. Queens, Overlords and Overseers are excluded from automatic home gathering. The backend does not automatically replace destroyed production, add technology, train units or reinforce an outbound group.
+- The backend handles building placement, worker assignment, pathfinding, mining and local combat micro.
+- Overlords, inject_larva, spawn_creep_tumor and reinforcements require explicit actions. Queen energy is reported. Burrow, unburrow and Overlord Generate Creep stay on the backend. The backend does not automatically replace destroyed production, add technology, train units or reinforce an outbound group.
 """
 
 ZERG_GAME_RULES = """- Minerals and gas pay for buildings, units and research. Completed Drones generate income while gathering resources; Drones occupied by other work are not gathering. Additional eligible gathering Drones increase income until the available mineral or gas worker capacity is reached.
 - Units queued in the game commit resources and supply; unstarted platform training requests have not paid those costs. Completed supply-providing units or structures increase the supply cap, unfinished ones provide no supply, and total supply is capped at 200. Morphing a town hall does not add more supply. A unit cannot begin production while its required supply is unavailable. Query the relevant unit or building data when the exact amount is needed.
-- Buildings and research require completed prerequisites. Most Zerg buildings must be placed on creep. Most units hatch from shared larva. Queens train at a town hall and do not use larva. One larva order can produce more than one unit; count is the minimum requested, and Feedback reports the actual number when a batch produces more. Drone-built structures consume their builder when construction starts. Unit morphs consume the source unit.
+- Buildings and research require completed prerequisites. Most Zerg buildings must be placed on creep. Most units hatch from shared larva. Queens train at a town hall and do not use larva. One larva order can produce more than one unit; count is the minimum requested, and Feedback reports the actual number when a batch produces more. Drones are consumed when they start a building. Unit morphs consume the source unit.
 - There are no add-ons. morph_townhall changes a selected Hatchery to a Lair, or a Lair to a Hive. Lurker Den morphs a Hydralisk Den, and Greater Spire morphs a Spire.
-- Baneling, Ravager, Lurker, Overseer, Brood Lord and transport Overlords morph existing units. These requests require available source units.
-- A Hatchery, Lair or Hive provides larva and trains Queens. Drones gather resources and do not repair.
+- Baneling, Ravager, Lurker, Overseer, Brood Lord and transport Overlords morph existing units. They do not train the source unit.
+- A Hatchery, Lair or Hive provides larva and trains Queens. Drones gather resources and are consumed when they start buildings. Drones do not repair.
 - Cloaked or burrowed enemies require detection before they can be targeted.
 - Mining, construction, production, research, scouting and combat continue concurrently while game time advances.
 """
@@ -107,7 +97,7 @@ ACTION_RULES = {
     "inject_larva": "Spend 25 energy from one ready Queen to inject one town hall the backend chooses. It is not cast automatically. Transfuse remains backend combat micro.",
     "spawn_creep_tumor": "Plant one creep tumor on creep, toward the enemy. A burrowed tumor spreads the next one for free. If none can, one ready Queen spends 25 energy. It is not cast automatically.",
     "scout": 'Send one SCV along the ordered route; route="all" performs one expansion-zone sweep. A new scout command replaces existing scout work, and the scout\'s death fails the task without automatic replacement. Arrival does not guarantee full-zone visibility or that every enemy was found.',
-    "morph_townhall": "Morph the selected town hall to the requested form. The request completes when a native morph order or the resulting form is observed. The new form may still be unfinished.",
+    "morph_townhall": "Morph the selected town hall to the requested form. The request completes when the morph command is issued, not when the new form finishes.",
     "dispatch_group": "Split the requested units from group_0 or another active group into a new group and give it an attack or defend order. The split is all-or-nothing; the source keeps its own ID and order. group_0 remains the home pool.",
     "attack_group": "Order an existing outbound group to attack a zone, whether or not the zone is currently visible. This changes that group's order and does not create a group or change its membership.",
     "defend_group": "Order an existing outbound group to defend a zone. This changes that group's order and does not create a group or change its membership. Defending groups stay near the target, do not chase across the map and do not proactively attack structures.",

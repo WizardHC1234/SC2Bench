@@ -24,26 +24,7 @@ def _townhall_count(buildings: Dict[str, int], targets) -> Optional[int]:
     return None if targets is None else sum(int(buildings.get(key, 0)) for key in targets)
 
 
-def _include_hidden_workers(ai: Any, adapter: Any, units: Dict[str, int]) -> int:
-    """SC2 omits workers inside gas structures from raw units temporarily.
-
-    player_common.food_workers counts completed permanent workers (not MULEs
-    or reserved production supply). Sharpy ActUnit uses the same counter, so
-    absolute production targets and public inventory must use this count too.
-    Keep real entity tags unchanged; a counter is not a fabricated unit tag.
-    """
-    name = {"terran": "scv", "protoss": "probe", "zerg": "drone"}.get(getattr(adapter, "race_name", None))
-    reported = getattr(ai, "supply_workers", None)
-    if name is None or type(reported) not in (int, float) or not 0 <= reported < float("inf"):
-        return 0
-    visible = int(units.get(name, 0))
-    total = max(visible, int(reported))
-    if total > visible:
-        units[name] = total
-    return total - visible
-
-
-def _worker_assignment(ai: Any, total_workers: int, *, hidden_workers: int = 0) -> Optional[Dict[str, int]]:
+def _worker_assignment(ai: Any, total_workers: int) -> Optional[Dict[str, int]]:
     """Count current permanent-worker orders."""
     workers = getattr(ai, "workers", None)
     if workers is None:
@@ -70,12 +51,6 @@ def _worker_assignment(ai: Any, total_workers: int, *, hidden_workers: int = 0) 
                 on_vespene += 1
             elif bool(getattr(worker, "is_carrying_minerals", False)):
                 on_minerals += 1
-    # Hidden gas workers have no raw order. Use the own refinery's native
-    # harvester count only to attribute the missing inventory, not to overwrite
-    # observed workers' orders or count the same worker twice.
-    gas_assigned = sum(max(0, int(getattr(resource, "assigned_harvesters", 0) or 0))
-                       for resource in (getattr(ai, "gas_buildings", None) or []))
-    on_vespene += min(max(0, int(hidden_workers)), max(0, gas_assigned - on_vespene))
     assigned = min(max(0, int(total_workers)), on_minerals + on_vespene)
     # Loaded, constructing, moving, scouting and idle workers are all "other".
     # Clamp protects the public invariant if a transient client frame reports
@@ -363,7 +338,6 @@ def read_snapshot(
         counted_tags=set(visible_tags),
         garrison=bunker_garrison,
     )
-    hidden_workers = _include_hidden_workers(ai, adapter, units)
 
     for structure in ai.structures.ready:
         for order in structure.orders:
@@ -477,7 +451,7 @@ def read_snapshot(
     ) or 0)
     supply_army = int(getattr(ai, "supply_army", 0) or 0)
     total_workers = sum(int(units.get(name, 0)) for name in ("scv", "probe", "drone"))
-    worker_assignment = _worker_assignment(ai, total_workers, hidden_workers=hidden_workers)
+    worker_assignment = _worker_assignment(ai, total_workers)
     mineral_worker_saturation = _ideal_harvester_total(townhall_units)
     vespene_worker_saturation = _ideal_harvester_total(getattr(ai, "gas_buildings", None))
     # Sharpy's default IncomeCalculator estimates collection from assigned

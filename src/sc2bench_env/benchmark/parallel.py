@@ -51,7 +51,7 @@ def _failure(config: EpisodeConfig, error_type: str) -> dict[str, Any]:
 
 
 def _worker_main(payload: bytes, config: EpisodeConfig, record_dir: str,
-                 max_decisions: int | None, connection: Any, cancel: Any) -> None:
+                 max_decisions: int, connection: Any, cancel: Any) -> None:
     # Ctrl+C belongs to the coordinator. Workers receive cooperative cancellation;
     # unresponsive calls are stopped with their own child process tree.
     signal.signal(signal.SIGINT, signal.SIG_IGN)
@@ -180,7 +180,7 @@ def _worker_result(worker: _Worker, error_type: str = "WorkerExited") -> dict[st
 
 
 def run_parallel(configs: Sequence[EpisodeConfig], payload: bytes, record_dir: Path,
-                 max_decisions: int | None, max_parallel: int,
+                 max_decisions: int, max_parallel: int,
                  on_result: Callable[[int, dict[str, Any]], None]) -> None:
     """Refill freed slots immediately; the coordinator collects results in memory."""
     context = mp.get_context("spawn")  # consistent on Windows and Linux

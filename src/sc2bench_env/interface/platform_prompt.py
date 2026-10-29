@@ -16,7 +16,6 @@ from sc2bench_env.interface.platform_rules import (
     PROTOSS_GAME_RULES,
     PROTOSS_ROLE_RULES,
     ROLE_RULES,
-    GAME_BACKGROUND,
     ZERG_CONTROL_RULES,
     ZERG_GAME_RULES,
     ZERG_ROLE_RULES,
@@ -32,15 +31,13 @@ class PromptParts:
     tool_interaction: str
     execution_rules: str
     decision_guidance: str
-    game_background: str = ""
 
 
 def default_prompt_parts(race: str = "terran") -> PromptParts:
     """Platform contract plus replaceable decision_guidance.
 
     Sections 1–5 and the user-message decision request are the platform
-    contract. Game background is shared knowledge, independent of
-    the decision_guidance a harness may replace.
+    contract. decision_guidance is default advice a harness may replace.
     """
     require_supported_own_race(race)
     from sc2bench_env.catalog.registry import render_observation_guide
@@ -73,17 +70,13 @@ def default_prompt_parts(race: str = "terran") -> PromptParts:
         tool_interaction=INTERACTION_RULES.strip(),
         execution_rules=execution.strip(),
         decision_guidance=AGENT_GUIDANCE.strip(),
-        game_background=GAME_BACKGROUND.strip(),
     )
 
 
 def render_prompt(parts: PromptParts) -> str:
-    game_basics = parts.game_rules
-    if parts.game_background:
-        game_basics += "\n\nGame background\n" + parts.game_background
     sections = (
         ("1. Role and objective", parts.role_and_objective),
-        ("2. Game basics", game_basics),
+        ("2. Game basics", parts.game_rules),
         ("3. Reading Observation", parts.observation_rules),
         ("4. Tool interaction", parts.tool_interaction),
         ("5. Platform execution model", parts.execution_rules),
@@ -99,6 +92,6 @@ def prompt_part_hashes(parts: PromptParts) -> dict[str, str]:
         name: hashlib.sha256(getattr(parts, name).encode("utf-8")).hexdigest()
         for name in (
             "role_and_objective", "game_rules", "observation_rules",
-            "tool_interaction", "execution_rules", "decision_guidance", "game_background",
+            "tool_interaction", "execution_rules", "decision_guidance",
         )
     }

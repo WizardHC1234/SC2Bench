@@ -19,8 +19,7 @@ DECISION_FLOW = (
     "Queries may take multiple rounds.\n"
     "- Before staging work, review minerals, gas, supply, prerequisites, existing unfinished work and its blockers.\n"
     "- After querying, submit one or more chosen actions without advance. Review the returned staged totals, rejections and no-ops before ending the decision.\n"
-    "- Every operation chosen in the reply text must appear as a tool call in that same reply; "
-    "mentioning an operation in text does not execute it.\n"
+    "- Submit actions through native tool calls; describing an action or a future plan does not execute it.\n"
     "- If an Action result exposes an unintended total or rejection, correct the decision without repeating actions already staged. Then call advance by itself to submit the decision and move game time.\n"
     "- Do not mix queries, actions and advance in the same reply."
 )
@@ -32,12 +31,13 @@ NO_TOOL_HINT = (
 )
 READY_TEXT_HINT = (
     "Text without tool calls does not act. "
-    "Actions for this decision are already staged. "
-    "Review the returned action results. Call advance by itself, or submit a correction batch of action tools only. "
+    "Review the returned action results and any work already staged. "
+    "Call advance by itself, or submit a correction batch of action tools only. "
     "Do not query again and do not repeat actions that are already staged."
 )
 MIXED_REPLY_HINT = (
     "This reply was not submitted because it mixes stages. "
+    "Work staged in earlier replies is unchanged. "
     "One reply may contain only queries, or only actions, or advance by itself. "
     "Do not mix queries, actions, and advance."
 )
