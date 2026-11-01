@@ -172,6 +172,11 @@ class DefensiveGridBuilding(GridBuilding):
         super().__init__(unit_type, to_count, allow_wall=False)
         self.kind = kind
 
+    async def start(self, knowledge):
+        await super().start(knowledge)
+        # Supply infrastructure is an explicit Agent decision for every race.
+        self.make_pylon = None
+
     def position_terran(self, count) -> Optional[Any]:
         chosen = self._defensive_position()
         if chosen is not None:
@@ -268,8 +273,7 @@ class ZergDefensiveGridBuilding(DefensiveGridBuilding):
     """Prefer defensive positions that are legal on creep.
 
     Sharpy's generic ``GridBuilding`` creates a Pylon helper whenever a build
-    position is unavailable.  That fallback is valid for Protoss but must not
-    run for Zerg defensive structures.
+    position is unavailable. The platform disables that fallback for all races.
     """
 
     def __init__(self, unit_type: UnitTypeId, to_count: int, kind: str):

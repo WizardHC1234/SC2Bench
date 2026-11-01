@@ -40,11 +40,17 @@ class MicroObserverSafe(GenericMicro):
     """Surveillance while enemies are close; release the form to move or retreat."""
 
     def unit_solve_combat(self, unit, command):
+        if any(getattr(getattr(order, 'ability', None), 'id', None) in {
+                AbilityId.MORPH_OBSERVERMODE, AbilityId.MORPH_SURVEILLANCEMODE,
+        } for order in getattr(unit, 'orders', ())):
+            return NoAction()
         sieged = unit.type_id == UnitTypeId.OBSERVERSIEGEMODE
         enemies = _enemies(self)
         if self.move_type in RETREAT or not enemies:
-            if sieged and self.cd_manager.is_ready(unit.tag, AbilityId.MORPH_OBSERVERMODE):
-                return cast(self, unit, AbilityId.MORPH_OBSERVERMODE)
+            if sieged:
+                if self.cd_manager.is_ready(unit.tag, AbilityId.MORPH_OBSERVERMODE):
+                    return cast(self, unit, AbilityId.MORPH_OBSERVERMODE)
+                return NoAction()
             return _follow(self, command)
         if not sieged and self.cd_manager.is_ready(unit.tag, AbilityId.MORPH_SURVEILLANCEMODE):
             return cast(self, unit, AbilityId.MORPH_SURVEILLANCEMODE)
@@ -58,8 +64,10 @@ class MicroWarpPrismSafe(GenericMicro):
         phased = unit.type_id == UnitTypeId.WARPPRISMPHASING
         enemies = _enemies(self)
         if self.move_type in RETREAT or not enemies:
-            if phased and self.cd_manager.is_ready(unit.tag, AbilityId.MORPH_WARPPRISMTRANSPORTMODE):
-                return cast(self, unit, AbilityId.MORPH_WARPPRISMTRANSPORTMODE)
+            if phased:
+                if self.cd_manager.is_ready(unit.tag, AbilityId.MORPH_WARPPRISMTRANSPORTMODE):
+                    return cast(self, unit, AbilityId.MORPH_WARPPRISMTRANSPORTMODE)
+                return NoAction()
             return _follow(self, command)
         if not phased and self.cd_manager.is_ready(unit.tag, AbilityId.MORPH_WARPPRISMPHASINGMODE):
             return cast(self, unit, AbilityId.MORPH_WARPPRISMPHASINGMODE)

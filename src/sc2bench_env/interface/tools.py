@@ -313,14 +313,14 @@ def _action_description(name: str, race: str) -> str:
     if race == "terran" and name == "morph_townhall":
         return (
             "Morph the selected Command Center, identified by a townhall ID from Structures, into "
-            "an Orbital Command or Planetary Fortress. The request completes when issued, not when "
-            "the morph finishes."
+            "an Orbital Command or Planetary Fortress. A native morph order or target form confirms start; "
+            "the new form's readiness is reported separately."
         )
     if race == "zerg" and name == "morph_townhall":
         return (
             "Morph the selected Hatchery or Lair, identified by a townhall ID from Structures, "
-            "into a Lair or Hive respectively. The request completes when issued, not when the "
-            "morph finishes."
+            "into a Lair or Hive respectively. A native morph order or target form confirms start; "
+            "the new form's readiness is reported separately."
         )
     return ACTION_RULES[name]
 
@@ -346,7 +346,7 @@ def _action_specs(race: str = "terran") -> Tuple[ToolSpec, ...]:
                         "source": source,
                         "units": units,
                         "order": {"type": "string", "enum": ["attack", "defend"]},
-                        "target": {"type": "string"},
+                        "target": {"type": "string", "description": "zone_id from Observation or query_map_overview"},
                     },
                     "required": ["source", "units", "order", "target"],
                 },
@@ -358,7 +358,7 @@ def _action_specs(race: str = "terran") -> Tuple[ToolSpec, ...]:
                     "type": "string",
                     "description": "active outbound group ID, such as group_1",
                 },
-                "target": {"type": "string"},
+                "target": {"type": "string", "description": "zone_id from Observation or query_map_overview"},
             }, ("group", "target")))
             continue
         if name == "reinforce_group":
@@ -434,7 +434,7 @@ def tool_specs(race: str = "terran") -> Tuple[ToolSpec, ...]:
         ),
         _spec(
             "query_production_state",
-            "Read persistent production work, execution blockers and infrastructure, optionally filtered.",
+            "Read persistent requests, observed production, usable facility slots and infrastructure, optionally filtered.",
             {
                 "actions": {"type": "array", "minItems": 1, "items": {"type": "string", "enum": ["build", "train", "research", "morph_townhall"]}},
                 "targets": {"type": "array", "minItems": 1, "items": {"type": "string"}},
@@ -477,4 +477,3 @@ def tool_specs(race: str = "terran") -> Tuple[ToolSpec, ...]:
         ),
         *_action_specs(race),
     )
-

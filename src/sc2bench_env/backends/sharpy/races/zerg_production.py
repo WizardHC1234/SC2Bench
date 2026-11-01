@@ -74,6 +74,34 @@ def production_order_target(order, game_data, adapter):
     return None
 
 
+def unit_production_counts(unit, game_data, adapter):
+    """Read hatching/transition entities; each cocoon represents one output."""
+    from sc2bench_env.catalog.registry import get_target
+    from sc2bench_env.backends.sharpy.races.zerg import LARVA_UNITS
+
+    cocoons = {
+        "BANELINGCOCOON": "baneling", "RAVAGERCOCOON": "ravager",
+        "LURKERMPEGG": "lurker", "OVERLORDCOCOON": "overseer",
+        "TRANSPORTOVERLORDCOCOON": "transport_overlord", "BROODLORDCOCOON": "brood_lord",
+    }
+    kind = unit.type_id.name
+    if kind in cocoons:
+        return {cocoons[kind]: 1}
+    # Egg/Larva orders are hatching. Do not decode combat, burrow or Queen
+    # ability orders by unit-name substrings as if they were production.
+    if kind not in {"EGG", "LARVA"}:
+        return {}
+    counts = {}
+    for order in getattr(unit, "orders", ()) or ():
+        decoded = production_order_target(order, game_data, adapter)
+        if decoded is None or decoded[0] != "train" or decoded[1] not in LARVA_UNITS:
+            continue
+        target = decoded[1]
+        spec = get_target(target, race="zerg")
+        counts[target] = counts.get(target, 0) + spec.production_batch_size
+    return counts
+
+
 def _queue_row(facility, parents):
     unknown = False
     capacity = occupied = free = 0
@@ -173,6 +201,7 @@ def read_production_capacity(ai, adapter):
 def read_ability_facts(ai, buildings, adapter):
     """Queen energy is observed. This does not cast Inject."""
     from sc2.ids.buff_id import BuffId
+    from sc2.ids.ability_id import AbilityId
     from sc2.ids.unit_typeid import UnitTypeId
     from sc2bench_env.backends.sharpy.combat_styles import unit_available_for_background
 
@@ -187,15 +216,18 @@ def read_ability_facts(ai, buildings, adapter):
         1 for hall in ai.townhalls.ready
         if BuffId.QUEENSPAWNLARVATIMER not in (getattr(hall, "buffs", ()) or ())
     )
-    ready_tumors = sum(
-        1 for structure in ai.structures
+    tumors = [structure for structure in ai.structures
         if getattr(structure, "type_id", None) == UnitTypeId.CREEPTUMORBURROWED
         and getattr(structure, "is_ready", False)
-    )
+    ]
+    available = getattr(getattr(getattr(ai, 'knowledge', None), 'cooldown_manager', None),
+                        'available_dict', {})
+    ready_tumors = (None if any(t.tag not in available for t in tumors) else
+                    sum(AbilityId.BUILD_CREEPTUMOR_TUMOR in available[t.tag] for t in tumors))
     return {
         "queen_count": len(queens),
         "queen_energies": [round(energy, 1) for energy in energies],
         "inject_ready": min(len(ready_queens), inject_targets),
         "inject_targets": inject_targets,
-        "spawn_creep_tumor_ready": ready_tumors + len(ready_queens),
+        "spawn_creep_tumor_ready": None if ready_tumors is None else ready_tumors + len(ready_queens),
     }

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from copy import deepcopy
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from sharpy.knowledges import KnowledgeBot
@@ -221,9 +222,102 @@ class BenchBot(KnowledgeBot):
             logger.exception("pre_step_execute failed")
             raise
 
+    def do(self, action, subtract_cost=False, subtract_supply=False,
+           can_afford_check=False, ignore_warning=False):
+        """Apply native temporary command locks to every controller's orders."""
+        from sc2.ids.buff_id import BuffId
+        from sc2.ids.unit_typeid import UnitTypeId
+        from sc2bench_env.backends.sharpy.micro import _form_change_pending
+        unit = getattr(action, 'unit', None)
+        if unit is not None and (BuffId.GRAVITONBEAM in getattr(unit, 'buffs', ())
+                                 or _form_change_pending(unit)):
+            return False
+        from sc2.ids.ability_id import AbilityId
+        attack_orders = {AbilityId.ATTACK, AbilityId.ATTACK_ATTACK}
+        if unit is not None and getattr(action, 'ability', None) in attack_orders:
+            cooldowns = getattr(getattr(self, 'knowledge', None), 'cooldown_manager', None)
+            available = getattr(cooldowns, 'available_dict', {})
+            tag = getattr(unit, 'tag', None)
+            # Native unit states can disable attacks without exposing a buff.
+            # A missing query is unknown, not a command lock.
+            if tag in available and not attack_orders.intersection(available[tag]):
+                return False
+        action_count = len(self.actions)
+        accepted = super().do(action, subtract_cost=subtract_cost,
+                              subtract_supply=subtract_supply, can_afford_check=can_afford_check,
+                              ignore_warning=ignore_warning)
+        if (accepted and len(self.actions) > action_count
+                and unit is not None and unit.type_id == UnitTypeId.QUEEN):
+            from sharpy.managers.core.roles import UnitTask
+            if self.roles.unit_role(unit) == UnitTask.Defending:
+                for task in self._macro_tasks:
+                    cast = getattr(task.get('_act'), '_pending_cast', None)
+                    if cast and cast['caster'] == unit.tag and action.ability != cast['ability']:
+                        cast['interrupted_by_combat'] = True
+        return accepted
+
     async def start_first_worker(self) -> None:
         """Keep the opening worker under the agent's production orders."""
         return
+
+    def _capture_action_results(self):
+        """Keep immediate rejections alongside next-frame native action errors."""
+        if getattr(self.client, '_bench_action_results', False):
+            return
+        original = self.client._execute
+        self._pending_submission_errors = []
+
+        async def execute(**kwargs):
+            response = await original(**kwargs)
+            request = kwargs.get('action')
+            if request is not None and len(request.actions) == len(response.action.result):
+                for action, result in zip(request.actions, response.action.result):
+                    if result == 1 or not action.action_raw.HasField('unit_command'):
+                        continue
+                    command = action.action_raw.unit_command
+                    if (result == 2 and command.ability_id in {23, 3674}
+                            and command.HasField('target_unit_tag')):
+                        rejected = getattr(self, '_bench_unit_attack_rejections', set())
+                        actors = {u.tag:u for u in list(self.units)+list(self.structures)}
+                        for tag in command.unit_tags:
+                            unit = actors.get(tag)
+                            if unit is not None:
+                                rejected.add((unit.type_id.value, int(command.target_unit_tag)))
+                        self._bench_unit_attack_rejections = rejected
+                    if (result == 113 and command.ability_id in {23, 3674}
+                            and command.HasField('target_unit_tag')):
+                        # Viking transitions can advertise a ground flag while
+                        # native attack validation already treats the unit as air.
+                        now=float(getattr(self,'time',0))
+                        rejected={tag:until for tag,until in getattr(
+                            self,'_bench_ground_attack_rejections',{}).items() if until>now}
+                        rejected[int(command.target_unit_tag)]=now+1.5
+                        self._bench_ground_attack_rejections=rejected
+                    self._pending_submission_errors.extend(
+                        SimpleNamespace(unit_tag=int(tag), ability_id=int(command.ability_id), result=int(result))
+                        for tag in command.unit_tags)
+            return response
+
+        self.client._execute = execute
+        self.client._bench_action_results = True
+
+    def _prepare_step(self, state, proto_game_info):
+        super()._prepare_step(state, proto_game_info)
+        dead = set(getattr(state, 'dead_units', ()) or ())
+        if dead:
+            for tag in dead:
+                getattr(self, '_bench_siege_relocations', {}).pop(tag, None)
+            self._bench_unit_attack_rejections = {pair for pair in
+                getattr(self, '_bench_unit_attack_rejections', set()) if pair[1] not in dead}
+        errors = list(state.action_errors)
+        seen = {(e.unit_tag, e.ability_id, e.result) for e in errors}
+        for error in getattr(self, '_pending_submission_errors', ()):
+            key = error.unit_tag, error.ability_id, error.result
+            if key not in seen:
+                errors.append(error)
+                seen.add(key)
+        state.action_errors = errors
+        self._pending_submission_errors = []
 
     def _record_engine_observation(self, snapshot, *, response=None) -> None:
         from sc2bench_env.recording.engine import observation_sample
@@ -238,6 +332,7 @@ class BenchBot(KnowledgeBot):
             sink(sample)
 
     async def on_before_start(self):
+        self._capture_action_results()
         await super().on_before_start()
         pin_lockstep_step(self)
         ping = (await self.client.ping()).ping
@@ -293,6 +388,15 @@ class BenchBot(KnowledgeBot):
             blocked.clear()
 
     async def on_step(self, iteration):
+        try:
+            await self._run_platform_step(iteration)
+        except Exception as exc:
+            # BurnySC2 otherwise catches callback failures and resigns as a
+            # normal Defeat. Preserve the platform failure before it does so.
+            self.bridge.on_game_end(f"error:{type(exc).__name__}: {exc}")
+            raise
+
+    async def _run_platform_step(self, iteration):
         # Pin before Sharpy runs. A repeated game loop must not skip this
         # client's orders or drop only this client to a one-frame step.
         pin_lockstep_step(self)
@@ -428,6 +532,7 @@ class BenchBot(KnowledgeBot):
             self._publish_platform_snapshot()
             return
         if request.operation == "quick_load":
+            self._pending_submission_errors = []
             # QuickLoad stops the client's replay recorder. Keep the trunk
             # timeline, which still includes this save frame.
             await self._save_replay_once("before quick load")
@@ -656,6 +761,10 @@ class BenchBot(KnowledgeBot):
 
     def _drop_branch_memory(self) -> None:
         """Drop the replaced branch's assignments. Sightings return to the save."""
+        self._bench_ground_attack_rejections = {}
+        self._bench_unit_attack_rejections = set()
+        self._bench_siege_relocations = {}
+        self._bench_blink_points = None
         roles = getattr(self, "roles", None)
         if roles is not None:
             had_task = getattr(roles, "had_task_set", None)
@@ -767,6 +876,10 @@ class BenchBot(KnowledgeBot):
                     existing.pop("_error", None)
                 new_list.append(existing)
         for task in self._macro_tasks:
+            if task.get('task_id') not in desired_ids and task.get('action')=='scout':
+                act=task.get('_act')
+                if act is not None:
+                    act.release_worker()
             if task.get("task_id") not in desired_ids and task.get("action") == "combat":
                 act = task.get("_act")
                 if act is not None and getattr(act, "_bound", False):

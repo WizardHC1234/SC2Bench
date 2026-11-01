@@ -8,6 +8,7 @@ are retained for compatibility with existing callers.
 from __future__ import annotations
 
 from sharpy.combat.move_type import MoveType
+from sc2.ids.unit_typeid import UnitTypeId
 
 
 PROVISIONAL_DEFEND_LEASH = 1.25  # × zone radius
@@ -29,6 +30,26 @@ MARCH_CONTACT_RADIUS = 12.0
 DEFEND_DEPLOY_RADIUS = 5.0
 
 
+def visible_combat_enemies(ai, unit, group_units=(), *, unit_values=None):
+    """Visible contact in this unit's or its nearby combat allies' sight.
+
+    Distant scouting vision must not pull a stationed army across the map.
+    """
+    anchors = [unit] + [ally for ally in group_units
+                        if ally.tag != unit.tag and unit.distance_to(ally) <= 7]
+    def reach(ally, enemy):
+        sight = float(getattr(ally, "sight_range", MARCH_CONTACT_RADIUS))
+        # A spotter can reveal a target beyond the attacker's own sight.
+        # Already shootable enemies must not cause a stationary tank to leave.
+        return max(sight, float(unit_values.real_range(ally, enemy))) if unit_values is not None else sight
+    return [enemy for enemy in getattr(ai, "all_enemy_units", ()) or ()
+            if getattr(enemy, "is_visible", False)
+            and not getattr(enemy, "is_snapshot", False)
+            and not getattr(enemy, "is_memory", False)
+            and any(ally.distance_to(enemy) <= reach(ally, enemy)
+                    for ally in anchors)]
+
+
 def at_defend_station(micro, unit, radius: float = DEFEND_DEPLOY_RADIUS) -> bool:
     """True only after a fixed-defense mission member reaches its hold point."""
     if getattr(micro, "move_type", None) in {MoveType.DefensiveRetreat, MoveType.PanicRetreat}:
@@ -37,6 +58,13 @@ def at_defend_station(micro, unit, radius: float = DEFEND_DEPLOY_RADIUS) -> bool
     point = getattr(rules, "return_point", None)
     if not bool(getattr(rules, "hold_position", False)) or point is None:
         return False
+    boundary=getattr(rules,'boundary',None)
+    if callable(boundary) and not boundary(unit.position):
+        return False
+    if getattr(rules, 'compact_station', False):
+        arrive = getattr(rules, 'at_station', None)
+        if callable(arrive):
+            return arrive(unit, group_units=getattr(getattr(micro, 'group', None), 'units', ()))
     try:
         return float(unit.distance_to(point)) <= float(radius)
     except (AttributeError, TypeError, ValueError):
@@ -79,7 +107,18 @@ def unit_available_for_background(unit, ai, *, require_group0: bool) -> bool:
     orders = getattr(unit, "orders", None) or []
     if overlord:
         return not any(not _positioning_order(order) for order in orders)
+    if require_group0 and orders and all(_stationary_order(order) for order in orders):
+        allies = [ally for ally in getattr(ai, 'units', ()) if ally.tag != tag
+                  and ally.tag in group0 and unit.distance_to(ally) <= 7]
+        values = getattr(getattr(ai, 'knowledge', None), 'unit_values', None)
+        return not visible_combat_enemies(ai, unit, allies, unit_values=values)
     return not orders
+
+
+def _stationary_order(order) -> bool:
+    ability = getattr(order, 'ability', None)
+    token = getattr(ability, 'id', ability)
+    return str(getattr(token, 'name', token) or '').upper().startswith(('HOLDPOSITION', 'STOP'))
 
 
 def _positioning_order(order) -> bool:
@@ -87,7 +126,7 @@ def _positioning_order(order) -> bool:
     ability = getattr(order, "ability", None)
     token = getattr(ability, "id", ability)
     label = str(getattr(token, "name", token) or "").upper()
-    return label.startswith("MOVE") or label.startswith("ATTACK")
+    return label.startswith("MOVE") or label.startswith("ATTACK") or _stationary_order(order)
 
 
 def available_for_mission(unit, roles, reserved_tags) -> bool:
@@ -100,10 +139,12 @@ def available_for_mission(unit, roles, reserved_tags) -> bool:
         return True
     if unit.tag in getattr(getattr(roles, "ai", None), "bench_group0_tags", set()):
         return not roles.is_in_role(UnitTask.Scouting, unit)
-    return not any(roles.is_in_role(role, unit) for role in (
-        UnitTask.Attacking, UnitTask.Defending, UnitTask.Fighting,
-        UnitTask.Reserved, UnitTask.Scouting,
-    ))
+    blocked = [UnitTask.Attacking, UnitTask.Defending, UnitTask.Fighting, UnitTask.Scouting]
+    # Sharpy reserves peace units every frame to exclude automatic defense.
+    # This must not prevent an explicit empty transport-Overlord mission.
+    if unit.type_id != UnitTypeId.OVERLORDTRANSPORT:
+        blocked.append(UnitTask.Reserved)
+    return not any(roles.is_in_role(role, unit) for role in blocked)
 
 
 def style_move_type_name(style: str) -> str:

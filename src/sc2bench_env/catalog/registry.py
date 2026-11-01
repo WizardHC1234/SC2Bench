@@ -316,6 +316,7 @@ def render_decision_guide(*, race: str = "terran") -> str:
         ACTION_FIELDS, COMMAND_TEMPLATES, NUMERIC_PLACEHOLDER_RE,
     )
     from sc2bench_env.interface.tools import ACTION_TOOLS
+    from sc2bench_env.interface.decision_rules import VERB_FIELD_RULES
 
     public_actions = set(ACTION_TOOLS) | {"chrono_boost", "inject_larva", "spawn_creep_tumor"}
     if set(ACTION_FIELDS) != public_actions:
@@ -323,6 +324,9 @@ def render_decision_guide(*, race: str = "terran") -> str:
     if set(COMMAND_TEMPLATES) != public_actions:
         raise RuntimeError("Prompt templates must cover the actual action forms")
     for form, template in COMMAND_TEMPLATES.items():
+        rule = VERB_FIELD_RULES.get(form)
+        if rule is not None and set(ACTION_FIELDS[form]) != set(rule.required + rule.optional):
+            raise RuntimeError("Prompt descriptions must cover the allowed action fields")
         entry = json.loads(NUMERIC_PLACEHOLDER_RE.sub("1", template))
         verb = entry["name"]
         arguments = dict(entry.get("arguments") or {})
@@ -351,8 +355,12 @@ def render_observation_guide() -> str:
         "Observation contract:",
         "- The latest Brief Observation is the self-contained snapshot for this decision. It replaces older changing values; earlier observations are history.",
         "- Brief Observation covers ordinary economy, production, army, threats and feedback. Use Read tools for omitted match-state detail and Knowledge tools for static game data when needed.",
+        "- Available Targets is a technology checklist; current resource, supply and production blockers are shown under Production.",
         "- Queries inspect one frozen snapshot and do not advance time. Action calls are validated and staged; only advance submits them and continues the game.",
         "- unknown means that information is unavailable, while none means that the observed value is empty.",
+        "- Supply used includes supply reserved for units in production; it is not a count of completed units.",
+        "- Worker assignment/saturation pairs show current assignments and capacity, not two worker totals. Gas worker capacity counts completed gas structures, not unbuilt geysers.",
+        "- Zone vision refers to its center. Zone inventories may include structures under construction; check readiness before treating them as usable.",
         "- Names and IDs keep their exact platform spelling. Copy zone_id and group_id from Observation.",
     ]) + "\n"
 

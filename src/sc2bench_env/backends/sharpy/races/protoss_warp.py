@@ -12,6 +12,7 @@ from sc2.position import Point2
 from sharpy.plans.acts import ActBase
 
 from sc2bench_env.backends.sharpy.combat_styles import unit_available_for_background
+from sc2bench_env.backends.sharpy.races.base import owned_unit_count, owned_units
 from sc2bench_env.catalog.knowledge import snapshot_has_ability
 
 _POWER_RADIUS = 6.5
@@ -49,6 +50,32 @@ def home_warp_point(ai):
         if powered(point) and clear_of_outbound(point):
             return point
     return None
+
+
+async def clear_warp_placement(ai, ability, point):
+    """Native terrain/power placement plus live and same-frame unit space."""
+    frame = getattr(getattr(ai, 'state', None), 'game_loop', 0)
+    previous, reserved = getattr(ai, '_bench_warp_positions', (None, []))
+    if previous != frame:
+        reserved = []
+    ai._bench_warp_positions = (frame, reserved)
+    ground = [u for u in getattr(ai, 'units', ()) if not u.is_flying]
+
+    def clear(candidate):
+        return (all(candidate.distance_to(u.position) > float(u.radius) + .75 for u in ground)
+                and all(candidate.distance_to(other) >= 1.5 for other in reserved))
+
+    placement = await ai.find_placement(ability, near=point, max_distance=8,
+                                       random_alternative=False, placement_step=1)
+    if placement is None or clear(placement):
+        return placement
+    candidates = [point.offset((x,y)) for x in range(-8,9,2) for y in range(-8,9,2)
+                  if x*x+y*y<=64 and clear(point.offset((x,y)))]
+    candidates.sort(key=lambda p:p.distance_to(point))
+    if not candidates:
+        return None
+    allowed = await ai.can_place(ai._game_data.abilities[ability.value], candidates)
+    return next((p for p,ok in zip(candidates,allowed) if ok), None)
 
 
 class ActWarpGateConversion(ActBase):
@@ -162,7 +189,7 @@ class ActGatewayTrain(ActBase):
 
     async def execute(self) -> bool:
         self.waiting_reason = None
-        owned = int(self.ai.units(self.unit_type).amount)
+        owned = owned_unit_count(self.ai, self.unit_type)
         pending = float(self.ai.already_pending(self.unit_type))
         if owned + pending >= self.target_count:
             return True
@@ -173,9 +200,6 @@ class ActGatewayTrain(ActBase):
             if gate.tag not in used and int(gate.tag) not in reserved
         ]
         powered = [gate for gate in gateways if getattr(gate, "is_powered", True)]
-        if gateways and not powered:
-            self.waiting_reason = "unpowered"
-            return False
         if powered and self.ai.can_afford(self.unit_type):
             powered[0].train(self.unit_type)
             return owned + pending + 1 >= self.target_count
@@ -183,6 +207,12 @@ class ActGatewayTrain(ActBase):
             gate for gate in self.ai.structures(UnitTypeId.WARPGATE).ready
             if gate.tag not in used
         ]
+        all_unpowered = bool(gateways or warpgates) and not any(
+            getattr(gate, 'is_powered', True) for gate in gateways + warpgates)
+        warpgates = [gate for gate in warpgates if getattr(gate, 'is_powered', True)]
+        if all_unpowered:
+            self.waiting_reason = 'unpowered'
+            return False
         if not warpgates:
             any_producer = bool(list(self.ai.structures(UnitTypeId.GATEWAY).ready) or list(self.ai.structures(UnitTypeId.WARPGATE).ready))
             if powered:
@@ -190,7 +220,13 @@ class ActGatewayTrain(ActBase):
             elif any_producer:
                 self.waiting_reason = "producer_busy"
             return False
+        if not self.ai.can_afford(self.unit_type):
+            self.waiting_reason = "resources"
+            return False
         ready = await _ready_warpgates(self.ai, warpgates)
+        if ready is None:
+            self.waiting_reason = "warpgate_readiness_unknown"
+            return False
         if not ready:
             self.waiting_reason = "warpgate_cooldown"
             return False
@@ -201,7 +237,23 @@ class ActGatewayTrain(ActBase):
         if not self.ai.can_afford(self.unit_type):
             self.waiting_reason = "resources"
             return False
-        ready[0].warp_in(self.unit_type, point)
+        from sc2.data import warpgate_abilities
+        creation = self.ai._game_data.units[self.unit_type.value].creation_ability.id
+        ability = warpgate_abilities[creation]
+        # A generic "some warp ability exists" check is not permission to
+        # issue this unit's warp during its cooldown.
+        available = await _raw_ability_ids(self.ai, ready)
+        charged = [gate for gate in ready if ability.value in available.get(int(gate.tag), set())]
+        if not charged:
+            self.waiting_reason = "warpgate_cooldown"
+            return False
+        placement = await clear_warp_placement(self.ai, ability, point)
+        if placement is None:
+            self.waiting_reason = "no_powered_warp_location"
+            return False
+        issued = charged[0].warp_in(self.unit_type, placement)
+        if issued is not False:
+            self.ai._bench_warp_positions[1].append(placement)
         return owned + pending + 1 >= self.target_count
 
 
@@ -214,29 +266,66 @@ class ActArchonMerge(ActBase):
         self.waiting_reason = None
         self.failure_reason = None
         self._locked: tuple = ()
+        self._archons_before: set = set()
+
+    def reserve_pending_sources(self) -> None:
+        """Keep the outstanding merge's sources out of later combat assignments."""
+        tags = getattr(self.ai, "bench_morph_tags", None)
+        if not isinstance(tags, set):
+            tags = self.ai.bench_morph_tags = set()
+        need = 2 * max(0, self.target_count - owned_unit_count(self.ai, UnitTypeId.ARCHON))
+        if not need:
+            return
+        held = 0
+        for unit in _templar(self.ai):
+            if unit.tag in self._locked or unit.tag in tags or unit_available_for_background(unit, self.ai, require_group0=True):
+                tags.add(int(unit.tag))
+                held += 1
+                if held >= need:
+                    break
 
     async def execute(self) -> bool:
         self.waiting_reason = None
         if self.failure_reason:
             return True
-        done = int(self.ai.units(UnitTypeId.ARCHON).amount)
+        done = owned_unit_count(self.ai, UnitTypeId.ARCHON)
         if done >= self.target_count:
             return True
         templar = _templar(self.ai)
         if self._locked:
-            alive = {unit.tag for unit in templar}
-            if any(tag not in alive for tag in self._locked) and done < self.target_count:
-                self.failure_reason = "source_unit_lost"
-                return True
-            return False
+            archons = {unit.tag for unit in owned_units(self.ai, UnitTypeId.ARCHON)}
+            if archons - self._archons_before:
+                self._locked = ()
+            else:
+                alive = {unit.tag for unit in templar}
+                if any(tag not in alive for tag in self._locked):
+                    self.failure_reason = "source_unit_lost"
+                    return True
+                return False
         free = [unit for unit in templar if unit_available_for_background(unit, self.ai, require_group0=True)]
         if len(free) < 2:
             reserved = [unit for unit in templar if unit.tag in set(getattr(self.ai, "bench_combat_tags", set()) or ())]
             self.waiting_reason = "source_unit_reserved" if reserved else "source_unit_unavailable"
             return False
         first, second = free[0], free[1]
-        first(AbilityId.MORPH_ARCHON, second)
+        self._archons_before = {unit.tag for unit in owned_units(self.ai, UnitTypeId.ARCHON)}
+        from s2clientprotocol import raw_pb2 as raw_pb
+        from s2clientprotocol import sc2api_pb2 as sc_pb
+
+        command = raw_pb.ActionRawUnitCommand(
+            ability_id=AbilityId.MORPH_ARCHON.value,
+            unit_tags=[int(first.tag), int(second.tag)], queue_command=False,
+        )
+        response = await self.ai.client._execute(
+            action=sc_pb.RequestAction(actions=[sc_pb.Action(action_raw=raw_pb.ActionRaw(unit_command=command))])
+        )
+        if any(int(result) != 1 for result in response.action.result):
+            self.failure_reason = "merge_command_rejected"
+            return True
         self._locked = (first.tag, second.tag)
+        used = getattr(self.ai, "unit_tags_received_action", None)
+        if used is not None:
+            used.update(self._locked)
         tags = getattr(self.ai, "bench_group0_tags", None)
         if tags is not None:
             tags.difference_update(self._locked)
@@ -251,12 +340,18 @@ class PlanWarpGateStatus(ActBase):
         if not gates:
             self.ai.bench_warpgate_status = {"total": 0, "ready": 0, "cooling": 0}
             return True
-        ready = await _ready_warpgates(self.ai, gates)
+        powered = [gate for gate in gates if getattr(gate, 'is_powered', True)]
+        unpowered = len(gates) - len(powered)
+        ready = await _ready_warpgates(self.ai, powered) if powered else []
+        if ready is None:
+            self.ai.bench_warpgate_status = {"total": len(gates), "ready": None, "cooling": None, 'unpowered': unpowered}
+            return True
         ready_tags = {gate.tag for gate in ready}
         self.ai.bench_warpgate_status = {
             "total": len(gates),
             "ready": len(ready_tags),
-            "cooling": len(gates) - len(ready_tags),
+            "cooling": len(powered) - len(ready_tags),
+            'unpowered': unpowered,
         }
         return True
 
@@ -269,9 +364,16 @@ def _templar(ai):
 
 async def _ready_warpgates(ai, gates):
     named = await _named_abilities(ai, gates)
-    if not named and gates:
-        return [gate for gate in gates if not (getattr(gate, "orders", None) or [])]
-    return [gate for gate, names in named if any("WARPGATETRAIN" in name for name in names)]
+    if named is None:
+        return None
+    ready = [gate for gate, names in named
+             if any("WARPGATETRAIN" in name or "TRAINWARP" in name for name in names)]
+    # If no warp ability is available and even a basic Zealot is unaffordable,
+    # the query does not establish whether the gate is cooling down.
+    affordable = getattr(ai, "can_afford", None)
+    if not ready and callable(affordable) and not affordable(UnitTypeId.ZEALOT):
+        return None
+    return ready
 
 
 def _first_conversion_price() -> tuple:
@@ -331,13 +433,15 @@ async def _issue_raw_ability(ai, unit, ability_id: int) -> None:
 async def _named_abilities(ai, gates):
     gates = list(gates)
     try:
-        available = await ai.get_available_abilities(gates)
+        available = await ai.get_available_abilities(gates, ignore_resource_requirements=False)
     except Exception:
-        return []
+        return None
     if isinstance(available, dict):
         rows = [available.get(gate.tag, []) for gate in gates]
     else:
         rows = list(available or [])
+    if len(rows) != len(gates):
+        return None
     named = []
     for gate, abilities in zip(gates, rows):
         names = {getattr(ability, "name", str(ability)) for ability in abilities or []}

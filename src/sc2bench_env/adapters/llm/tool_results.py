@@ -251,7 +251,7 @@ def _render_zone_state(result: Mapping[str, Any]) -> str:
             lines.append(
                 f"- {_display_value(zone_id)}: role={_display_value(zone.get('zone_role'))}; "
                 f"owner={_display_value(zone.get('known_owner'))}; "
-                f"vision={_display_value(zone.get('vision_state'))}; "
+                f"center vision={_display_value(zone.get('vision_state'))}; "
                 "visible enemy weapon in range="
                 f"{_display_value(zone.get('visible_enemy_weapon_in_range'))}"
             )
@@ -277,7 +277,7 @@ def _render_zone_state(result: Mapping[str, Any]) -> str:
                     "  Resources: "
                     f"minerals={_display_resource_ratio(resource.get('minerals_remaining'), resource.get('minerals_initial'))}; "
                     f"gas={_display_resource_ratio(resource.get('vespene_remaining'), resource.get('vespene_initial'))}; "
-                    f"gas structures={_display_value(resource.get('owned_gas_structure_count'))}; "
+                    f"own gas structures={_display_value(resource.get('owned_gas_structure_count'))}; "
                     f"geysers available={_display_value(resource.get('available_geyser_slots'))}/"
                     f"{_display_value(resource.get('geyser_slots'))}; "
                     f"visibility={_display_value(resource.get('resource_visibility'))}"
@@ -290,6 +290,13 @@ def _render_zone_state(result: Mapping[str, Any]) -> str:
 
 def _render_production_state(result: Mapping[str, Any]) -> str:
     lines = [f"Production state at game time {_display_value(result.get('as_of_game_time'))}"]
+    filters = result.get("filters") or {}
+    if filters.get("actions"):
+        lines.append("Actions: " + _display_list(filters["actions"]))
+    if filters.get("targets"):
+        lines.append("Targets: " + _display_list(filters["targets"]))
+    if result.get("unknown_targets"):
+        lines.append("Unknown production targets: " + _display_list(result["unknown_targets"]))
     work = result.get("persistent_work") or []
     lines.append("Persistent work in execution order:")
     if not work:
@@ -322,6 +329,20 @@ def _render_production_state(result: Mapping[str, Any]) -> str:
             )
     if result.get("larva_available") is not None:
         lines.append(f"Larva available: {_display_value(result.get('larva_available'))}")
+    if "production_capacity" in result:
+        from sc2bench_env.interface.observation_text import brief_facility_lines
+        capacity = result.get("production_capacity")
+        lines.append("Production capacity:")
+        lines.extend(["- unknown"] if capacity is None else
+                     ["- " + line for line in brief_facility_lines(capacity)])
+    work = result.get("observed_work")
+    if isinstance(work, Mapping):
+        lines.append("Observed work:")
+        for key, title in (("construction", "Construction/morphs"), ("training", "Training"), ("research", "Research")):
+            value = work.get(key)
+            shown = ("unknown" if value is None else _display_counts(value)
+                     if isinstance(value, Mapping) else _display_list(value))
+            lines.append(f"- {title}: {shown}")
     infrastructure = result.get("infrastructure")
     if isinstance(infrastructure, Mapping) and infrastructure:
         lines.append("Infrastructure:")
@@ -341,14 +362,14 @@ def _render_army_state(result: Mapping[str, Any]) -> str:
         lines.append(f"Non-combat support: {_display_counts(own.get('support'))}")
     lines.extend((
         f"Available from group_0: {_display_counts(own.get('free'))}",
-        f"Assigned outbound: {_display_counts(own.get('assigned'))}",
+        f"Unavailable for dispatch: {_display_counts(own.get('assigned'))}",
         f"Bunker garrison: {_display_counts(own.get('bunker_garrison'))}",
         "Groups:",
     ))
     groups = result.get("groups") if isinstance(result.get("groups"), Mapping) else {}
     lines.insert(
         len(lines) - 1,
-        f"Outbound groups: {sum(name != 'group_0' for name in groups)}",
+        f"Outbound groups: {_display_value(result.get('outbound_group_count'))}",
     )
     if not groups:
         lines.append("- none")
@@ -364,8 +385,7 @@ def _render_army_state(result: Mapping[str, Any]) -> str:
             and transition.get("reason") == "target_confirmed_clear"
         )
         lines.append(f"- {name}: {_display_counts(row.get('alive'))}")
-        location = row.get("nearest_zone") or row.get("target")
-        lines.append(f"  Location: {_display_value(location)}")
+        lines.append(f"  Nearest zone: {_display_value(row.get('nearest_zone'))}")
         if holding_after_attack:
             lines.append(
                 f"  Current activity: holding at {_display_value(row.get('target'))}"

@@ -377,6 +377,11 @@ def query_production_state(
     """Return current production detail from the frozen Observation."""
     action_filter = {str(item) for item in actions}
     target_filter = {str(item) for item in targets}
+    known_targets = {spec.name for spec in get_catalog(race=race).targets}
+    known_targets.update(str(row.get("id")) for row in observation.get("structures") or []
+                         if isinstance(row, Mapping) and row.get("id"))
+    known_targets.update(str(row.get("target")) for row in observation.get("production_priority") or []
+                         if isinstance(row, Mapping) and row.get("target"))
 
     def wanted(action: str, target: str) -> bool:
         return (not action_filter or action in action_filter) and (
@@ -386,15 +391,41 @@ def query_production_state(
     priority = [
         dict(row) for row in observation.get("production_priority") or []
         if isinstance(row, Mapping)
-        and wanted(str(row.get("action") or ""), str(row.get("target") or ""))
+        and (wanted(str(row.get("action") or ""), str(row.get("target") or ""))
+             or str(row.get("to") or "") in target_filter
+             and (not action_filter or row.get("action") in action_filter))
     ]
-    related_facilities = set(target_filter)
+    detail_targets = set(target_filter)
+    detail_targets.update(str(row["to"]) for row in priority
+                          if row.get("target") in target_filter and row.get("to"))
+    detail_targets.update(str(row["type"]) for row in observation.get("structures") or []
+                          if isinstance(row, Mapping) and row.get("id") in target_filter and row.get("type"))
+    related_facilities = set(detail_targets)
     if target_filter:
         from sc2bench_env.catalog.registry import get_target
-        for target in target_filter:
+        from sc2bench_env.catalog.prerequisites import prerequisite_keys
+        pending = list(detail_targets)
+        visited = set()
+        while pending:
+            target = pending.pop()
+            if target in visited:
+                continue
+            visited.add(target)
+            for equivalent in prerequisite_keys(target, race=race):
+                if equivalent not in related_facilities:
+                    related_facilities.add(equivalent)
+                    pending.append(equivalent)
             spec = get_target(target, race=race)
-            if spec is not None and spec.produced_at:
-                related_facilities.add(str(spec.produced_at))
+            producer = (spec.produced_at or spec.morph_from) if spec is not None else ""
+            if producer:
+                related_facilities.add(producer)
+                producer_spec = get_target(producer, race=race)
+                if producer_spec is not None and producer_spec.kind != "unit":
+                    pending.append(producer)
+            if spec is not None and spec.mechanism in {"unit_morph", "merge"}:
+                related_facilities.add(target + "_source")
+            if spec is not None and spec.mechanism == "larva":
+                related_facilities.add("larva")
     larva_available = None
     for row in observation.get("production") or []:
         if not isinstance(row, Mapping):
@@ -414,12 +445,45 @@ def query_production_state(
         for name, row in buildings.items()
         if not target_filter or str(name) in related_facilities
     } if isinstance(buildings, Mapping) else {}
-    return {
+    capacity = observation.get("production")
+    hidden_capacity = {"occupied_slots", "queue_capacity", "queued_orders", "free_queue_positions"}
+    capacity = ([{key: value for key, value in row.items() if key not in hidden_capacity}
+                 for row in capacity if isinstance(row, Mapping)
+                 and (not target_filter or str(row.get("facility")) in related_facilities)]
+                if isinstance(capacity, (list, tuple)) else None)
+    training = observation.get("training")
+    research = observation.get("research")
+    from sc2bench_env.catalog.registry import get_target
+    def construction_wanted(name):
+        spec = get_target(name, race=race)
+        action = "morph_townhall" if spec is not None and spec.action == "morph_townhall" else "build"
+        return (not action_filter or action in action_filter) and (
+            not target_filter or name in detail_targets)
+    observed_work = {
+        "construction": {name: row["under_construction"] for name, row in buildings.items()
+                         if isinstance(row, Mapping) and type(row.get("under_construction")) is int
+                         and row["under_construction"] > 0 and construction_wanted(name)}
+                         if isinstance(buildings, Mapping) else None,
+        "training": {name: row["in_production"] for name, row in training.items()
+                     if isinstance(row, Mapping) and type(row.get("in_production")) is int
+                     and row["in_production"] > 0 and wanted("train", name)}
+                     if isinstance(training, Mapping) else None,
+        "research": [name for name, state in research.items()
+                     if state == "in_progress" and wanted("research", name)]
+                     if isinstance(research, Mapping) else None,
+    }
+    result = {
         "filters": {"actions": sorted(action_filter), "targets": sorted(target_filter)},
         "persistent_work": priority,
         "infrastructure": infrastructure,
+        "production_capacity": capacity,
+        "observed_work": observed_work,
         "larva_available": larva_available,
     }
+    unknown = sorted(target_filter - known_targets)
+    if unknown:
+        result["unknown_targets"] = unknown
+    return result
 
 
 def query_army_state(
@@ -447,6 +511,7 @@ def query_army_state(
     return {
         "own_forces": dict(observation.get("own_forces") or {}),
         "groups": selected,
+        "outbound_group_count": sum(name != "group_0" for name in all_groups),
         "unknown_groups": missing,
     }
 

@@ -13,6 +13,7 @@ from agents.llm_agent.config import (
     parse_temperature, positive_float, positive_int,
 )
 from agents.llm_agent.prompts import MAX_TOOL_ROUNDS
+from agents.llm_agent.skills import AVAILABLE_SKILLS, DEFAULT_SKILL, skill_race
 from sc2bench_env import Environment
 from sc2bench_env.interface.config import EpisodeConfig
 from sc2bench_env.interface.opponents import (
@@ -29,6 +30,7 @@ def main(argv=None) -> int:
     parser.add_argument("--opponent", "--difficulty", type=normalize_opponent,
                         choices=BUILTIN_OPPONENTS, default="easy")
     parser.add_argument("--race", choices=SUPPORTED_OWN_RACES, default="terran")
+    parser.add_argument("--skill", choices=(*AVAILABLE_SKILLS, "none"), default=DEFAULT_SKILL)
     parser.add_argument("--enemy-race", choices=ENEMY_RACES, default="terran")
     parser.add_argument("--enemy-style", type=normalize_enemy_style,
                         choices=ENEMY_STYLES, default="random")
@@ -53,6 +55,8 @@ def main(argv=None) -> int:
     parser.add_argument("--record-dir", type=Path, default=Path("records/react_agent"))
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
+    if args.skill != "none" and skill_race(args.skill) != args.race:
+        parser.error(f"{args.skill} is a {skill_race(args.skill)} strategy, not {args.race}")
 
     model = None
     if args.model_key:
@@ -82,7 +86,7 @@ def main(argv=None) -> int:
         print(json.dumps({
             "agent": "agents.react_agent.ReActAgent",
             "episode": config.to_dict(), "model": model_name, "base_url": base_url,
-            "temperature": temperature, "thinking": thinking, "skill": "none",
+            "temperature": temperature, "thinking": thinking, "skill": args.skill,
             "conversation_mode": args.conversation_mode,
             "max_decisions": args.max_decisions, "max_tool_rounds": args.max_tool_rounds,
             "record_dir": str(resolve_record_dir(args.record_dir)),
@@ -101,7 +105,7 @@ def main(argv=None) -> int:
         call_llm, max_api_attempts=args.api_attempts,
         api_retry_delay_seconds=args.api_retry_delay,
         max_consecutive_rejections=args.max_rejections,
-        thinking_requested=thinking, verbose=not args.quiet, skill_name="none",
+        thinking_requested=thinking, verbose=not args.quiet, skill_name=args.skill,
         conversation_mode=args.conversation_mode, max_tool_rounds=args.max_tool_rounds,
     )
     env = Environment("sharpy", record_dir=args.record_dir)

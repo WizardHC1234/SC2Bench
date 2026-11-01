@@ -52,6 +52,7 @@ def _unit(
     vespene: int = 0,
     prerequisites: Tuple[str, ...] = (),
 ) -> TargetSpec:
+    uses_larva = producer == "hatchery" and name != "queen"
     return TargetSpec(
         name=name,
         action="train",
@@ -61,7 +62,7 @@ def _unit(
         vespene=vespene,
         supply=supply,
         base_time_seconds=seconds,
-        prerequisites=tuple(dict.fromkeys((producer, *prerequisites))),
+        prerequisites=tuple(dict.fromkeys(prerequisites if uses_larva else (producer, *prerequisites))),
         semantics="append",
         success_boundary="units_produced",
         produced_at=producer,
@@ -158,8 +159,8 @@ def _combat(name: str, *, description: str) -> TargetSpec:
 
 
 ZERG_TARGETS: Tuple[TargetSpec, ...] = (
-    _building("hatchery", description="Town hall, larva and mining capacity. A completed Hatchery provides 4 supply. Lair and Hive keep that same 4; morphing does not add more.", minerals=300, seconds=71),
-    _building("extractor", description="Gas mining structure on a geyser.", minerals=25, seconds=21, prerequisites=("hatchery",)),
+    _building("hatchery", description="Town hall, larva and mining capacity. Does not require creep. A completed Hatchery provides 4 supply. Lair and Hive keep that same 4; morphing does not add more.", minerals=300, seconds=71),
+    _building("extractor", description="Gas mining structure on a geyser. Does not require creep.", minerals=25, seconds=21, prerequisites=("hatchery",)),
     _building("spawning_pool", description="Zergling and Queen tech.", minerals=200, seconds=46, prerequisites=("hatchery",)),
     _building("evolution_chamber", description="Ground upgrades.", minerals=75, seconds=25, prerequisites=("hatchery",)),
     _building("spine_crawler", description="Static ground weapon. It roots on creep and is not uprooted.", minerals=100, seconds=36, prerequisites=("spawning_pool",)),
@@ -167,7 +168,7 @@ ZERG_TARGETS: Tuple[TargetSpec, ...] = (
     _building("roach_warren", description="Roach production.", minerals=150, seconds=39, prerequisites=("spawning_pool",)),
     _building("baneling_nest", description="Baneling morph tech.", minerals=100, vespene=50, seconds=43, prerequisites=("spawning_pool",)),
     _building("hydralisk_den", description="Hydralisk production.", minerals=100, vespene=100, seconds=29, prerequisites=("lair",)),
-    _building("lurker_den", description="Morphs a completed Hydralisk Den. Hydralisk production remains available.", minerals=100, vespene=150, seconds=57, prerequisites=("hydralisk_den",), mechanism="structure_morph", morph_from="hydralisk_den"),
+    _building("lurker_den", description="A Drone constructs a separate Lurker Den on creep. Requires a Hydralisk Den.", minerals=100, vespene=150, seconds=57, prerequisites=("hydralisk_den",)),
     _building("infestation_pit", description="Infestor and Swarm Host tech.", minerals=100, vespene=100, seconds=36, prerequisites=("lair",)),
     _building("spire", description="Mutalisk and Corruptor production, plus air upgrades.", minerals=200, vespene=200, seconds=71, prerequisites=("lair",)),
     _building("nydus_network", description="Nydus Network. The exit is not supported, so this building is not an executable build.", minerals=150, vespene=150, seconds=36, prerequisites=("lair",), executable=False),
@@ -199,7 +200,7 @@ ZERG_TARGETS: Tuple[TargetSpec, ...] = (
     _research("tunneling_claws", description="Burrowed Roaches move faster.", minerals=100, vespene=100, seconds=79, researched_at="roach_warren", prerequisites=("roach_warren", "lair")),
     _research("muscular_augments", description="Hydralisks move faster.", minerals=100, vespene=100, seconds=64, researched_at="hydralisk_den", prerequisites=("hydralisk_den", "lair")),
     _research("grooved_spines", description="Increases Hydralisk attack range.", minerals=75, vespene=75, seconds=50, researched_at="hydralisk_den"),
-    _research("lurker_range", description="Increases Lurker attack range.", minerals=150, vespene=150, seconds=57, researched_at="lurker_den"),
+    _research("lurker_range", description="Increases Lurker attack range.", minerals=150, vespene=150, seconds=57, researched_at="lurker_den", prerequisites=("lurker_den", "hive")),
     _research("burrow", description="Lets units burrow. Lurker burrow is backend-controlled.", minerals=100, vespene=100, seconds=71, researched_at="hatchery"),
     _research("pneumatized_carapace", description="Overlords and Overseers move faster.", minerals=100, vespene=100, seconds=43, researched_at="hatchery"),
     _research("chitinous_plating", description="Increases Ultralisk armor.", minerals=150, vespene=150, seconds=79, researched_at="ultralisk_cavern"),
@@ -295,7 +296,7 @@ _TARGET_TABLE_LEGEND = (
 _TARGET_NOTES = {
     "build": (
         "- A completed Hatchery, Lair or Hive provides 4 supply. Morphing among them does not add more. A completed Overlord adds 8 supply and is a train target, not an automatic building.",
-        "- Lurker Den morphs a Hydralisk Den. Greater Spire morphs a Spire. Creep tumors and Nydus worms are not actions. nydus_network is knowledge only; its exit is not supported.",
+        "- A Drone constructs a separate Lurker Den. Greater Spire morphs a Spire. Creep tumors use spawn_creep_tumor. nydus_network is knowledge only; its exit is not supported.",
     ),
     "train": (
         "- Drones, Overlords and army units except Queens, morphs and the Queen itself come from larva at a Hatchery, Lair or Hive.",
@@ -317,7 +318,7 @@ _PROMPT_DESCRIPTIONS = {
     "roach_warren": "Roach production.",
     "baneling_nest": "Baneling morph tech.",
     "hydralisk_den": "Hydralisk production.",
-    "lurker_den": "Morphs a Hydralisk Den.",
+    "lurker_den": "A Drone constructs a separate Lurker Den on creep.",
     "infestation_pit": "Infestor and Swarm Host tech.",
     "spire": "Air production and air upgrades.",
     "nydus_network": "Knowledge only. The exit is not supported.",

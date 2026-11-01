@@ -356,6 +356,58 @@ class Environment:
         snapshot = self.backend.snapshot()
         preview_base = deepcopy(self.task_manager)
         idle_army = self._idle_army_counts(snapshot)
+        observed_groups = self._outbound_group_counts(snapshot)
+        original = {d.demand_id: d for d in preview_base.active_demands()}
+        original_groups = {d.group: dict(d.units or {}) for d in original.values()
+                           if d.action == "combat" and d.group}
+        home_target = (self._last_observation.get("combat", {}).get("group_0", {})
+                       .get("target"))
+
+        def command_state(manager):
+            """Public task state projected on the frozen frame, never execution progress."""
+            macro = [d for d in manager.active_demands()
+                     if d.action in {"build", "train", "research", "morph_townhall"}]
+            production = manager.production_priority_summary()
+            for row, demand in zip(production, macro):
+                row["submission"] = "committed" if demand.demand_id in original else "staged"
+            groups = []
+            by_id = {d.demand_id: d.group for d in manager.active_demands()
+                     if d.action == "combat"}
+            for demand in manager.active_demands():
+                if demand.action != "combat" or not demand.group:
+                    continue
+                baseline = original_groups.get(demand.group, {})
+                observed = observed_groups.get(demand.group, {})
+                requested = dict(demand.units or {})
+                allocated = {
+                    name: max(0, int(observed.get(name, 0)) + int(requested.get(name, 0))
+                              - int(baseline.get(name, 0)))
+                    for name in set(observed) | set(requested) | set(baseline)
+                }
+                returning = demand.withdrawing or demand.return_to_group0
+                recalling = demand.recall_status == "pending"
+                row = {
+                    "group": demand.group,
+                    "order": "retreat" if returning or recalling else demand.style,
+                    "target": home_target if returning or recalling else demand.target,
+                    "observed_units": dict(observed),
+                    "allocated_units": {k: v for k, v in allocated.items() if v > 0},
+                    "submission": "committed" if demand.demand_id in original else "staged",
+                }
+                if returning or recalling:
+                    row["method"] = demand.retreat_method
+                if demand.merge_pending_into:
+                    row["merge_pending_into"] = demand.merge_pending_into
+                if demand.merge_source_ids:
+                    row["pending_merge_sources"] = [by_id.get(i) for i in demand.merge_source_ids
+                                                    if by_id.get(i)]
+                if demand.transfer_requests:
+                    row["pending_transfers"] = [
+                        {"source": r.get("source_group"), "units": dict(r.get("units") or {})}
+                        for r in demand.transfer_requests
+                    ]
+                groups.append(row)
+            return production, groups
         upgrades = set(snapshot.info.get("upgrades") or [])
         researching_raw = snapshot.info.get("in_progress_research") or []
         if isinstance(researching_raw, dict):
@@ -389,7 +441,7 @@ class Environment:
                 "known_upgrades": upgrades,
                 "researching": researching,
                 "idle_army": dict(idle_army),
-                "group_army": self._outbound_group_counts(snapshot),
+                "group_army": deepcopy(observed_groups),
                 "bunker_garrison": snapshot.info.get("bunker_garrison"),
             }
             prior_actions = tuple(actions[:-1])
@@ -400,17 +452,27 @@ class Environment:
                     ),
                     **submit_kwargs,
                 )
-            before_priority = manager.production_priority_summary()
-            receipts = manager.submit_decision(
-                DecisionBatch(
-                    actions=(actions[-1],), advance=AdvanceAction(seconds=1.0),
-                ),
-                **submit_kwargs,
-            )
+            before_priority, before_groups = command_state(manager)
+            receipts = []
+            if actions:
+                receipts = manager.submit_decision(
+                    DecisionBatch(
+                        actions=(actions[-1],), advance=AdvanceAction(seconds=1.0),
+                    ),
+                    **submit_kwargs,
+                )
+            after_priority, after_groups = command_state(manager)
             return {
-                "receipt": receipts[-1].to_dict(),
+                "receipt": receipts[-1].to_dict() if receipts else {},
                 "before_priority": before_priority,
-                "after_priority": manager.production_priority_summary(),
+                "after_priority": after_priority,
+                "before_groups": before_groups, "after_groups": after_groups,
+                "available_army": {k: v for k, v in submit_kwargs["idle_army"].items() if v > 0},
+                "production_in_progress": {
+                    "construction": dict(snapshot.info.get("under_construction") or {}),
+                    "training": dict(snapshot.info.get("in_production_units") or {}),
+                    "research": list(snapshot.info.get("in_progress_research") or []),
+                },
             }
 
         turn = ToolTurn(

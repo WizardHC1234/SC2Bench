@@ -42,3 +42,5 @@ agent = create_agent(call_llm=your_model_callback, verbose=True)
 `BenchmarkRunner` 可直接使用工厂。将 agent metadata 的 `name` 设为 `react_agent`，`implementation` 设为 `agents.react_agent.ReActAgent`，并记录模型、temperature、thinking、conversation_mode、max_tool_rounds，便于与原始 agent 区分。
 
 方法依据：[ReAct 作者说明与代码入口](https://react-lm.github.io/)。本实现使用原生工具调用，无固定示例轨迹和跨局经验。
+
+可选 `--skill terran/two-base-tanks`、`--skill protoss/macro-stalkers` 等已有种族策略，种族必须与 `--race` 一致。默认 `--skill none`；选中的文档加入本局系统消息，ReAct 工具循环保持相同。

@@ -37,12 +37,13 @@ class Repair(ActBase):
                     repairing_zone_count += 1
 
             for unit in zone.our_units:
-                if self.should_repair(unit):
+                if self.should_repair(unit) and self.can_fund_repair(unit):
                     desired_count = self.solve_scv_count(zone, unit)
 
                     if repairing_zone_count < desired_count:
                         for worker in zone.our_workers:  # type: Unit
-                            if not worker.is_repairing and worker.tag not in current_repairers:
+                            if (self.available_worker(worker) and worker.tag != unit.tag and not worker.is_repairing
+                                    and worker.tag not in current_repairers):
                                 worker.repair(unit)
                                 current_repairers.append(worker.tag)
                                 roles.set_task(UnitTask.Building, worker)
@@ -51,12 +52,15 @@ class Repair(ActBase):
                                     break
 
             if repairing_zone_count < pre_repairer:
-                to_repair = zone.our_units.filter(lambda u: u.is_ready and (u.is_structure or u.is_mechanical))
+                to_repair = zone.our_units.filter(lambda u: u.is_ready and (u.is_structure or u.is_mechanical)
+                                                 and u.health < u.health_max and self.can_fund_repair(u))
                 enemies = zone.known_enemy_units
                 if to_repair and enemies:
                     for worker in zone.our_workers:  # type: Unit
-                        if not worker.is_repairing and worker.tag not in current_repairers:
+                        if self.available_worker(worker) and not worker.is_repairing and worker.tag not in current_repairers:
                             closest = to_repair.closest_to(enemies.center)
+                            if worker.tag == closest.tag:
+                                continue
                             worker.repair(closest)
                             current_repairers.append(worker.tag)
                             roles.set_task(UnitTask.Building, worker)
@@ -65,6 +69,16 @@ class Repair(ActBase):
                                 break
 
         return True
+
+    def available_worker(self, worker):
+        return (self.roles.unit_role(worker) in {UnitTask.Idle, UnitTask.Gathering}
+                and not worker.is_constructing_scv
+                and worker.tag not in self.ai.unit_tags_received_action)
+
+    def can_fund_repair(self, unit):
+        cost = self.ai.calculate_unit_value(unit.type_id)
+        return ((cost.minerals <= 0 or self.ai.minerals > 0)
+                and (cost.vespene <= 0 or self.ai.vespene > 0))
 
     def should_repair(self, unit: Unit) -> bool:
         if not unit.is_ready:

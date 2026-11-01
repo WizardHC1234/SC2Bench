@@ -366,12 +366,12 @@ def _action_cost(spec: Any, race: str, row: Mapping[str, Any]) -> tuple:
         vespene = int(row["vespene_incremental"])
     supply = spec.supply
     food = row.get("food_required")
-    if food is not None and float(food) == int(float(food)):
+    if food is not None:
         if source is not None and source.get("food_required") is not None:
-            source_food = float(source["food_required"])
-            if source_food == int(source_food):
-                supply = int(float(food)) - int(source_food)
-        else:
+            delta = float(food) - float(source['food_required'])
+            if delta.is_integer():
+                supply = max(0, int(delta))
+        elif float(food).is_integer():
             supply = int(float(food))
     return max(minerals, 0), max(vespene, 0), supply
 
@@ -552,4 +552,3 @@ def attach(payload: Dict[str, Any], race: str, name: str) -> Dict[str, Any]:
     if behavior and len(payload["forms"]) > 1:
         payload["form_note"] = behavior
     return payload
-

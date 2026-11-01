@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from sc2bench_env.catalog.knowledge import (  # noqa: E402
-    _forms, _movement, bound_snapshot,
+    _aliases, _forms, _movement, bound_snapshot, primary_unit,
 )
 from sc2bench_env.catalog.registry import get_catalog, get_target  # noqa: E402
 from sc2bench_env.runtime.query_tools import catalog_roles as _roles, names_for  # noqa: E402
@@ -48,6 +48,14 @@ def collect_issues() -> list[str]:
                     issues.append(f"missing_prerequisite:{race}:{spec.name}:{req}")
             if spec.action == "research":
                 continue
+            native = primary_unit(race, spec.name)
+            aliases = (_aliases().get('units') or {}).get(race) or {}
+            supplied = set(spec.prerequisites) | {spec.produced_at, spec.morph_from}
+            for requirement in (native or {}).get('tech_requirement', []):
+                row = bound_snapshot()['by_id'].get(int(requirement))
+                name = aliases.get(str((row or {}).get('name', '')).upper())
+                if name and name not in supplied:
+                    issues.append(f'native_prerequisite_missing:{race}:{spec.name}:{name}')
             forms = _forms(race, spec.name)
             if not forms and spec.action in {"train", "build", "morph_townhall"}:
                 issues.append(f"no_snapshot_form:{race}:{spec.name}")

@@ -8,9 +8,10 @@ from sc2.ids.ability_id import AbilityId
 from sc2.ids.unit_typeid import UnitTypeId
 from sharpy.plans.acts import ActBase
 
-from sc2bench_env.backends.sharpy.combat_styles import available_for_mission
+from sc2bench_env.backends.sharpy.combat_styles import available_for_mission, visible_combat_enemies
 from sc2bench_env.catalog.registry import get_target
 from sc2bench_env.interface.observations import WORKER_UNIT_NAMES
+from sc2bench_env.backends.sharpy.holding import high_ground_side, stable_ramp_station
 
 HOME_GATHER_RADIUS = 6.5
 HOME_DEFEND_RADIUS = 20.0
@@ -54,6 +55,34 @@ def _kept_order(unit) -> bool:
     return False
 
 
+def _rally_order(unit, point):
+    """Only a position order already headed to this home gather point."""
+    orders = getattr(unit, "orders", ()) or ()
+    if not orders:
+        return False
+    for order in orders:
+        ability = getattr(getattr(order, "ability", None), "id", None)
+        if str(getattr(ability, "name", "")).split("_")[0] not in {"MOVE", "ATTACK"}:
+            return False
+        target = getattr(order, "target", None)
+        if target is None or not hasattr(target, "x") or not hasattr(target, "y"):
+            return False
+        if (target.x-point.x)**2 + (target.y-point.y)**2 > 1:
+            return False
+    return True
+
+
+def _mineral_rally_order(unit, ai):
+    """Combat units born at a worker producer may inherit its mineral rally."""
+    orders = getattr(unit, 'orders', ()) or ()
+    minerals = {mineral.tag for mineral in getattr(ai, 'mineral_field', ())}
+    return bool(orders) and all(
+        str(getattr(getattr(getattr(order, 'ability', None), 'id', None), 'name', '')).startswith('MOVE')
+        and isinstance(getattr(order, 'target', None), int) and order.target in minerals
+        for order in orders
+    )
+
+
 class PlanHomeGather(ActBase):
     def __init__(self, adapter):
         super().__init__()
@@ -82,23 +111,36 @@ class PlanHomeGather(ActBase):
                 and u.is_ready and not u.is_structure and not getattr(u, "is_hallucination", False)
                 and not _kept_order(u)]
 
-    def home_point(self):
-        """Completed natural gather point, else own-main side of the ramp."""
-        start = self.ai.start_location
+    def home_zone(self):
         natural = getattr(self.zone_manager, "own_natural", None)
         townhall = getattr(natural, "our_townhall", None)
         if (natural is not None and townhall is not None
                 and bool(getattr(townhall, "is_ready", False))
                 and not bool(getattr(townhall, "is_flying", False))):
+            return natural
+        return getattr(self.zone_manager, "own_main_zone", None)
+
+    def home_point(self):
+        """Completed natural gather point, else own-main side of the ramp."""
+        start = self.ai.start_location
+        natural = getattr(self.zone_manager, "own_natural", None)
+        if natural is not None and self.home_zone() is natural:
+            townhall = natural.our_townhall
             point = (getattr(natural, "gather_point", None)
                      or getattr(natural, "center_location", None)
                      or getattr(townhall, "position", None))
+            station = stable_ramp_station(self.ai, natural, point)
+            if station is not None:
+                return station
             pathable = getattr(self.ai, "in_pathing_grid", None)
             if point is not None and (pathable is None or pathable(point)):
                 return point
         main = getattr(self.zone_manager, "own_main_zone", None)
         ramp = getattr(main, "ramp", None)
         if ramp is not None:
+            station = stable_ramp_station(self.ai, main, start)
+            if station is not None:
+                return station
             point = ramp.top_center.towards(ramp.bottom_center, -4)
         else:
             center = getattr(getattr(self.ai, "game_info", None), "map_center", None)
@@ -106,7 +148,7 @@ class PlanHomeGather(ActBase):
         pathable = getattr(self.ai, "in_pathing_grid", None)
         return point if pathable is None or pathable(point) else start
 
-    def eligible(self, unit):
+    def eligible(self, unit, rally_point=None):
         name = self.adapter.normalize_unit_name(unit.type_id.name)
         spec = get_target(name, race=self.adapter.race_name) if name is not None else None
         return (
@@ -115,12 +157,15 @@ class PlanHomeGather(ActBase):
             and available_for_mission(unit, self.roles, getattr(self.ai, "bench_combat_tags", set()))
             and unit.tag not in self._bunker_tags()
             and not getattr(unit, "cargo_used", 0)
-            and bool(getattr(unit, "is_idle", False))
+            and (bool(getattr(unit, "is_idle", False))
+                 or _mineral_rally_order(unit, self.ai)
+                 or (rally_point is not None and _rally_order(unit, rally_point)))
         )
 
     async def execute(self):
         point = self.home_point()
         self.ai.bench_group0_home_point = point
+        self.ai.bench_group0_home_zone = self.home_zone()
         tags = getattr(self.ai, "bench_group0_tags", None)
         if tags is None:
             tags = set()
@@ -129,7 +174,9 @@ class PlanHomeGather(ActBase):
         tags.difference_update(getattr(self.ai, "bench_combat_tags", set()))
         tags.difference_update(self._bunker_tags())
         for unit in self.ai.units:
-            if self.eligible(unit) and unit.distance_to(point) <= HOME_GATHER_RADIUS:
+            arriving = unit.distance_to(point) <= HOME_GATHER_RADIUS
+            contact = self._micro_started and visible_combat_enemies(self.ai, unit)
+            if self.eligible(unit, rally_point=point) and (arriving or contact):
                 tags.add(unit.tag)
         if self._last_point is None or self._last_point.distance_to(point) > 1:
             self._rallied_tags.clear()
@@ -152,9 +199,12 @@ class PlanHomeGather(ActBase):
             if mobile is not None:
                 unit(mobile)
             else:
-                # Move, not attack-move. Defense retains its existing authority.
-                # Arrival, not this movement order, admits them to group_0.
-                unit.move(point)
+                # New troops can fire during the trip; local contact admits
+                # them to combat micro on the next controller update.
+                if getattr(unit, "can_attack", True) or unit.type_id == UnitTypeId.CARRIER:
+                    unit.attack(point)
+                else:
+                    unit.move(point)
         if self._micro_started:
             from sc2.units import Units
             from sharpy.managers.core.roles import UnitTask
@@ -172,10 +222,21 @@ class PlanHomeGather(ActBase):
                            and getattr(u, "is_visible", False)
                            and not getattr(u, "is_memory", False)
                            and not getattr(u, "is_snapshot", False)]
+                local_enemies = {u.tag: u for member in members
+                                 for u in visible_combat_enemies(self.ai, member)}
+                local_enemies.update({u.tag: u for u in enemies})
+                natural = getattr(self.zone_manager, "own_natural", None)
+                townhall = getattr(natural, "our_townhall", None)
+                zone = natural if townhall is not None and getattr(townhall,"is_ready",False) and not getattr(townhall,"is_flying",False) else getattr(self.zone_manager,"own_main_zone",None)
+                self._micro_rules.hold_position = True
+                self._micro_rules.compact_station = True
+                self._micro_rules.station_before_deploy = True
+                # A detached defender may still fight its local contact. That
+                # contact must not become a rally target for troops at home.
                 target = min(enemies, key=lambda u: u.distance_to(point)).position if enemies else point
-                self._micro_rules.boundary = lambda p: p.distance_to(point) <= HOME_DEFEND_RADIUS
+                self._micro_rules.boundary = lambda p: p.distance_to(point) <= HOME_DEFEND_RADIUS and high_ground_side(self.ai,zone,point,p)
                 self._micro_rules.return_point = point
-                self.ai.bench_group0_engaged = bool(enemies)
+                self.ai.bench_group0_engaged = bool(local_enemies)
                 for unit in members:
                     self.combat.add_unit(unit)
                 self.combat.execute(target, MoveType.Assault, self._micro_rules)

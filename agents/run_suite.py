@@ -12,6 +12,9 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import hashlib
+import math
+from collections import Counter
 from pathlib import Path
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -23,6 +26,7 @@ from agents.llm_agent.agent import CONVERSATION_MODES
 from agents.llm_agent.config import positive_float, positive_int
 from sc2bench_env.benchmark import BenchmarkRunner, BenchmarkSuite, Evaluator
 from sc2bench_env.paths import resolve_record_dir
+from sc2bench_env.recording.trajectory import source_fingerprints
 
 DEFAULT_CONFIG = Path(__file__).resolve().parent / "config.json"
 DEFAULT_SUITE = _PROJECT_ROOT / "benchmarks" / "kimi_k25_ai.json"
@@ -32,8 +36,8 @@ SKILL = "none"
 
 def nonnegative_float(value: str) -> float:
     number = float(value)
-    if number < 0:
-        raise argparse.ArgumentTypeError("must be >= 0")
+    if not math.isfinite(number) or number < 0:
+        raise argparse.ArgumentTypeError("must be finite and >= 0")
     return number
 
 
@@ -55,25 +59,90 @@ def load_model(config_path: Path, model_key: str) -> dict:
 def episode_counts_for_quota(directory: Path) -> bool:
     """True only for a finished game that actually started.
 
-    Launch failures, empty shells, and aborted near-zero-length episodes must
-    not fill the planned repetition quota or win-rate denominator.
+    Launch failures, empty shells and interruptions do not fill the quota.
+    Naturally finished short games remain valid outcomes.
     """
     try:
         payload = Evaluator.evaluate_episode(directory)
     except (OSError, ValueError, TypeError, KeyError):
         return False
-    if payload.get("status") != "completed":
+    if payload.get("status") != "completed" or payload.get("end_reason") not in {"game_ended", "time_limit"}:
         return False
     decisions = payload.get("decision_count")
     game_s = payload.get("game_time_seconds")
-    if type(decisions) is not int or decisions < 1:
+    if type(decisions) is not int or decisions < 0:
         return False
     if not isinstance(game_s, (int, float)) or game_s <= 0:
         return False
-    # Near-instant "completed" defeats are usually killed/failed launches.
-    if decisions <= 5 and game_s < 60:
-        return False
     return True
+
+
+def agent_fingerprint(implementation: str) -> str:
+    import importlib.util
+    module = implementation.rsplit(".", 1)[0]
+    spec = importlib.util.find_spec(module)
+    paths = set()
+    if spec and spec.origin:
+        paths.update(Path(spec.origin).parent.rglob("*.py"))
+    paths.update((Path(__file__).parent / "llm_agent").rglob("*.py"))
+    digest = hashlib.sha256()
+    for path in sorted(paths):
+        if path.name == "config.py":
+            continue
+        digest.update(path.relative_to(_PROJECT_ROOT).as_posix().encode("utf8"))
+        digest.update(path.read_bytes())
+    return digest.hexdigest()
+
+
+def ensure_run_identity(root: Path, suite: BenchmarkSuite, metadata: dict, *, service_url: str):
+    """Fail closed on mixed experiments without modifying any prior records."""
+    identity = {
+        "suite_sha256": suite.sha256, "agent": metadata,
+        "source": source_fingerprints(),
+        "service_sha256": hashlib.sha256(service_url.encode("utf8")).hexdigest(),
+    }
+    root.mkdir(parents=True, exist_ok=True)
+    path = root / "run_identity.json"
+    if not path.exists() and next(root.rglob("episode.txt"), None) is not None:
+        raise ValueError("Existing records have no experiment identity; use a new --record-dir.")
+    try:
+        with path.open("x", encoding="utf8") as out:
+            json.dump(identity, out, ensure_ascii=False, sort_keys=True, indent=2)
+    except FileExistsError:
+        if json.loads(path.read_text(encoding="utf8")) != identity:
+            raise ValueError("Record directory belongs to different experiment settings or source code; use a new --record-dir.")
+
+
+def remaining_case_suite(data: dict, case: dict, directory: Path):
+    """Retain the missing seed identities when rebuilding a partial suite."""
+    planned = data["repetitions"]
+    fields = {**data["episode_defaults"], **case["episode"]}
+    seeds = data.get("game_seeds")
+    completed = Counter()
+    if directory.is_dir():
+        for marker in directory.rglob("episode.txt"):
+            if not episode_counts_for_quota(marker.parent):
+                continue
+            row = Evaluator.evaluate_episode(marker.parent)
+            config = row.get("config") or {}
+            if all(config.get(k) == v for k, v in fields.items()):
+                completed[config.get("seed")] += 1
+    if seeds is not None:
+        missing = []
+        for seed in seeds:
+            if completed[seed]:
+                completed[seed] -= 1
+            else:
+                missing.append(seed)
+        need = len(missing)
+    else:
+        need = max(0, planned - sum(completed.values()))
+    if not need:
+        return None
+    result = {**data, "cases": [case], "repetitions": need}
+    if seeds is not None:
+        result["game_seeds"] = missing
+    return BenchmarkSuite.from_dict(result)
 
 
 def completed_in_cell(directory: Path) -> int:
@@ -108,13 +177,11 @@ def episode_completed(row: dict) -> bool:
         return False
     decisions = row.get("decision_count")
     game_s = row.get("game_time_seconds")
-    if type(decisions) is not int or decisions < 1:
+    if type(decisions) is not int or decisions < 0:
         return False
     if not isinstance(game_s, (int, float)) or game_s <= 0:
         return False
-    if decisions <= 5 and game_s < 60:
-        return False
-    return True
+    return row.get("end_reason") in {"game_ended", "time_limit"}
 
 
 def main(argv=None) -> int:
@@ -203,8 +270,16 @@ def main(argv=None) -> int:
         "settings": {
             "skill": SKILL, "thinking": thinking, "temperature": temperature,
             "conversation_mode": args.conversation_mode,
+            "api_timeout": args.api_timeout, "max_api_attempts": args.api_attempts,
+            "api_retry_delay_seconds": args.api_retry_delay,
+            "max_consecutive_rejections": args.max_rejections,
         },
     }
+    metadata["agent_source_sha256"] = agent_fingerprint(metadata["implementation"])
+    try:
+        ensure_run_identity(root, suite, metadata, service_url=model["api_url"])
+    except (OSError, ValueError) as error:
+        parser.error(str(error))
     print(f"Calling {args.model_key} with skill={SKILL}.", flush=True)
     episodes = []
     data = suite.to_dict()
@@ -212,7 +287,8 @@ def main(argv=None) -> int:
         for case in data["cases"]:
             planned = data["repetitions"]
             cell_dir = root / case["case_id"]
-            already = completed_in_cell(cell_dir)
+            remaining = remaining_case_suite(data, case, cell_dir)
+            already = planned - (remaining.to_dict()["repetitions"] if remaining else 0)
             if already >= planned:
                 print(f"{case['case_id']}: {already} completed, skip.", flush=True)
                 continue
@@ -224,11 +300,11 @@ def main(argv=None) -> int:
             # Only completed episodes fill the quota. Interrupted/failed games are
             # rescheduled in the same case instead of waiting for a later suite run.
             for attempt in range(1, LAUNCH_ATTEMPTS + planned):
-                already = completed_in_cell(cell_dir)
-                need = planned - already
-                if need < 1:
+                one = remaining_case_suite(data, case, cell_dir)
+                if one is None:
                     break
-                one = BenchmarkSuite.from_dict({**data, "cases": [case], "repetitions": need})
+                need = one.to_dict()["repetitions"]
+                already = planned - need
                 batch = BenchmarkRunner(
                     backend_factory=lambda: args.backend,
                     record_dir=cell_dir,
@@ -239,7 +315,8 @@ def main(argv=None) -> int:
                     if game_started(row) and not episode_completed(row)
                 ]
                 finished.extend(fresh_ok)
-                already = completed_in_cell(cell_dir)
+                remaining = remaining_case_suite(data, case, cell_dir)
+                already = planned - (remaining.to_dict()["repetitions"] if remaining else 0)
                 if fresh_bad:
                     print(
                         f"{case['case_id']}: {len(fresh_bad)} game(s) started but did not "
@@ -275,7 +352,8 @@ def main(argv=None) -> int:
         row["index"] = index
     print(f"Aggregate: {Evaluator.summarize(episodes)}", flush=True)
     print(f"Termination counts: {Evaluator.termination_counts(episodes)}", flush=True)
-    return 0 if episodes and all(row["status"] == "completed" for row in episodes) else 1
+    complete = all(remaining_case_suite(data, c, root / c["case_id"]) is None for c in data["cases"])
+    return 0 if complete else 1
 
 
 if __name__ == "__main__":

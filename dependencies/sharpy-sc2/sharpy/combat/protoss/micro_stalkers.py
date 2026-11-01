@@ -1,6 +1,7 @@
 from typing import Dict
 
 from sc2.ids.ability_id import AbilityId
+from sc2.ids.buff_id import BuffId
 from sc2.ids.unit_typeid import UnitTypeId
 from sc2pathlib import MapType
 from sharpy.general.extended_power import siege
@@ -80,8 +81,31 @@ class MicroStalkers(GenericMicro):
         super().__init__()
         self.prio_dict = high_priority
 
+    def blink_action(self, unit, point):
+        """Validate the native landing point before replacing a combat order."""
+        if unit.distance_to(point)>8:
+            return None
+        for name in ('in_map_bounds','is_visible','in_pathing_grid'):
+            check=getattr(self.ai,name,None)
+            if callable(check) and not check(point):
+                return None
+        radius=float(getattr(unit,'radius',.625))
+        for other in getattr(self.ai,'all_units',()):
+            if (other.tag!=unit.tag and not other.is_flying and not getattr(other,'is_burrowed',False)
+                    and other.distance_to(point)<radius+float(getattr(other,'radius',.5))+.05):
+                return None
+        frame=getattr(getattr(self.ai,'state',None),'game_loop',self.ai.time)
+        reserved=getattr(self.ai,'_bench_blink_points',None)
+        if reserved is None or reserved[0]!=frame:
+            reserved=self.ai._bench_blink_points=(frame,[])
+        if any(point.distance_to(p)<radius+r+.05 for p,r in reserved[1]):
+            return None
+        reserved[1].append((point,radius))
+        return Action(point,False,AbilityId.EFFECT_BLINK_STALKER)
+
     def unit_solve_combat(self, unit: Unit, current_command: Action) -> Action:
-        if self.cd_manager.is_ready(unit.tag, AbilityId.EFFECT_BLINK_STALKER):
+        if (BuffId.FUNGALGROWTH not in getattr(unit, 'buffs', ())
+                and self.cd_manager.is_ready(unit.tag, AbilityId.EFFECT_BLINK_STALKER)):
             if self.is_locked_on(unit):
                 cyclones = self.enemies_near_by(UnitTypeId.CYCLONE)
                 if cyclones:
@@ -89,7 +113,8 @@ class MicroStalkers(GenericMicro):
                     backstep: Point2 = closest_cyclone.position.towards(unit.position, 15)
                     backstep = self.pather.find_weak_influence_ground(backstep, 4)
 
-                    return Action(backstep, False, AbilityId.EFFECT_BLINK_STALKER)
+                    action=self.blink_action(unit,backstep)
+                    if action is not None:return action
 
             if self.model == CombatModel.StalkerToSiege and (
                 self.move_type == MoveType.Assault or self.move_type == MoveType.SearchAndDestroy
@@ -98,7 +123,8 @@ class MicroStalkers(GenericMicro):
                 if siege_units:
                     target = siege_units.closest_to(unit)
                     if target.distance_to(unit) > 6:
-                        return Action(target.position, False, AbilityId.EFFECT_BLINK_STALKER)
+                        action=self.blink_action(unit,target.position)
+                        if action is not None:return action
 
             if unit.shield_percentage < 0.05:
                 # Blink to safety.
@@ -112,6 +138,7 @@ class MicroStalkers(GenericMicro):
                     backstep_influence = self.pather.map.current_influence(MapType.Ground, target)
                     current_influence = self.pather.map.current_influence(MapType.Ground, unit.position)
                     if backstep_influence < current_influence:
-                        return Action(target, False, AbilityId.EFFECT_BLINK_STALKER)
+                        action=self.blink_action(unit,target)
+                        if action is not None:return action
 
         return super().unit_solve_combat(unit, current_command)

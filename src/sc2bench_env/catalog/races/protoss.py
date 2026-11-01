@@ -151,7 +151,7 @@ PROTOSS_TARGETS: Tuple[TargetSpec, ...] = (
         description="Ground army producer. warp_gate research does not morph it. build warpgate converts one completed Gateway.",
         minerals=150,
         seconds=46,
-        prerequisites=("pylon",),
+        prerequisites=("nexus",),
     ),
     _building(
         "warpgate",
@@ -167,7 +167,7 @@ PROTOSS_TARGETS: Tuple[TargetSpec, ...] = (
         description="Ground weapon, armor and shield upgrades, and Photon Cannon tech.",
         minerals=150,
         seconds=32,
-        prerequisites=("pylon",),
+        prerequisites=("nexus",),
     ),
     _building(
         "cybernetics_core",

@@ -3,9 +3,11 @@ from __future__ import annotations
 
 
 from dataclasses import asdict, dataclass
+import math
 from typing import Any, Optional
 
 from .opponents import normalize_opponent, require_enemy_style
+from .races import require_supported_own_race, ENEMY_RACES
 
 
 @dataclass(frozen=True)
@@ -35,6 +37,18 @@ class EpisodeConfig:
     def __post_init__(self) -> None:
         object.__setattr__(self, "opponent", normalize_opponent(self.opponent))
         require_enemy_style(self.enemy_style)
+        require_supported_own_race(self.race)
+        if self.enemy_race not in ENEMY_RACES:
+            raise ValueError("Unsupported enemy_race")
+        if not isinstance(self.map_name, str) or not self.map_name.strip():
+            raise ValueError("map_name must be nonempty")
+        limit = self.game_time_limit_seconds
+        if limit is not None and (type(limit) not in (int, float) or not math.isfinite(limit) or limit <= 0):
+            raise ValueError("game_time_limit_seconds must be positive and finite, or None")
+        if self.seed is not None and (type(self.seed) is not int or self.seed < 0):
+            raise ValueError("seed must be a non-negative integer or None")
+        if type(self.blocking_decisions) is not bool or type(self.realtime) is not bool:
+            raise ValueError("blocking_decisions and realtime must be booleans")
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

@@ -284,24 +284,39 @@ class ToolTurn:
                 raw = str(receipt["reason"])[len(prefix):]
                 if raw.isdigit():
                     effect["matched_unstarted"] = int(raw)
-        if action.action == "combat" and action.units and action.source in {None, "group_0"}:
-            free = self._observation.get("own_forces", {}).get("free", {})
-            remaining = {
-                str(name): int(count) for name, count in dict(free or {}).items()
-                if type(count) is int and count > 0
-            }
-            combat_actions = self._staged
-            if receipt.get("result", "accepted") == "accepted":
-                combat_actions = (*combat_actions, action)
-            for staged in combat_actions:
-                if staged.action != "combat" or not staged.units:
-                    continue
-                for name, count in staged.units.items():
-                    remaining[name] = max(0, int(remaining.get(name, 0)) - int(count))
-            effect["available_after_staging"] = {
-                name: count for name, count in remaining.items() if count > 0
-            }
+        self._attach_command_state(data, tool_call, preview)
+        if (action.action == "combat" and action.units
+                and action.source in {None, "group_0"}
+                and isinstance(preview.get("available_army"), Mapping)):
+            effect["available_after_staging"] = dict(preview["available_army"])
         return data
+
+    def _attach_command_state(self, data, tool_call, preview, *, unchanged=False):
+        if tool_call.name in {"build", "train", "research", "morph_townhall", "cancel"}:
+            rows = preview.get("after_priority")
+            if isinstance(rows, list):
+                data["production_tasks"] = rows
+            if isinstance(preview.get("production_in_progress"), Mapping):
+                data["production_in_progress"] = dict(preview["production_in_progress"])
+        if tool_call.name in {"dispatch_group", "attack_group", "defend_group",
+                              "reinforce_group", "merge_groups", "retreat_group"}:
+            args = tool_call.arguments
+            effect = data.get("effect") or {}
+            names = {args[k] for k in ("source", "destination", "group")
+                     if isinstance(args.get(k), str)}
+            names.update(effect[k] for k in ("group", "destination")
+                         if isinstance(effect.get(k), str))
+            sources = args.get("sources")
+            if isinstance(sources, (list, tuple)):
+                names.update(s for s in sources if isinstance(s, str))
+            def related(rows):
+                return [r for r in rows or [] if r.get("group") in names]
+            if "after_groups" in preview:
+                data["combat_state"] = {
+                    "before": related(preview.get("after_groups") if unchanged else preview.get("before_groups")),
+                    "after": related(preview.get("after_groups")),
+                    "home_available": dict(preview.get("available_army") or {}),
+                }
 
     def _advance(self, tool_call: ToolCall) -> ToolResult:
         try:
@@ -343,15 +358,18 @@ class ToolTurn:
             else:
                 kind = "unknown"
             if kind == "action":
+                data = {
+                    "action": tool_call.name, "request": dict(tool_call.arguments),
+                    "effect": {}, "execution": "not_staged",
+                    "error": {"code": code, "message": message},
+                }
+                if self._preview_actions is not None and not self._closed:
+                    self._attach_command_state(
+                        data, tool_call, self._preview_actions(tuple(self._staged)), unchanged=True,
+                    )
                 result = ToolResult(
                     status="rejected",
-                    data={
-                        "action": tool_call.name,
-                        "request": dict(tool_call.arguments),
-                        "effect": {},
-                        "execution": "not_staged",
-                        "error": {"code": code, "message": message},
-                    },
+                    data=data,
                 )
             self._record_call(kind, tool_call, result)
         return result

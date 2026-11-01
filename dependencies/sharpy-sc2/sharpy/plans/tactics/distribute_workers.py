@@ -6,6 +6,7 @@ from sharpy.managers.core import UnitRoleManager
 from sharpy.managers.core.unit_value import buildings_5x5, UnitValue
 from sharpy.plans.acts import ActBase
 from sc2.ids.buff_id import BuffId
+from sc2.ids.unit_typeid import UnitTypeId
 from sc2.units import Units
 
 from sharpy.managers.core.roles import UnitTask
@@ -36,6 +37,7 @@ class DistributeWorkers(ActBase):
         aggressive_gas_fill: bool = True,
         evacuate_zones: bool = True,
         leave_builders_alone: bool = True,
+        fill_built_gas: bool = False,
     ):
         super().__init__()
         assert min_gas is None or isinstance(min_gas, int)
@@ -45,6 +47,7 @@ class DistributeWorkers(ActBase):
         self.max_gas = max_gas
         self.aggressive_gas_fill = aggressive_gas_fill
         self.leave_builders_alone = leave_builders_alone
+        self.fill_built_gas = fill_built_gas
         # evacuate
         self.evacuate_zones = evacuate_zones
         self.active_gas_workers = 0
@@ -78,6 +81,7 @@ class DistributeWorkers(ActBase):
 
         # Balance workers in bases that have to many
         work_status: Optional[WorkStatus] = None
+        filling_gas = False
         for status in self.work_queue:
             if status.available < 0 or status.force_exit:
                 work_status = status
@@ -92,6 +96,7 @@ class DistributeWorkers(ActBase):
             for status in self.work_queue:
                 if status.unit.type_id in buildings_5x5 and status.unit.assigned_harvesters > 0:
                     work_status = status
+                    filling_gas = True
                     break
 
         if (
@@ -110,6 +115,8 @@ class DistributeWorkers(ActBase):
             tags = self.worker_dict.get(work_status.unit.tag, [])
             if tags:
                 assign_workers = self.cache.by_tags(tags)
+                if filling_gas:
+                    assign_workers = assign_workers.exclude_type(UnitTypeId.MULE)
                 if assign_workers:
                     assign_worker = assign_workers.furthest_to(work_status.unit)
                     await self.set_work(assign_worker, work_status)
@@ -154,6 +161,11 @@ class DistributeWorkers(ActBase):
         """Target count for workers harvesting gas."""
         worker_count = self.roles.free_workers.amount
         max_workers_at_gas = self.active_gas_buildings.amount * MAX_WORKERS_PER_GAS
+
+        if self.fill_built_gas:
+            # Staffing follows explicit gas-building investment. Keep at least
+            # half of available permanent workers for minerals after losses.
+            return min(max_workers_at_gas, worker_count // 2)
 
         estimate = round((worker_count - 8) / 2)
         if self.min_gas is not None:
@@ -221,7 +233,7 @@ class DistributeWorkers(ActBase):
 
             current_workers = len(self.worker_dict.get(building.tag, []))
             zone = self.zone_manager.zone_for_unit(building)
-            if zone.is_enemys or zone is None:
+            if zone is None or zone.is_enemys:
                 # Exit workers from the zone
                 self.work_queue.append(WorkStatus(building, -current_workers * 10000, True))
             elif self.evacuate_zones and zone and zone.needs_evacuation:
@@ -283,10 +295,10 @@ class DistributeWorkers(ActBase):
             return True
 
         if new_work.type_id in buildings_5x5:
-            for zone in self.zone_manager.expansion_zones:  # type: Zone
-                if zone.center_location.distance_to(new_work.position) < 1:
-                    new_work = zone.check_best_mineral_field()
-                    break
+            # A valid expansion may be placed a few tiles from its nominal
+            # center. Resolve its zone instead of sending Gather at the hall.
+            zone = self.zone_manager.zone_for_unit(new_work)
+            new_work = zone.check_best_mineral_field() if zone is not None else None
 
         if new_work:
             self.print(f"New work found, gathering {new_work.type_id} {new_work.tag}!")
@@ -302,6 +314,8 @@ class DistributeWorkers(ActBase):
                 continue
 
             if status.unit.has_vespene:
+                if worker.type_id == UnitTypeId.MULE:
+                    continue
                 if status.available > 0:
                     new_work = status
                     break

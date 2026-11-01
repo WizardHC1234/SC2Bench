@@ -71,7 +71,7 @@ def _action_result_text(status: str, data: Mapping[str, Any]) -> str:
             if value is not None:
                 lines.append(f"{key.title()}: {_compact_value(value)}")
     available = effect.get("available_after_staging")
-    if isinstance(available, Mapping):
+    if isinstance(available, Mapping) and "combat_state" not in data:
         lines.append(f"Available after staging: {_compact_value(available)}")
     if effect.get("reason") is not None:
         lines.append(f"Reason: {effect['reason']}")
@@ -91,6 +91,54 @@ def _action_result_text(status: str, data: Mapping[str, Any]) -> str:
     }.get(str(execution), str(execution) if execution else None)
     if execution_text:
         lines.append(f"Execution: {execution_text}")
+    production = data.get("production_tasks")
+    if isinstance(production, list):
+        lines.append("Production tasks after staging:")
+        for row in production:
+            target = str(row.get("target") or "unknown")
+            if row.get("to"):
+                target += f" -> {row['to']}"
+            state = "staged" if row.get("submission") == "staged" else row.get("state", "unknown")
+            text = f"- {row.get('action')} {target} x{row.get('remaining')}: {state}"
+            if row.get("in_production") is not None:
+                text += f"; in production {row['in_production']}"
+            if row.get("waiting_to_produce") is not None:
+                text += f"; unstarted {row['waiting_to_produce']}"
+            if row.get("waiting_for"):
+                text += f"; waiting for {row['waiting_for']}"
+            lines.append(text)
+        if not production:
+            lines.append("none")
+    native = data.get("production_in_progress")
+    if isinstance(native, Mapping):
+        lines.append("Native work in progress (current observation):")
+        lines.append(f"- Construction: {_compact_value(native.get('construction') or {})}")
+        lines.append(f"- Training: {_compact_value(native.get('training') or {})}")
+        lines.append(f"- Research: {_compact_value(native.get('research') or [])}")
+    combat = data.get("combat_state")
+    if isinstance(combat, Mapping):
+        before = {r["group"]: r for r in combat.get("before", [])}
+        lines.append("Groups after staging:")
+        for row in combat.get("after", []):
+            group = row["group"]
+            old = before.get(group)
+            order = f"{row.get('order')} {row.get('target') or 'unknown'}"
+            if old and (old.get("order"), old.get("target")) != (row.get("order"), row.get("target")):
+                order = f"{old.get('order')} {old.get('target') or 'unknown'} -> {order}"
+            lines.append(f"- {group}: {order}; allocated {_compact_value(row.get('allocated_units') or {})}")
+            if row.get("observed_units") != row.get("allocated_units"):
+                lines.append(f"  Observed units at decision: {_compact_value(row.get('observed_units') or {})}")
+            if row.get("method"):
+                lines.append(f"  Return method: {row['method']}; arrival pending")
+            if row.get("merge_pending_into"):
+                lines.append(f"  Merge pending into: {row['merge_pending_into']}")
+            if row.get("pending_merge_sources"):
+                lines.append(f"  Merge pending from: {_compact_value(row['pending_merge_sources'])}")
+            if row.get("pending_transfers"):
+                lines.append(f"  Pending transfers: {_compact_value(row['pending_transfers'])}")
+        if not combat.get("after"):
+            lines.append("none")
+        lines.append(f"Home available after staging: {_compact_value(combat.get('home_available') or {})}")
     normalizations = data.get("normalizations")
     if isinstance(normalizations, Sequence) and not isinstance(normalizations, (str, bytes)):
         for row in normalizations:
@@ -148,7 +196,7 @@ class LLMAdapter:
                 return (
                     f"Status: decision_ready\n"
                     f"Submitted actions: {effect.get('submitted_actions')}\n"
-                    f"Game advance: {request.get('seconds')} seconds"
+                    f"Requested advance: {request.get('seconds')} seconds"
                 )
             error = result.data.get("error") if isinstance(result.data, Mapping) else {}
             if not isinstance(error, Mapping):

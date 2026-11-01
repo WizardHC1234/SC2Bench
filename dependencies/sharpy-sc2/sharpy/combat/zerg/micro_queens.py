@@ -12,7 +12,9 @@ class MicroQueens(GenericMicro):
         if self.cd_manager.is_ready(unit.tag, AbilityId.TRANSFUSION_TRANSFUSION):
             own_close = self.cache.own_in_range(unit.position, 7)
             for own_unit in own_close:  # type: Unit
-                if own_unit.health_max - own_unit.health > 70 and not own_unit.has_buff(BuffId.TRANSFUSION):
+                if (own_unit.tag != unit.tag and own_unit.is_ready
+                        and own_unit.health_max - own_unit.health > 70
+                        and not own_unit.has_buff(BuffId.TRANSFUSION)):
                     return Action(own_unit, False, AbilityId.TRANSFUSION_TRANSFUSION)
 
         return super().unit_solve_combat(unit, current_command)

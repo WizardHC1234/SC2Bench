@@ -3,6 +3,7 @@ from __future__ import annotations
 
 
 import json
+import hashlib
 import os
 import platform
 import sys
@@ -150,6 +151,31 @@ def _json_safe(value: Any) -> Any:
     return {"non_json_type": type(value).__name__}
 
 
+def source_fingerprints() -> Dict[str, Any]:
+    """Hash installed code, including editable native executor sources."""
+    platform_root = Path(__file__).resolve().parents[1]
+    executor_root = platform_root.parent.parent / "dependencies" / "sharpy-sc2" / "sharpy"
+    if not executor_root.is_dir():
+        try:
+            executor_root = Path(metadata.distribution("sharpy-sc2").locate_file("sharpy"))
+        except metadata.PackageNotFoundError:
+            executor_root = None
+    def digest_tree(root):
+        if root is None or not root.is_dir():
+            return None
+        digest = hashlib.sha256()
+        paths = sorted(root.rglob("*.py"))
+        if not paths:
+            return None
+        for path in paths:
+            name, content = path.relative_to(root).as_posix().encode("utf8"), path.read_bytes()
+            digest.update(len(name).to_bytes(8, "big") + name)
+            digest.update(len(content).to_bytes(8, "big") + content)
+        return digest.hexdigest()
+    return {"platform_source_sha256": digest_tree(platform_root),
+            "executor_source_sha256": digest_tree(executor_root)}
+
+
 def collect_versions() -> Dict[str, Any]:
     versions: Dict[str, Any] = {"python": platform.python_version()}
     for package in ("sc2bench-env", "burnysc2", "sharpy-sc2"):
@@ -164,6 +190,7 @@ def collect_versions() -> Dict[str, Any]:
                 versions["sharpy_commit"] = direct_url.get("vcs_info", {}).get("commit_id")
         except metadata.PackageNotFoundError:
             versions[package] = None
+    versions.update(source_fingerprints())
     return versions
 
 

@@ -1,5 +1,16 @@
 # Compact evaluation recording
 
+Each new episode stores hashes of platform and executor Python sources alongside
+its existing version metadata. The evaluator reports `comparison_status` as
+`compatible`, `incompatible`, or `unknown`; absent required provenance does not
+establish compatibility. Platform prompts are compared within each own race.
+Legacy batch source hashes remain usable when the episode lacks its own hash.
+
+Suite launchers save one `run_identity.json` per output root and reject a resume
+with different suite, agent settings, code, or service identity. API keys and
+service URLs are not stored in that file. Completed short games count toward
+the quota; interruptions do not. Seeded resumes retain only missing game seeds.
+
 Replay remains the primary source for births, construction completion, deaths,
 transformations, upgrades, and available command/selection events. Decode with
 Python `mpyq` and the replay's own `s2protocol` build; do not launch the game.
@@ -101,6 +112,9 @@ Each gzip member contains one JSON line and is closed after writing. A truncated
 last write should be reported as incomplete, not silently accepted. Scope asset
 IDs by episode, branch, player and tag. Replay tracker tags are
 `(m_unitTagIndex << 18) + m_unitTagRecycle`.
+Native API tags can contain upper bits absent from tracker IDs. Keep the raw
+tag for commands; when joining, reconstruct the replay ID with the protocol
+functions `unit_tag(unit_tag_index(raw_tag), unit_tag_recycle(raw_tag))`.
 
 ## Scope and validation
 
@@ -117,6 +131,12 @@ trunk plus a partial-view branch log does not provide full enemy branch truth.
 
 Full multi-cause blocking analysis and unique high-level-task/payment/order
 attribution remain separate work. The compact mode intentionally does not claim
-to provide arbitrary entity queues or every unmet condition. Actual disk size,
-wall-clock overhead and terminal coverage require subsequent normal games;
-regression checks here use synthetic/native messages and mock backends only.
+to provide arbitrary entity queues or every unmet condition. Full native-game and replay-decoding checks are recorded in
+[the platform audit](../analysis/platform_audit/review.md). These complement
+synthetic/native-message regressions; they do not measure model performance.
+
+Immediate unit-command rejections returned by `ResponseAction.result` are also
+preserved. They are merged with the next frame's `action_errors`, deduplicated
+by unit tag, ability and result, and written into the existing compact error
+field. No additional per-frame observation file or model-facing debug text is
+introduced. Camera moves used for visual audits are not unit commands.

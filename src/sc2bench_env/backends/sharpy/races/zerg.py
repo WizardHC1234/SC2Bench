@@ -30,7 +30,7 @@ from sc2bench_env.backends.sharpy.defense_placement import (
 )
 from sc2bench_env.backends.sharpy.combat_styles import unit_available_for_background
 from sc2bench_env.backends.sharpy.gather import PlanHomeGather
-from sc2bench_env.backends.sharpy.races.base import RaceAdapter
+from sc2bench_env.backends.sharpy.races.base import RaceAdapter, owned_unit_count
 from sc2bench_env.catalog.registry import TargetSpec, get_target, targets_for_action
 from sc2bench_env.runtime.task import Demand, DemandState
 
@@ -81,7 +81,6 @@ _UNIT_PRODUCER_IDS: Dict[str, Tuple[UnitTypeId, UnitTypeId]] = {
 }
 
 _BUILD_MORPHS: Dict[str, Tuple[UnitTypeId, AbilityId, UnitTypeId]] = {
-    "lurker_den": (UnitTypeId.HYDRALISKDEN, AbilityId.MORPH_LURKERDEN, UnitTypeId.LURKERDENMP),
     "greater_spire": (
         UnitTypeId.SPIRE, AbilityId.UPGRADETOGREATERSPIRE_GREATERSPIRE, UnitTypeId.GREATERSPIRE,
     ),
@@ -99,6 +98,24 @@ class BenchMorph(ActBase):
         self.target_count = target_count
         self.require_group0 = require_group0
         self.waiting_reason = None
+        self._issued_sources = {}
+
+    async def start(self, knowledge):
+        await super().start(knowledge)
+        data = self.ai._game_data.units.get(self.result_type.value)
+        creation = getattr(data, 'creation_ability', None)
+        if creation is not None:
+            self.ability_type = creation.exact_id
+        if self.result_type == UnitTypeId.BANELING:
+            modern = self.ai._game_data.abilities.get(4124)
+            if modern is not None and modern._proto.available:
+                self.ability_type = modern.exact_id
+
+    def _completed_results(self) -> int:
+        name = _TYPE_ALIASES[self.result_type.name]
+        forms = {getattr(UnitTypeId, raw) for raw, canonical in _TYPE_ALIASES.items()
+                 if canonical == name and hasattr(UnitTypeId, raw)}
+        return sum(owned_unit_count(self.ai, form) for form in forms)
 
     def reserve_pending_sources(self) -> None:
         """Hold source units for this morph before a later combat order can take them."""
@@ -106,17 +123,21 @@ class BenchMorph(ActBase):
         if not isinstance(tags, set):
             tags = set()
             self.ai.bench_morph_tags = tags
-        done = self.ai.units(self.result_type).amount + self.ai.units(self.cocoon_type).amount
+        done = self._completed_results() + self.ai.units(self.cocoon_type).amount
         sources = list(self.ai.units(self.unit_type).ready)
         for unit in sources:
             orders = getattr(unit, "orders", None) or []
             if orders and getattr(getattr(orders[0], "ability", None), "id", None) == self.ability_type:
                 done += 1
         need = max(0, int(self.target_count) - int(done))
+        if need == 0:
+            return
         held = 0
         for unit in sources:
             if unit.tag in tags:
                 held += 1
+                if held >= need:
+                    break
                 continue
             orders = getattr(unit, "orders", None) or []
             if orders and getattr(getattr(orders[0], "ability", None), "id", None) == self.ability_type:
@@ -131,8 +152,18 @@ class BenchMorph(ActBase):
                 break
 
     async def execute(self) -> bool:
-        done = self.ai.units(self.result_type).amount + self.ai.units(self.cocoon_type).amount
+        done = self._completed_results() + self.ai.units(self.cocoon_type).amount
         sources = list(self.ai.units(self.unit_type).ready)
+        now = float(getattr(self.ai, 'time', 0))
+        current = {unit.tag: unit for unit in sources}
+        for tag, issued_at in list(self._issued_sources.items()):
+            unit = current.get(tag)
+            if unit is None:
+                self._issued_sources.pop(tag, None)
+            elif now > issued_at and not any(order.ability.id == self.ability_type for order in unit.orders):
+                if self.require_group0 and tag not in getattr(self.ai, 'bench_combat_tags', ()):
+                    self.ai.bench_group0_tags.add(tag)
+                self._issued_sources.pop(tag, None)
         for unit in sources:
             orders = getattr(unit, "orders", None) or []
             if orders and getattr(getattr(orders[0], "ability", None), "id", None) == self.ability_type:
@@ -140,6 +171,9 @@ class BenchMorph(ActBase):
         if done >= self.target_count:
             return True
         self.waiting_reason = None
+        from sc2bench_env.catalog.registry import get_target
+        name = _TYPE_ALIASES[self.result_type.name]
+        spec = get_target(name, race='zerg')
         saw_reserved = False
         for unit in sources:
             orders = getattr(unit, "orders", None) or []
@@ -152,12 +186,23 @@ class BenchMorph(ActBase):
             if int(getattr(unit, "cargo_used", 0) or 0) > 0:
                 saw_reserved = True
                 continue
-            if not self.ai.can_afford(self.ability_type, check_supply_cost=False):
+            if (self.ai.minerals < spec.minerals or self.ai.vespene < spec.vespene
+                    or (spec.supply > 0 and self.ai.supply_left < spec.supply)):
                 return False
+            actions = getattr(self.ai, 'actions', None)
+            before = len(actions) if isinstance(actions, list) else None
+            if not unit(self.ability_type):
+                continue
+            if before is not None and len(actions) == before:
+                continue
+            self.ai.minerals -= spec.minerals
+            self.ai.vespene -= spec.vespene
+            self.ai.supply_left -= spec.supply
+            self.ai.supply_used += spec.supply
             tags = getattr(self.ai, "bench_group0_tags", None)
             if tags is not None:
                 tags.discard(unit.tag)
-            unit(self.ability_type)
+            self._issued_sources[unit.tag] = now
             done += 1
             if done >= self.target_count:
                 return True
@@ -343,6 +388,12 @@ class ZergAdapter(RaceAdapter):
     townhall_targets = ("hatchery", "lair", "hive")
 
     def production_owned_count(self, snapshot: Any, action: str, target: str) -> int:
+        if action == "build" and target == "spire":
+            # GridBuilding includes Greater Spires in its Spire count.
+            return snapshot.owned_count(action, target) + snapshot.owned_count(action, "greater_spire")
+        if action == "train" and target == "overlord":
+            # ActUnit's real_type maps transport Overlords back to Overlords.
+            return snapshot.owned_count(action, target) + snapshot.owned_count(action, "transport_overlord")
         return super().production_owned_count(snapshot, action, target)
 
     def ability_task_state(self, action: str, snapshot: Any,
@@ -351,13 +402,8 @@ class ZergAdapter(RaceAdapter):
         return ability_task_state(action, snapshot, waiting_for)
 
     def prerequisite_count_keys(self, prerequisite: str) -> Tuple[str, ...]:
-        if prerequisite == "hatchery":
-            return ("hatchery", "lair", "hive")
-        if prerequisite == "spire":
-            return ("spire", "greater_spire")
-        if prerequisite == "hydralisk_den":
-            return ("hydralisk_den", "lurker_den")
-        return (prerequisite,)
+        from sc2bench_env.catalog.prerequisites import prerequisite_keys
+        return prerequisite_keys(prerequisite, race=self.race_name)
 
     def ability_energy_budget(self, ai: Any, *, available_only: bool = False) -> float:
         queens = list(ai.units(UnitTypeId.QUEEN).ready)
@@ -406,11 +452,17 @@ class ZergAdapter(RaceAdapter):
         from sc2bench_env.backends.sharpy.races.zerg_production import production_order_target
         return production_order_target(order, game_data, self)
 
+    def unit_production_counts(self, unit: Any, game_data: Any) -> Dict[str, int]:
+        from sc2bench_env.backends.sharpy.races.zerg_production import unit_production_counts
+        return unit_production_counts(unit, game_data, self) or super().unit_production_counts(unit, game_data)
+
     def read_production_capacity(self, ai: Any) -> Optional[list]:
         from sc2bench_env.backends.sharpy.races.zerg_production import read_production_capacity
         return read_production_capacity(ai, self)
 
     def train_unit_type(self, name: str) -> Optional[UnitTypeId]:
+        if name == "transport_overlord":
+            return UnitTypeId.OVERLORDTRANSPORT
         pair = UNITS.get(name)
         return None if pair is None else pair[0]
 
@@ -506,7 +558,7 @@ class ZergAdapter(RaceAdapter):
         return spec is not None and spec.action == "build" and spec.kind == "building"
 
     def home_gather_excluded(self) -> frozenset:
-        return frozenset({"queen", "overlord", "overseer"})
+        return frozenset({"queen", "overlord", "overseer", "transport_overlord"})
 
     def create_tactics(self) -> BuildOrder:
         # Overlords and Inject stay agent-visible facts, not automatic spending.
@@ -515,7 +567,7 @@ class ZergAdapter(RaceAdapter):
                 MineOpenBlockedBase(),
                 PlanCancelBuilding(),
                 PlanZoneDefenseSafe(),
-                DistributeWorkers(min_gas=3, aggressive_gas_fill=True),
+                DistributeWorkers(aggressive_gas_fill=True, fill_built_gas=True),
                 Step(None, SpeedMining(), lambda ai: ai.client.game_step > 5),
                 PlanHomeGather(self),
             ]

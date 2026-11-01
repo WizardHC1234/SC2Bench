@@ -184,7 +184,7 @@ class ActBase(Component, ABC):
         Gets best worker to build in the selected location.
         Priorities:
         1. Existing worker with the current priority_tag
-        2. For Protoss, other builders, long distance Proxy builders should be in UnitTask.Reserved
+        2. Available idle and gathering workers; dedicated tasks retain ownership
         3. Idle workers
         4. Workers returning to base from building
         5. Workers mining minerals
@@ -198,9 +198,12 @@ class ActBase(Component, ABC):
         """
 
         worker: Optional[Unit] = None
+        used = getattr(self.ai, 'unit_tags_received_action', set())
         if priority_tag is not None:
             worker: Unit = self.cache.by_tag(priority_tag)
-            if worker is None or worker.is_constructing_scv or self.roles.unit_role(worker) != UnitTask.Building:
+            if (worker is None or worker.is_constructing_scv or worker.tag in used
+                    or getattr(worker, 'is_burrowed', False)
+                    or self.roles.unit_role(worker) != UnitTask.Building):
                 # Worker is probably dead or it is already building something else.
                 worker = None
 
@@ -215,6 +218,9 @@ class ActBase(Component, ABC):
         if worker is None:
             workers = self.ai.workers.filter(
                 lambda w: not w.has_buff(BuffId.ORACLESTASISTRAPTARGET) and not w.is_constructing_scv
+                and not getattr(w, 'is_burrowed', False) and w.tag not in used
+                and self.roles.unit_role(w) in {UnitTask.Idle, UnitTask.Gathering}
+                and (not only_roles or self.roles.unit_role(w) in only_roles)
             ).sorted_by_distance_to(position)
             if not workers:
                 return None

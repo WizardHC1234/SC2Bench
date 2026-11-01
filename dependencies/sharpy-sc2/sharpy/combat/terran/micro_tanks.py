@@ -79,6 +79,10 @@ class MicroTanks(GenericMicro):
         return nearby.closer_than(self.LOCAL_UNSIEGE + 1.0, unit)
 
     def unit_solve_combat(self, unit: Unit, current_command: Action) -> Action:
+        if any(getattr(getattr(order, "ability", None), "id", None) in {
+                AbilityId.SIEGEMODE_SIEGEMODE, AbilityId.UNSIEGE_UNSIEGE}
+                for order in getattr(unit, "orders", ()) or ()):
+            return NoAction()
         local_enemies = self._local_ground_enemies(unit)
         siege_mode: Optional[AbilityId] = None
         force_immediate_unsiege = False
@@ -150,8 +154,10 @@ class MicroTanks(GenericMicro):
                 if target is None:
                     return NoAction()
                 if isinstance(target, Point2):
-                    return current_command
+                    return NoAction()
                 if isinstance(target, Unit):
+                    if target.is_flying:
+                        return NoAction()
                     try:
                         if unit.distance_to(target) > self.LOCAL_UNSIEGE + 2:
                             return NoAction()
@@ -159,6 +165,6 @@ class MicroTanks(GenericMicro):
                         return NoAction()
                     return current_command
                 return NoAction()
-            return current_command
+            return NoAction()
 
         return super().unit_solve_combat(unit, current_command)

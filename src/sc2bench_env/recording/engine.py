@@ -59,13 +59,16 @@ def observation_sample(bot, snapshot, *, response=None, include_combat_membershi
             else:
                 owner, role = zone.get('known_owner'), str(zone.get('zone_role') or '')
                 group['target_relation'] = 'home' if owner == 'self' or role.startswith('own_') else 'away'
+    state = getattr(bot, 'state', None)
+    errors = (getattr(state, 'action_errors', response.action_errors)
+              if response is getattr(state, 'response_observation', None) else response.action_errors)
     return dict(game_loop=int(obs.game_loop), game_time_seconds=float(snapshot.game_time_seconds),
         player_id=getattr(bot, 'player_id', None),
         counters={k: _optional(score, k) for k in ('collected_minerals', 'collected_vespene', 'idle_production_time', 'idle_worker_time')},
         bank={k: _optional(common, k) for k in ('minerals', 'vespene')},
         supply_used=_optional(common, 'food_used'), supply_cap=_optional(common, 'food_cap'),
         enemy_sightings=sightings, macro_tasks=tasks, combat_groups=groups,
-        action_errors=[dict(unit_tag=int(e.unit_tag), ability_id=int(e.ability_id), result=int(e.result)) for e in response.action_errors])
+        action_errors=[dict(unit_tag=int(e.unit_tag), ability_id=int(e.ability_id), result=int(e.result)) for e in errors])
 
 @dataclass
 class CompactEngineState:

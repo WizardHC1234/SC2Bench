@@ -269,6 +269,9 @@ class Evaluator:
                 # Runtime version was supplied by Runner, not stored in episode.txt.
                 if "runtime_versions" in saved:
                     row["indexed_runtime_versions"] = saved["runtime_versions"]
+                if batch.get("platform_source_sha256") and not (row.get("versions") or {}).get("platform_source_sha256"):
+                    row["versions"] = dict(row.get("versions") or {})
+                    row["versions"]["platform_source_sha256"] = batch["platform_source_sha256"]
             if row.get("conversation_scope") in {None, "unknown"} and indexed_scope:
                 row["conversation_scope"] = indexed_scope
             episodes.append(row)
@@ -394,6 +397,9 @@ class Evaluator:
         game_versions = []
         knowledge_snapshots = []
         platform_versions = []
+        platform_sources, executor_sources = [], []
+        prompt_profiles = {}
+        missing_dimensions = set()
         tool_protocol_versions = []
         record_schema_versions = []
         backends = []
@@ -416,6 +422,24 @@ class Evaluator:
             platform_version = versions.get("sc2bench-env") if isinstance(versions, dict) else None
             if platform_version is not None and platform_version not in platform_versions:
                 platform_versions.append(platform_version)
+            for key, bucket in (("platform_source_sha256", platform_sources),
+                                ("executor_source_sha256", executor_sources)):
+                value = versions.get(key) if isinstance(versions, dict) else None
+                if value and value not in bucket:
+                    bucket.append(value)
+                if not value and (key == "platform_source_sha256" or row.get("backend") == "sharpy"):
+                    missing_dimensions.add(key)
+            race = (row.get("config") or {}).get("race", "unknown")
+            prompt_hash = row.get("platform_prompt_sha256")
+            if prompt_hash:
+                prompt_profiles.setdefault(race, set()).add(prompt_hash)
+            else:
+                missing_dimensions.add("platform_prompt_sha256")
+            if row.get("backend") == "sharpy":
+                if not game_version:
+                    missing_dimensions.add("game_version")
+                if not snapshot_hash:
+                    missing_dimensions.add("knowledge_snapshot")
             protocol = row.get("tool_protocol_version")
             if protocol is not None and protocol not in tool_protocol_versions:
                 tool_protocol_versions.append(protocol)
@@ -434,8 +458,14 @@ class Evaluator:
             "tool_protocol_versions": tool_protocol_versions,
             "record_schema_versions": record_schema_versions,
             "backends": backends,
+            "platform_sources": platform_sources,
+            "executor_sources": executor_sources,
+            "platform_prompt_profiles": {k: sorted(v) for k, v in prompt_profiles.items()},
         }
-        comparable = all(len(values) <= 1 for values in comparison_dimensions.values())
+        incompatible = any(len(values) > 1 for key, values in comparison_dimensions.items()
+                           if key != "platform_prompt_profiles") or any(len(v) > 1 for v in prompt_profiles.values())
+        comparison_status = "incompatible" if incompatible else "unknown" if missing_dimensions else "compatible"
+        comparable = comparison_status == "compatible"
         decided = summary["victory"] + summary["defeat"] + summary["tie"]
         usage = _empty_usage()
         decision_values = []
@@ -493,11 +523,13 @@ class Evaluator:
             "conversation_scopes": conversation_scopes,
             "comparison_dimensions": comparison_dimensions,
             "comparable": comparable,
+            "comparison_status": comparison_status,
+            "missing_comparison_dimensions": sorted(missing_dimensions),
             "episodes": summary["episodes"],
             "victory": summary["victory"],
             "defeat": summary["defeat"],
             "tie": summary["tie"],
-            "win_rate": (summary["victory"] / decided) if comparable and decided else None,
+            "win_rate": (summary["victory"] / decided) if not incompatible and decided else None,
             "decisions": summary["total_decisions"],
             "rejected": summary["total_rejected_decisions"],
             "rejected_decisions": summary["total_rejected_decisions"],

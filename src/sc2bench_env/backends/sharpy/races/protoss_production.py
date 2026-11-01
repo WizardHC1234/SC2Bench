@@ -94,8 +94,12 @@ def read_production_capacity(ai, adapter):
         capacity = occupied = free = 0
         queue_capacity = queued_orders = free_queue_positions = 0
         reserved_for_morph = 0
+        unpowered = 0
         reserved_tags = set(getattr(ai, "bench_warp_reserve_tags", set()) or ())
         for parent in parents:
+            if facility != 'nexus' and not getattr(parent, 'is_powered', True):
+                unpowered += 1
+                continue
             orders = getattr(parent, "orders", None)
             if orders is None:
                 unknown = True
@@ -119,6 +123,7 @@ def read_production_capacity(ai, adapter):
             "queue_capacity": queue_capacity,
             "queued_orders": queued_orders,
             "free_queue_positions": free_queue_positions,
+            'unpowered': unpowered,
         }
         if facility == "gateway":
             row["reserved_for_morph"] = reserved_for_morph
@@ -133,10 +138,13 @@ def read_production_capacity(ai, adapter):
     status = getattr(ai, "bench_warpgate_status", None)
     if not isinstance(status, dict):
         status = {"total": None, "ready": None, "cooling": None}
+    total = status.get('total')
+    unpowered = status.get('unpowered', 0) if total is not None else None
+    capacity = total - unpowered if total is not None and unpowered is not None else None
     rows.append({
         "facility": "warpgate",
         "ready_grounded": status.get("total"),
-        "capacity": status.get("total"),
+        "capacity": capacity,
         "occupied_slots": status.get("cooling"),
         "free_slots": status.get("ready"),
         "queue_capacity": None,
@@ -144,6 +152,7 @@ def read_production_capacity(ai, adapter):
         "free_queue_positions": None,
         "ready_to_warp": status.get("ready"),
         "cooling": status.get("cooling"),
+        'unpowered': unpowered,
     })
     return rows
 

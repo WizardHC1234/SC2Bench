@@ -516,12 +516,16 @@ def available_targets(
             elif text == "in_progress":
                 running.add(str(name))
 
-    def ready(name: str) -> bool:
-        return (
-            _ready_count(building, name) > 0
-            or name in structure_types
-            or name in finished
-            or _living_count(units, name) > 0
+    from sc2bench_env.catalog.prerequisites import prerequisite_keys
+
+    def ready(name: str, *, exact: bool = False) -> bool:
+        keys = (name,) if exact else prerequisite_keys(name, race=race)
+        return any(
+            _ready_count(building, key) > 0
+            or key in structure_types
+            or key in finished
+            or _living_count(units, key) > 0
+            for key in keys
         )
 
     def prereqs_met(spec) -> bool:
@@ -529,7 +533,10 @@ def available_targets(
 
     grouped: Dict[str, List[str]] = {"build": [], "train": [], "research": [], "morph_townhall": []}
     for spec in catalog.targets:
-        if spec.action not in grouped:
+        if spec.action not in grouped or not spec.executable:
+            continue
+        source = spec.morph_from or (spec.produced_at if spec.mechanism == "structure_morph" else "")
+        if spec.mechanism == "structure_morph" and source and not ready(source, exact=True):
             continue
         if spec.action == "build" and prereqs_met(spec):
             grouped["build"].append(spec.name)
@@ -543,7 +550,7 @@ def available_targets(
             and prereqs_met(spec)
         ):
             grouped["research"].append(spec.name)
-        elif spec.action == "morph_townhall" and ready(spec.morph_from) and prereqs_met(spec):
+        elif spec.action == "morph_townhall" and ready(spec.morph_from, exact=True) and prereqs_met(spec):
             grouped["morph_townhall"].append(spec.name)
     return grouped
 
@@ -743,9 +750,9 @@ def compact_observation(
 def compact_production_priority(
     rows: Optional[Sequence[Mapping[str, Any]]],
 ) -> List[dict[str, Any]]:
-    """Group equivalent persistent work while preserving first-seen priority."""
+    """Compress adjacent equivalent requests without moving spending priority."""
     grouped: List[dict[str, Any]] = []
-    positions: dict[tuple[Any, ...], int] = {}
+    previous_key = None
     for row in rows or ():
         if not isinstance(row, Mapping):
             continue
@@ -753,14 +760,13 @@ def compact_production_priority(
             row.get("action"), row.get("target"), row.get("to"),
             row.get("state"), row.get("waiting_for"), row.get("mechanism"),
         )
-        position = positions.get(key)
-        if position is None:
+        if key != previous_key:
             item = dict(row)
             item["request_count"] = 1
             grouped.append(item)
-            positions[key] = len(grouped) - 1
+            previous_key = key
             continue
-        item = grouped[position]
+        item = grouped[-1]
         item["request_count"] = int(item.get("request_count", 1)) + 1
         for name in (
             "remaining", "cancellable_count", "in_production",

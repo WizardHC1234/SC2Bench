@@ -164,7 +164,8 @@ class GenericMicro(MicroStep):
             return Action(position, False)
 
         if self.model == CombatModel.StalkerToSiege:
-            siege_units = self.enemies_near_by.of_type(siege)
+            siege_units = self.enemies_near_by.of_type(siege).filter(
+                lambda enemy: self.unit_values.real_range(unit, enemy) > 0)
             if siege_units:
                 target = siege_units.closest_to(unit)
                 if target.distance_to(unit) < 7:

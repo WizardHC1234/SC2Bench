@@ -94,6 +94,7 @@ def register_modern_terran_abilities() -> None:
     for name, value in (
         ("RESEARCH_INTERFERENCEMATRIX", 807),
         ("FUSIONCORERESEARCH_RESEARCHMEDIVACENERGYREGENERATION", 1535),
+        ("MORPHTOBANELING_BANELING", 4124),
     ):
         if value in AbilityId._value2member_map_:
             continue
@@ -105,4 +106,4 @@ def register_modern_terran_abilities() -> None:
         AbilityId._member_names_.append(name)
     # Legacy AbilityData caches an import-time sorted index separately.
     from sc2.game_data import AbilityData
-    AbilityData.ability_ids = sorted(set(AbilityData.ability_ids) | {807, 1535})
+    AbilityData.ability_ids = sorted(set(AbilityData.ability_ids) | {807, 1535, 4124})

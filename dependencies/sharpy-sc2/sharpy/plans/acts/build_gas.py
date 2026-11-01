@@ -6,6 +6,7 @@ from sc2.data import Race, race_gas
 from sharpy.managers.core.roles import UnitTask
 from sharpy.plans.acts import ActBase
 from sc2.ids.unit_typeid import UnitTypeId
+from sc2.ids.ability_id import AbilityId
 from sc2.constants import ALL_GAS
 from sc2.unit import Unit
 from sharpy.knowledges import Knowledge
@@ -50,6 +51,13 @@ class BuildGas(ActBase):
         # We need to check for all races, in case gas was stolen in order to not break here
         harvesters.extend(self.cache.own(self.all_types))
         harvesters.extend(self.cache.enemy(self.all_types))
+        # A submitted order is not present in native workers/structures yet.
+        # Other gas requests in this frame must use another geyser.
+        gas_builds = {AbilityId.TERRANBUILD_REFINERY, AbilityId.PROTOSSBUILD_ASSIMILATOR,
+                      AbilityId.ZERGBUILD_EXTRACTOR}
+        submitted = {getattr(action.target, 'tag', None)
+                     for action in getattr(self.ai, 'actions', ())
+                     if getattr(action, 'ability', None) in gas_builds}
 
         for townhall in self.ai.townhalls:  # type: Unit
             if not townhall.is_ready or townhall.build_progress < 0.9:
@@ -57,6 +65,8 @@ class BuildGas(ActBase):
                 continue
 
             for geyser in self.ai.vespene_geyser.closer_than(15, townhall):  # type: Unit
+                if geyser.tag in submitted:
+                    continue
                 exists = False
                 for harvester in harvesters:  # type: Unit
                     if harvester.position.distance_to(geyser.position) <= 1:
@@ -69,6 +79,7 @@ class BuildGas(ActBase):
                     )
                     if score > best_score:
                         self.best_gas = geyser
+                        best_score = score
 
     async def execute(self) -> bool:
         active_harvester_count = self.active_harvester_count

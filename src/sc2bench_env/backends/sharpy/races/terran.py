@@ -277,20 +277,14 @@ class TerranAdapter(RaceAdapter):
     race_name = "terran"
     townhall_targets = ("command_center", "orbital_command", "planetary_fortress")
 
-    def production_owned_count(self, snapshot: Any, action: str, target: str) -> int:
-        if action == "build" and target == "command_center":
-            return sum(snapshot.owned_count(action, name) for name in self.townhall_targets)
-        return super().production_owned_count(snapshot, action, target)
-
     def ability_task_state(self, action: str, snapshot: Any,
                            waiting_for: Optional[str]) -> Tuple[DemandState, Optional[str]]:
         from sc2bench_env.backends.sharpy.races.terran_execution import ability_task_state
         return ability_task_state(action, snapshot, waiting_for)
 
     def prerequisite_count_keys(self, prerequisite: str) -> Tuple[str, ...]:
-        if prerequisite == "command_center":
-            return tuple(sorted(TOWNHALL_TARGETS))
-        return (prerequisite,)
+        from sc2bench_env.catalog.prerequisites import prerequisite_keys
+        return prerequisite_keys(prerequisite, race=self.race_name)
 
     def ability_energy_budget(self, ai: Any, *, available_only: bool = False) -> float:
         if available_only:
@@ -477,7 +471,7 @@ class TerranAdapter(RaceAdapter):
                 PlanCancelBuilding(),
                 LowerDepots(),
                 PlanZoneDefenseSafe(),
-                DistributeWorkers(min_gas=3, aggressive_gas_fill=True),
+                DistributeWorkers(aggressive_gas_fill=True, fill_built_gas=True),
                 Step(None, SpeedMining(), lambda ai: ai.client.game_step > 5),
                 Repair(),
                 ContinueBuilding(),

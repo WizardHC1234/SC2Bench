@@ -174,6 +174,7 @@ class ProtossGridBuilding(GridBuilding):
         self.make_pylon = None
 
     def position_protoss(self, count) -> Optional[Point2]:
+        self.waiting_reason = None
         solver = self.building_solver
         grid = getattr(solver, "grid", None)
         if grid is None:
@@ -255,12 +256,21 @@ class ProtossGridBuilding(GridBuilding):
 
         chosen = place(main)
         if chosen is not None:
+            if not matrix.covers(chosen):
+                self.waiting_reason = "no_powered_build_location"
             return chosen
         # A free main slot that is not powered yet should wait for its Pylon.
         if any(not buildings.closer_than(1, point) for point in main):
+            self.waiting_reason = "no_powered_build_location"
             return None
         others = [point for point in points if point not in wall and point not in main]
-        return place(others)
+        chosen = place(others)
+        if chosen is not None and not matrix.covers(chosen):
+            self.waiting_reason = "no_powered_build_location"
+        elif chosen is None:
+            self.waiting_reason = ("no_powered_build_location" if any(
+                not buildings.closer_than(1, point) for point in others) else "no_build_location")
+        return chosen
 
 
 def _require_catalog(action: str, target: str) -> TargetSpec:
@@ -277,9 +287,15 @@ class ProtossAdapter(RaceAdapter):
     townhall_targets = ("nexus",)
 
     def production_owned_count(self, snapshot: Any, action: str, target: str) -> int:
-        if action == "build" and target == "warpgate":
+        if action == "build" and target in {"gateway", "warpgate"}:
             info = getattr(snapshot, "info", {}) or {}
-            return int(info.get("warpgate_completed", 0)) + int(info.get("warpgate_under_construction", 0))
+            warpgates = int(info.get("warpgate_completed", snapshot.buildings.get("warpgate", 0))) + int(
+                info.get("warpgate_under_construction", (info.get("under_construction") or {}).get("warpgate", 0)))
+            if target == "warpgate":
+                return warpgates
+            # GridBuilding counts existing Warp Gates as Gateway equivalents.
+            # Its absolute goal must include them before adding new buildings.
+            return super().production_owned_count(snapshot, action, target) + warpgates
         return super().production_owned_count(snapshot, action, target)
 
     def ability_task_state(self, action: str, snapshot: Any,
@@ -350,6 +366,8 @@ class ProtossAdapter(RaceAdapter):
         return read_production_capacity(ai, self)
 
     def train_unit_type(self, name: str) -> Optional[UnitTypeId]:
+        if name == "archon":
+            return UnitTypeId.ARCHON
         pair = UNITS.get(name)
         return None if pair is None else pair[0]
 
@@ -449,7 +467,7 @@ class ProtossAdapter(RaceAdapter):
                 MineOpenBlockedBase(),
                 PlanCancelBuilding(),
                 PlanZoneDefenseSafe(),
-                DistributeWorkers(min_gas=3, aggressive_gas_fill=True),
+                DistributeWorkers(aggressive_gas_fill=True, fill_built_gas=True),
                 Step(None, SpeedMining(), lambda ai: ai.client.game_step > 5),
                 PlanHomeGather(self),
                 PlanWarpGateStatus(),

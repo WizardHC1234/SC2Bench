@@ -4,6 +4,7 @@ from typing import Optional, Set
 from sc2.data import Race
 from sc2.ids.ability_id import AbilityId
 from sc2.pixel_map import PixelMap
+from sc2.position import Point2
 from sharpy.sc2math import to_new_ticks
 
 from sharpy.managers.core.roles import UnitTask
@@ -13,6 +14,7 @@ from sc2.position import Point2
 from sc2.unit import Unit
 
 from .act_building import ActBuilding
+from .build_location_recovery import BuildLocationRecovery
 from sharpy.interfaces import IBuildingSolver, IIncomeCalculator
 from sharpy.managers.core import PathingManager
 
@@ -28,15 +30,15 @@ class WorkerStuckStatus:
         self.last_iteration_asked = 0
 
     def need_new_worker(self, current_worker: Unit, time: float, target: Point2, iteration: int) -> bool:
-        if self.last_iteration_asked < iteration - 1:
+        previous_iteration = self.last_iteration_asked
+        self.last_iteration_asked = iteration
+        if previous_iteration < iteration - 1:
             # reset
             self.tag_stuck = None
             self.current_tag = current_worker.tag
             self.last_move_detected_time = time
             self.last_moved_position = current_worker.position
             return False
-
-        self.last_iteration_asked = iteration
 
         if current_worker.tag == self.current_tag:
             if target.distance_to_point2(current_worker.position) < 2.5:
@@ -60,7 +62,7 @@ class WorkerStuckStatus:
         return False
 
 
-class GridBuilding(ActBuilding):
+class GridBuilding(BuildLocationRecovery, ActBuilding):
 
     building_solver: IBuildingSolver
     income_calculator: IIncomeCalculator
@@ -88,17 +90,20 @@ class GridBuilding(ActBuilding):
         self.make_pylon = None
         self.last_iteration_moved = -10
         self.worker_stuck: WorkerStuckStatus = WorkerStuckStatus()
+        self._last_build_order = None
 
     async def start(self, knowledge: "Knowledge"):
         await super().start(knowledge)
         self.building_solver = self.knowledge.get_required_manager(IBuildingSolver)
         self.pather = self.knowledge.get_manager(PathingManager)
         self.income_calculator = self.knowledge.get_required_manager(IIncomeCalculator)
-        if self.unit_type != UnitTypeId.PYLON:
+        if self.knowledge.my_race == Race.Protoss and self.unit_type != UnitTypeId.PYLON:
             self.make_pylon: Optional[GridBuilding] = GridBuilding(UnitTypeId.PYLON, 0, 2)
             await self.make_pylon.start(knowledge)
 
     async def execute(self) -> bool:
+        if self._observe_build_rejection():
+            return False
         count = self.get_count(self.unit_type, include_pending=False, include_not_ready=True)
 
         if count >= self.to_count:
@@ -329,21 +334,33 @@ class GridBuilding(ActBuilding):
         return self.iterator
 
     async def build_protoss(self, worker: Unit, count, position: Point2):
+        position = await self.checked_position(position)
+        if position is None:
+            return
         if self.has_build_order(worker):
             # TODO: is this correct?
             worker.build(self.unit_type, position, queue=True)
 
         # TODO: Remake the error handling with frame delay
+        self._remember_build(worker, position)
         worker.build(self.unit_type, position)
 
     async def build_zerg(self, worker: Unit, count, position: Point2):
+        position = await self.checked_position(position)
+        if position is None:
+            return
         # try the selected position first
         # TODO: Remake the error handling with frame delay
+        self._remember_build(worker, position)
         worker.build(self.unit_type, position)
 
     async def build_terran(self, worker: Unit, count, position: Point2):
+        position = await self.checked_position(position)
+        if position is None:
+            return
         # try the selected position first
         # TODO: Remake the error handling with frame delay
+        self._remember_build(worker, position)
         worker.build(self.unit_type, position)
 
     def is_on_creep(self, creep: PixelMap, point: Point2) -> bool:

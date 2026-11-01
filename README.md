@@ -226,6 +226,7 @@ docs/                   安装、接口、Agent 接入和架构文档
 | 安装、打包与 Linux 构建 | [docs/installation.md](docs/installation.md) |
 | 外部 Agent、LLM Adapter、Runner、记录与评估 | [docs/agent_integration.md](docs/agent_integration.md) |
 | Tool、Observation、任务和底层执行规则 | [docs/interface.md](docs/interface.md) |
+| 评测补充记录与采样 | [docs/evaluation-recording.md](docs/evaluation-recording.md) |
 | 示例脚本 | [examples/README.md](examples/README.md) |
 | 示例 LLM Agent | [agents/llm_agent/README.md](agents/llm_agent/README.md) |
 

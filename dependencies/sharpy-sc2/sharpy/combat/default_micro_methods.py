@@ -27,6 +27,24 @@ changelings = {
 
 class DefaultMicroMethods:
     @staticmethod
+    def local_contact(group, enemy, unit_values):
+        """Global allied vision is not a local engagement for this army."""
+        if (not enemy.is_visible or enemy.is_memory or enemy.is_snapshot
+                or enemy.is_hallucination):
+            return False
+        return any(unit.distance_to(enemy) <= max(
+            float(getattr(unit, 'sight_range', 10)),
+            float(unit_values.real_range(unit, enemy)),
+            float(unit_values.real_range(enemy, unit)),
+        ) for unit in group.units)
+
+    @staticmethod
+    def local_enemy_groups(group, enemy_groups, unit_values):
+        return [enemies for enemies in enemy_groups if any(
+            DefaultMicroMethods.local_contact(group, enemy, unit_values)
+            for enemy in enemies.units)]
+
+    @staticmethod
     def handle_groups(combat: "GroupCombatManager", target: Point2, move_type=MoveType.Assault):
         total_power = ExtendedPower(combat.unit_values)
 
@@ -43,7 +61,8 @@ class DefaultMicroMethods:
                 continue
 
             center = group.center
-            closest_enemies = group.closest_target_group(combat.enemy_groups)
+            local_groups = DefaultMicroMethods.local_enemy_groups(group, combat.enemy_groups, combat.unit_values)
+            closest_enemies = group.closest_target_group(local_groups)
             own_closest_group = combat.closest_group(center, combat.own_groups)
 
             if closest_enemies is None:
@@ -112,6 +131,7 @@ class DefaultMicroMethods:
     ):
         ready_to_attack = 0
 
+        enemy_groups = DefaultMicroMethods.local_enemy_groups(group, enemy_groups, step.unit_values)
         step.closest_group = group.closest_target_group(enemy_groups)
         if step.closest_group:
             step.closest_group_distance = group.center.distance_to(step.closest_group.center)
@@ -119,7 +139,11 @@ class DefaultMicroMethods:
             step.closest_group_distance = 100000
         step.enemy_groups = enemy_groups
         step.center = units.center
-        step.enemies_near_by = step.knowledge.unit_cache.enemy_in_range(step.center, 15 + len(group.units) * 0.1)
+        step.enemies_near_by = step.knowledge.unit_cache.enemy_in_range(
+            step.center, 15 + len(group.units) * 0.1).filter(
+                lambda enemy: enemy.is_visible and not enemy.is_memory
+                and not enemy.is_snapshot and not enemy.is_hallucination
+                and DefaultMicroMethods.local_contact(group, enemy, step.unit_values))
 
         step.engaged_power.add_units(step.enemies_near_by)
 
@@ -221,10 +245,13 @@ class DefaultMicroMethods:
             if not step.is_target(enemy):
                 continue
 
-            if not shoot_air and enemy.is_flying:
+            air_target = enemy.is_flying or enemy.type_id == UnitTypeId.VIKINGFIGHTER
+            ai = getattr(step, 'ai', None)
+            ground_rejected = getattr(ai, '_bench_ground_attack_rejections', {}).get(enemy.tag, 0) > float(getattr(ai, 'time', 0))
+            if not shoot_air and (air_target or ground_rejected):
                 continue
 
-            if not shoot_ground and not enemy.is_flying:
+            if not shoot_ground and not air_target:
                 continue
 
             pos: Point2 = enemy.position
@@ -296,7 +323,12 @@ class DefaultMicroMethods:
             if enemy.type_id in ignored_types:
                 continue
 
-            if enemy.is_flying:
+            if not step.is_target(enemy):
+                continue
+
+            ai = getattr(step, 'ai', None)
+            if (enemy.is_flying or enemy.type_id == UnitTypeId.VIKINGFIGHTER
+                    or getattr(ai, '_bench_ground_attack_rejections', {}).get(enemy.tag, 0) > float(getattr(ai, 'time', 0))):
                 continue
 
             pos: Point2 = enemy.position

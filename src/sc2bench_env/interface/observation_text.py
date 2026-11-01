@@ -17,6 +17,15 @@ def value(item: Any) -> str:
 
 
 def label(key):
+    ability_labels = {
+        "scan_ready": "Orbitals with scan energy",
+        "mule_ready": "Orbitals with MULE energy",
+        "chrono_ready": "Nexuses with Chrono energy",
+        "recall_ready": "Main Nexus with Recall energy",
+        "spawn_creep_tumor_ready": "Available creep tumor casters",
+    }
+    if key in ability_labels:
+        return ability_labels[key]
     return str(key).replace("_", " ").capitalize()
 
 
@@ -113,7 +122,7 @@ def resource_lines(rows):
                 f"- {value(row.get('zone_id'))}: "
                 f"minerals {resource_amount(row.get('minerals_remaining'))}; "
                 f"vespene {resource_amount(row.get('vespene_remaining'))}; "
-                f"gas structures {value(row.get('owned_gas_structure_count'))}; "
+                f"own gas structures {value(row.get('owned_gas_structure_count'))}; "
                 f"free geysers {value(row.get('available_geyser_slots'))}"
             )
             lines.extend(extras(row, {
@@ -160,8 +169,7 @@ def combat_lines(groups):
         )
         members = counts(row.get("alive")) if "alive" in row else None
         lines.append(f"{group}: {members}" if members is not None else f"{group}:")
-        location = row.get("nearest_zone") or row.get("target")
-        lines.append(f"  Location: {value(location)}")
+        lines.append(f"  Nearest zone: {value(row.get('nearest_zone'))}")
         if holding_after_attack:
             lines.append(f"  Current activity: holding at {value(row.get('target'))}")
             if "holding_seconds" in row:
@@ -324,12 +332,9 @@ def brief_zone_lines(zones):
             "unconfirmed": "owner unconfirmed",
         }.get(str(row.get("known_owner")), f"owner {owner}")
         if vision == "visible":
-            vision_text = f"{ownership} and visible"
+            vision_text = f"{ownership}; center visible"
         elif vision == "fogged":
-            age = row.get("enemy_information_age_seconds")
-            vision_text = f"{ownership} and fogged"
-            if type(age) in (int, float):
-                vision_text += f" for {int(age)}s"
+            vision_text = f"{ownership}; center fogged"
         else:
             vision_text = f"{ownership}; vision {vision}"
         head = f"- {zone_id} ({role}): {vision_text}"
@@ -343,8 +348,10 @@ def brief_zone_lines(zones):
         if visible != "none":
             parts.append(f"visible enemy {visible}")
         last_seen = content(row.get("last_seen_enemy_contents"))
-        if last_seen != "none" and vision != "visible":
-            parts.append(f"last seen {last_seen}")
+        if last_seen != "none":
+            age = row.get("enemy_information_age_seconds")
+            age_text = f" (oldest sighting {int(age)}s ago)" if type(age) in (int, float) else ""
+            parts.append(f"last seen {last_seen}{age_text}")
         if threat:
             parts.append(
                 "At least one visible enemy weapon is currently in range of an own "
@@ -356,6 +363,8 @@ def brief_zone_lines(zones):
 
 def brief_facility_lines(data, *, race="terran"):
     """Compact facility capacity lines without unknown placeholder columns."""
+    if data is None:
+        return ['unknown']
     if not data:
         return ["none"]
     lines = []
@@ -370,6 +379,8 @@ def brief_facility_lines(data, *, race="terran"):
         if ready is not None:
             bits[0] = f"{facility} {value(ready)}"
         detail = []
+        if type(row.get('unpowered')) is int and row['unpowered'] > 0:
+            detail.append(f"unpowered {row['unpowered']}")
         if free is not None and capacity is not None:
             detail.append(f"free slots {value(free)}/{value(capacity)}")
         elif free is not None:
@@ -429,7 +440,7 @@ def brief_available_target_lines(data):
         "build": "Available build",
         "train": "Available train",
         "research": "Available research",
-        "morph_townhall": "Available morph",
+        "morph_townhall": "Available townhall morph",
     }
     lines = []
     for key, title in labels.items():
@@ -630,12 +641,20 @@ def blocker_text(reason):
         "supply": "insufficient available supply",
         "energy": "insufficient available energy",
         "producer_busy": "all compatible production lanes are currently occupied",
+        "unpowered": "compatible production or research buildings have no Pylon power",
         "production_slot": "compatible production is currently busy",
         "producer_unavailable": "no ready grounded producer",
         "producer_techlab_unavailable": "no compatible producer with a ready attached Tech Lab",
         "addon_host_unavailable": "no ready grounded parent without an add-on",
         "addon_host_busy": "eligible add-on parents busy",
         "waiting_for_queue": "source building finishing its paid queue before morph",
+        "warpgate_readiness_unknown": "Warp Gate readiness could not be queried",
+        "no_build_location": "no legal nearby building placement is currently available",
+        "build_location_rejected": "construction retry after the previous order was rejected",
+        "no_powered_build_location": "Pylon power at a usable building location",
+        "no_tumor_location": "no legal nearby creep tumor placement",
+        "no_available_expansion": "an eligible expansion site",
+        "expansion_unsafe": "the selected expansion site to be clear of known enemy forces",
         "source_unit_reserved": "source already reserved by another demand",
         "source_unit_unavailable": "no eligible source building or unit",
     }
@@ -770,8 +789,13 @@ def _production_unit_technology(row, buildings, *, race="terran"):
                 count = row.get("techlab_hosts")
                 name = "attached " + req
             else:
-                count = (buildings.get(req, {}).get("completed", 0)
-                         if isinstance(buildings, dict) else None)
+                from sc2bench_env.catalog.prerequisites import prerequisite_keys
+                facts = ([buildings.get(key, {}).get("completed", 0)
+                          for key in prerequisite_keys(req, race=race)]
+                         if isinstance(buildings, dict) else [None])
+                positive = [value for value in facts if type(value) is int and value > 0]
+                count = (sum(positive) if positive else
+                         0 if all(type(value) is int for value in facts) else None)
                 name = req
             if type(count) is not int:
                 unknown.append(name)
@@ -857,6 +881,7 @@ def production_lines(data, buildings, training, *, race="terran"):
         common_columns = [("Facility", "facility"), ("Ready", "ready_grounded"),
                           ("Capacity", "capacity"), ("Free production slots", "free_slots"),
                           ("Ready to warp", "ready_to_warp"), ("Cooling", "cooling"),
+                          ("Unpowered", "unpowered"),
                           ("Reserved for morph", "reserved_for_morph"),
                           ("Waiting for queue", "waiting_for_queue")]
         columns = [column for column in common_columns
@@ -1054,8 +1079,8 @@ def section(key, data, *, production_priority=None, buildings=None, training=Non
 
 def render_text(observation, sections, *, race=None):
     game = observation.get("game")
-    if not race:
-        if isinstance(game, dict) and game.get("race"):
+    if race is None:
+        if isinstance(game, dict) and "race" in game:
             race = game["race"]
         else:
             # Older dictionary callers may omit Game; an explicit unknown never defaults.

@@ -273,25 +273,9 @@ class TaskManager:
                     reason="research_already_active",
                     action_id=action.action_id,
                 )
-            # Action already succeeded earlier this episode (queued), even if the
-            # upgrade has not finished yet.
-            prior = [
-                d
-                for d in self.demands.values()
-                if d.action == "research"
-                and d.target == target
-                and d.state == DemandState.COMPLETED
-            ]
-            if prior:
-                if action.action_id:
-                    self.seen_action_ids.add(action.action_id)
-                return ActionReceipt(
-                    action="research",
-                    target=target,
-                    result="idempotent_noop",
-                    reason="research_already_accepted",
-                    action_id=action.action_id,
-                )
+            # A completed request means it entered the native queue, not that
+            # the upgrade finished. If that queue was lost, only the current
+            # snapshot and active demands can establish duplicate work.
 
         if action.action == "scout":
             # New scout route replaces unfinished prior scout demand.
@@ -1168,12 +1152,12 @@ class TaskManager:
                 and demand.state
                 in {
                     DemandState.IN_PRODUCTION,
-                    DemandState.WORKER_EN_ROUTE,
                     DemandState.UNDER_CONSTRUCTION,
                     DemandState.IN_PROGRESS,
                 }
             ):
-                # Backend waiting-reason refresh must not regress execution state.
+                # Preserve committed work; a worker order can disappear before
+                # construction starts and must then become cancellable again.
                 pass
             else:
                 demand.state = state
@@ -1384,10 +1368,16 @@ class TaskManager:
             summary[name] = "completed"
         for name in in_progress:
             summary[name] = "in_progress"
+        for demand in self.demands.values():
+            if demand.action == 'research' and demand.state == DemandState.COMPLETED:
+                # Queue-entry success remains historical; it does not imply a
+                # still-running upgrade after its facility or queue was lost.
+                summary.setdefault(demand.target, 'interrupted')
         for demand in self.active_demands():
             if demand.action != "research":
                 continue
-            summary.setdefault(demand.target, "waiting_to_start")
+            if summary.get(demand.target) not in {'completed', 'in_progress'}:
+                summary[demand.target] = "waiting_to_start"
             if demand.waiting_for:
                 summary[demand.target] = f"waiting_for:{demand.waiting_for}"
         return summary

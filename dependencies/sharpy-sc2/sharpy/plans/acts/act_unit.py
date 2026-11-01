@@ -1,3 +1,5 @@
+from itertools import chain
+
 from sc2.data import Race
 from sc2.ids.unit_typeid import UnitTypeId
 from sc2.unit import Unit
@@ -57,10 +59,24 @@ class ActUnit(ActBase):
 
     def get_unit_count(self) -> int:
         count = 0
+        seen = {unit.tag for unit in self.ai.units if getattr(unit, "tag", None) is not None}
 
         for unit in self.ai.units:
             if self.knowledge.unit_values.real_type(unit.type_id) == self.unit_type:
                 count += 1
+
+        # Loaded units remain owned. SC2 omits them from ai.units and exposes
+        # them on their transport or garrison instead. They must still stop a
+        # finite train request from issuing replacement units.
+        for carrier in chain(self.ai.units, getattr(self.ai, "structures", ())):
+            for passenger in getattr(carrier, "passengers", ()):
+                tag = getattr(passenger, "tag", None)
+                if tag is not None and tag in seen:
+                    continue
+                if self.knowledge.unit_values.real_type(passenger.type_id) == self.unit_type:
+                    count += 1
+                    if tag is not None:
+                        seen.add(tag)
 
         if self.unit_type == self.knowledge.my_worker_type:
             count = max(count, self.ai.supply_workers)

@@ -342,8 +342,13 @@ class PlanZoneDefense(ActBase):
         # Get help from other workers
         # type of worker unit doesn't really matter here, add current worker defenders to defender count
         for worker in possible_defender_workers.tags_not_in(zone_tags):
-            # Let's use ones with shield left
-            if defenders < defense_count_panic and (worker.shield > 3 or killing_probes):
+            if (self.roles.unit_role(worker) not in {UnitTask.Idle, UnitTask.Gathering}
+                    or worker.tag in getattr(self.ai, 'unit_tags_received_action', ())
+                    or getattr(worker, 'is_constructing_scv', False)):
+                continue
+            healthy = (worker.shield > 3 if self.knowledge.my_race == Race.Protoss
+                       else worker.health > threshold)
+            if defenders < defense_count_panic and (healthy or killing_probes):
                 zone_tags.append(worker.tag)
                 self.roles.set_task(UnitTask.Defending, worker)
                 defenders += self.unit_values.defense_value(worker.type_id)

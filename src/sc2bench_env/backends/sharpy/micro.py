@@ -17,7 +17,7 @@ from sharpy.combat.move_type import MoveType
 from sharpy.combat.terran import MicroTanks
 from sharpy.combat.zerg import MicroLurkers
 
-from sc2bench_env.backends.sharpy.combat_styles import at_defend_station
+from sc2bench_env.backends.sharpy.combat_styles import at_defend_station, DEFEND_DEPLOY_RADIUS, visible_combat_enemies
 
 
 class MicroBanshee(GenericMicro):
@@ -70,16 +70,37 @@ class MicroMedivacsSupport(MicroStep):
             return Action(current_command.position if current_command.position is not None else self.original_target, False)
         healable = self.group.ground_units.filter(self._is_healable)
         if unit.energy >= self.HEAL_ENERGY_FLOOR and healable:
-            return Action(
-                healable.closest_to(unit),
-                False,
-                AbilityId.MEDIVACHEAL_HEAL,
-            )
+            frame = getattr(getattr(self.ai, "state", None), "game_loop", self.ai.time)
+            claims = getattr(self.ai, "_bench_medivac_patients", None)
+            if claims is None or claims[0] != frame:
+                claims = self.ai._bench_medivac_patients = (frame, {})
+            claims = claims[1]
+            patients = {patient.tag: patient for patient in healable}
+            own_target = self._healing_target(unit)
+            if own_target in patients:
+                claims[unit.tag] = own_target
+                return NoAction()
+            if claims.get(unit.tag) in patients:
+                return NoAction()
+            occupied = {target for caster, target in claims.items() if caster != unit.tag}
+            for other in getattr(self.ai, "units", ()):
+                if other.type_id == UnitTypeId.MEDIVAC and other.tag != unit.tag:
+                    occupied.add(self._healing_target(other))
+            available = healable.filter(lambda patient: patient.tag not in occupied)
+            if available:
+                patient = available.closest_to(unit)
+                claims[unit.tag] = patient.tag
+                return Action(patient, False, AbilityId.MEDIVACHEAL_HEAL)
 
         escort = self._escort_point(unit, current_command)
         if self.enemies_near_by:
             escort = self.pather.find_weak_influence_air(escort, 8)
         return Action(escort, False)
+
+    @staticmethod
+    def _healing_target(unit):
+        return next((order.target for order in getattr(unit, "orders", ())
+                     if "HEAL" in str(getattr(getattr(order, "ability", None), "id", "")).upper()), None)
 
     @staticmethod
     def _is_healable(target: Unit) -> bool:
@@ -114,16 +135,42 @@ class MicroDefendTanks(MicroTanks):
     """Deploy at a reached defend station and remain deployed there."""
 
     def unit_solve_combat(self, unit: Unit, current_command: Action) -> Action:
+        if _tank_transform_pending(unit):
+            return NoAction()
+        local = self._local_ground_enemies(unit)
+        if (unit.type_id == UnitTypeId.SIEGETANK and local.exists
+                and local.closest_distance_to(unit) <= self.LOCAL_SIEGE_MIN):
+            return super().unit_solve_combat(unit, current_command)
         if at_defend_station(self, unit):
             status = self.get_siege_status(unit)
             if unit.type_id == UnitTypeId.SIEGETANK:
                 order = status.relay_order(
-                    unit, AbilityId.SIEGEMODE_SIEGEMODE, self.ai.time,
+                    unit, AbilityId.SIEGEMODE_SIEGEMODE, self.ai.time, immediate=True,
                 )
                 return order or NoAction()
             if unit.type_id == UnitTypeId.SIEGETANKSIEGED:
                 status.relay_order(unit, None, self.ai.time)
                 return NoAction()
+        rules = getattr(self,"rules",None)
+        station = getattr(rules,"return_point",None)
+        if (getattr(rules,"station_before_deploy",False) and station is not None
+                and self.move_type not in {MoveType.DefensiveRetreat,MoveType.PanicRetreat}):
+            if local.exists:
+                distance = local.closest_distance_to(unit)
+                if unit.type_id == UnitTypeId.SIEGETANKSIEGED and distance <= self.LOCAL_UNSIEGE:
+                    self.get_siege_status(unit).relay_order(unit,None,self.ai.time)
+                    return NoAction()
+                if unit.type_id == UnitTypeId.SIEGETANK and self.LOCAL_SIEGE_MIN < distance < self.LOCAL_SIEGE_MAX:
+                    return self.get_siege_status(unit).relay_order(
+                        unit,AbilityId.SIEGEMODE_SIEGEMODE,self.ai.time,immediate=True) or NoAction()
+                if distance <= self.LOCAL_SIEGE_MIN:
+                    return super().unit_solve_combat(unit,current_command)
+                # Contact outside the siege band still belongs to combat micro,
+                # rather than a move back to the station.
+                return super().unit_solve_combat(unit,current_command)
+            if unit.type_id == UnitTypeId.SIEGETANKSIEGED:
+                return Action(None,False,AbilityId.UNSIEGE_UNSIEGE)
+            return Action(station,False)
         return super().unit_solve_combat(unit, current_command)
 
 
@@ -156,6 +203,56 @@ class MissionMicroRules(MicroRules):
         self.boundary = None
         self.return_point = None
         self.hold_position = False
+        self.station_before_deploy = False
+        self.reserved_base_center = None
+        self._builder_yields = {}
+        self.compact_station = False
+        self._station_origin = None
+        self._settled_at = {}
+
+    @staticmethod
+    def _stationary(unit):
+        if unit.type_id in {UnitTypeId.SIEGETANKSIEGED, UnitTypeId.LURKERMPBURROWED,
+                            UnitTypeId.WIDOWMINEBURROWED, UnitTypeId.LIBERATORAG}:
+            return True
+        return all(str(getattr(getattr(getattr(o, 'ability', None), 'id', None), 'name', '')).
+                   startswith(('HOLDPOSITION', 'STOP')) for o in getattr(unit, 'orders', ()) or ())
+
+    def at_station(self, unit, *, group_units=()):
+        point = self.return_point
+        if point is None:
+            return False
+        distance = unit.distance_to(point)
+        if not self.compact_station or getattr(unit, 'is_flying', False):
+            return distance <= DEFEND_DEPLOY_RADIUS
+        if self._station_origin is None or self._station_origin.distance_to(point) > .5:
+            self._settled_at.clear()
+            self._station_origin = point
+        previous = self._settled_at.get(unit.tag)
+        if previous is not None and unit.distance_to(previous) <= .5:
+            return True
+        self._settled_at.pop(unit.tag, None)
+        radius = float(getattr(unit, 'radius', .5))
+        arrived = distance <= max(1.0, radius)
+        # Keep already deployed defenders stable; incoming mobile units pack
+        # toward the center before deploying.
+        if self._stationary(unit) and unit.type_id in {
+                UnitTypeId.SIEGETANKSIEGED, UnitTypeId.LURKERMPBURROWED,
+                UnitTypeId.WIDOWMINEBURROWED, UnitTypeId.LIBERATORAG}:
+            arrived = distance <= DEFEND_DEPLOY_RADIUS
+        if not arrived:
+            for ally in group_units:
+                parked = self._settled_at.get(ally.tag)
+                if (ally.tag == unit.tag or parked is None or getattr(ally, 'is_flying', False)
+                        or ally.distance_to(parked) > .5 or not self._stationary(ally)
+                        or ally.distance_to(point) >= distance - .25):
+                    continue
+                if unit.distance_to(ally) <= radius + float(getattr(ally, 'radius', .5)) + .3:
+                    arrived = True
+                    break
+        if arrived:
+            self._settled_at[unit.tag] = unit.position
+        return arrived
 
     async def start(self, knowledge):
         await super().start(knowledge)
@@ -166,46 +263,131 @@ class MissionMicroRules(MicroRules):
             seen.add(id(micro))
             solve = micro.unit_solve_combat
 
-            def guarded(unit, command, solve=solve):
-                return self.guard_action(unit, solve(unit, command))
+            def guarded(unit, command, solve=solve, micro=micro):
+                return self.guard_action(unit, solve(unit, command),
+                                         group_units=getattr(getattr(micro, "group", None), "units", ()))
 
             micro.unit_solve_combat = guarded
 
-    def guard_action(self, unit, command):
+    def guard_action(self, unit, command, *, group_units=()):
+        if _form_change_pending(unit):
+            return NoAction()
         if self.boundary is None or self.return_point is None:
             return command
+        # Combat chooses attacks, approach, kiting, support and abilities.
+        # A station leash must not replace these with a rally/hold command.
+        if visible_combat_enemies(getattr(self, "ai", None), unit, group_units,
+                                  unit_values=getattr(self,"unit_values",None)):
+            return command
+        if self.hold_position and not getattr(unit, 'is_flying', False):
+            yield_point = self._builder_passage(unit)
+            if yield_point is not None:
+                return self._return_to_station(unit, yield_point) if unit.distance_to(yield_point) > .35 else NoAction()
+        center = self.reserved_base_center
+        if self.hold_position and center is not None and not getattr(unit, 'is_flying', False):
+            from sc2bench_env.backends.sharpy.holding import overlaps_townhall_site
+            if overlaps_townhall_site(unit.position, center, float(getattr(unit, 'radius', .75))):
+                return self._return_to_station(unit)
         # A spell already in range is not a chase. Defend used to replace EMP,
         # Lock On, Matrix and Yamato with a move back to the hold point.
         if self._keep_local_cast(unit, command):
             return command
+        if self.hold_position:
+            # An in-range shot does not move across the boundary, even when
+            # the enemy is on the far side of a ramp or defense leash.
+            target = getattr(command,"target",None)
+            if (command.is_attack and target is not None and hasattr(target,"type_id")
+                    and not bool(getattr(target,"is_structure",False))):
+                try:
+                    attack_range=float(self.unit_values.real_range(unit,target))
+                    if attack_range>0 and unit.distance_to(target)<=attack_range:
+                        return command
+                except (AttributeError,TypeError,ValueError):
+                    pass
+            if isinstance(command,NoAction) and (
+                    self.boundary(unit.position) or self._local_enemy_present(unit)):
+                if (not self.compact_station or getattr(unit, 'is_flying', False)
+                        or (self.at_station(unit, group_units=group_units) and self._stationary(unit))):
+                    return command
         outside = not self.boundary(unit.position)
         target_outside = command.position is not None and not self.boundary(command.position)
         if outside or target_outside:
-            from sc2bench_env.backends.sharpy.protoss_micro import IMMOBILE_RELEASE as protoss_release
-            from sc2bench_env.backends.sharpy.terran_micro import IMMOBILE_RELEASE as terran_release
-            from sc2bench_env.backends.sharpy.zerg_micro import IMMOBILE_RELEASE as zerg_release
-            release = terran_release.get(unit.type_id, protoss_release.get(unit.type_id, zerg_release.get(unit.type_id)))
-            if release is not None:
-                return Action(None, False, release)
-            return Action(self.return_point, False)
+            return self._return_to_station(unit)
         if self.hold_position:
-            target = getattr(command, "target", None)
-            # Keep self-cast / form-change abilities such as Stim and Siege.
-            if target is None and getattr(command, "ability", None) is not None:
-                return command
-            # Fire only when the selected non-structure unit is already inside
-            # weapon range. Never walk after it and never attack structures.
-            if (command.is_attack and target is not None
-                    and hasattr(target, "position")
-                    and not bool(getattr(target, "is_structure", False))):
-                try:
-                    attack_range = float(self.unit_values.real_range(unit, target))
-                    if attack_range > 0 and unit.distance_to(target) <= attack_range:
-                        return command
-                except (AttributeError, TypeError, ValueError):
-                    pass
+            if self.at_station(unit, group_units=group_units):
+                if any(getattr(getattr(order,"ability",None),"id",None) in {
+                           AbilityId.HOLDPOSITION_HOLD,AbilityId.HOLDPOSITION,AbilityId.HOLDPOSITION_BATTLECRUISER}
+                       for order in getattr(unit,"orders",()) or ()):
+                    return NoAction()
+                return Action(None,False,AbilityId.HOLDPOSITION_HOLD)
             return Action(self.return_point, False)
         return command
+
+    def _builder_passage(self, unit):
+        """Let a builder or an explicitly casting Queen pass resting defenders."""
+        ai = getattr(self, 'ai', None)
+        workers = {w.tag:w for w in getattr(ai, 'workers', ())}
+        queens = {u.tag:u for u in getattr(ai, 'units', ()) if u.type_id == UnitTypeId.QUEEN}
+        builders = {}
+        for task in getattr(ai, '_macro_tasks', ()):
+            act = task.get('_act')
+            if task.get('action') in {'inject_larva', 'spawn_creep_tumor'}:
+                pending = getattr(act, '_pending_cast', None)
+                queen = queens.get(pending.get('caster')) if pending else None
+                point = pending.get('point') if pending else None
+                if queen is not None and point is not None:
+                    builders[queen.tag] = (queen, point)
+            if task.get('action') != 'build':
+                continue
+            worker = workers.get(getattr(act, 'builder_tag', None))
+            order = getattr(act, '_last_build_order', None)
+            if worker is not None and order and not getattr(worker, 'is_constructing_scv', False):
+                builders[worker.tag] = (worker, order['point'])
+        if not builders:
+            self._builder_yields.clear()
+            return None
+        held = self._builder_yields.get(unit.tag)
+        if held is not None:
+            worker = builders.get(held[0])
+            if worker is not None and unit.distance_to(worker[0]) < 3:
+                return held[1]
+            self._builder_yields.pop(unit.tag, None)
+        for worker, goal in builders.values():
+            radius = float(getattr(unit, 'radius', .5)) + float(getattr(worker, 'radius', .375))
+            if unit.distance_to(worker) > radius + 1:
+                continue
+            dx, dy = goal.x-worker.position.x, goal.y-worker.position.y
+            length = (dx*dx+dy*dy)**.5
+            if length < 3:
+                continue
+            dx, dy = dx/length, dy/length
+            ux, uy = unit.position.x-worker.position.x, unit.position.y-worker.position.y
+            lateral = -dy*ux+dx*uy
+            if not (-.5 < dx*ux+dy*uy < radius+1) or abs(lateral) > radius+.2:
+                continue
+            side = 1 if lateral >= 0 else -1
+            for direction in (side, -side):
+                for distance in (1.5, 2.5, 3.5, 4.5):
+                    point = unit.position.offset((-dy*direction*distance, dx*direction*distance))
+                    pathable = getattr(ai, 'in_pathing_grid', None)
+                    occupied = any(other.tag != unit.tag and not getattr(other, 'is_flying', False)
+                        and other.position.distance_to(point) < float(getattr(other, 'radius', .5)) + float(getattr(unit, 'radius', .5)) + .1
+                        for other in getattr(ai, 'units', ()))
+                    if self.boundary(point) and (not callable(pathable) or pathable(point)) and not occupied:
+                        self._builder_yields[unit.tag] = (worker.tag, point)
+                        return point
+        return None
+
+    def _return_to_station(self, unit, point=None):
+        from sc2bench_env.backends.sharpy.protoss_micro import IMMOBILE_RELEASE as protoss_release
+        from sc2bench_env.backends.sharpy.terran_micro import IMMOBILE_RELEASE as terran_release
+        from sc2bench_env.backends.sharpy.zerg_micro import IMMOBILE_RELEASE as zerg_release
+        release = terran_release.get(unit.type_id, protoss_release.get(unit.type_id, zerg_release.get(unit.type_id)))
+        return Action(None, False, release) if release is not None else Action(self.return_point if point is None else point, False)
+
+    def _local_enemy_present(self,unit):
+        return bool(visible_combat_enemies(getattr(self,"ai",None),unit,
+                                          unit_values=getattr(self,"unit_values",None)))
 
     def _keep_local_cast(self, unit, command) -> bool:
         ability = getattr(command, "ability", None)
@@ -215,11 +397,44 @@ class MissionMicroRules(MicroRules):
             return True
         position = command.position
         if position is None:
-            return bool(self.boundary(unit.position))
+            return bool(self.boundary(unit.position)) or (self.hold_position and self._local_enemy_present(unit))
         try:
             return float(unit.distance_to(position)) <= 12
         except (AttributeError, TypeError, ValueError):
             return False
+
+
+def _tank_transform_pending(unit):
+    if unit.type_id not in {UnitTypeId.SIEGETANK,UnitTypeId.SIEGETANKSIEGED}:
+        return False
+    return any(getattr(getattr(order,"ability",None),"id",None) in {
+        AbilityId.SIEGEMODE_SIEGEMODE,AbilityId.UNSIEGE_UNSIEGE,
+    } for order in getattr(unit,"orders",()) or ())
+
+
+def _form_change_pending(unit):
+    if _tank_transform_pending(unit):
+        return True
+    changes = {
+        UnitTypeId.OBSERVER: {
+            AbilityId.MORPH_OBSERVERMODE, AbilityId.MORPH_SURVEILLANCEMODE,
+        },
+        UnitTypeId.VIKINGFIGHTER: {
+            AbilityId.MORPH_VIKINGASSAULTMODE, AbilityId.MORPH_VIKINGFIGHTERMODE,
+        },
+        UnitTypeId.HELLION: {AbilityId.MORPH_HELLBAT, AbilityId.MORPH_HELLION},
+        UnitTypeId.THOR: {AbilityId.MORPH_THORHIGHIMPACTMODE, AbilityId.MORPH_THOREXPLOSIVEMODE},
+        UnitTypeId.LURKERMP: {AbilityId.BURROWDOWN_LURKER, AbilityId.BURROWUP_LURKER,
+                             AbilityId.BURROWDOWN, AbilityId.BURROWUP},
+    }
+    changes[UnitTypeId.OBSERVERSIEGEMODE] = changes[UnitTypeId.OBSERVER]
+    changes[UnitTypeId.VIKINGASSAULT] = changes[UnitTypeId.VIKINGFIGHTER]
+    changes[UnitTypeId.HELLIONTANK] = changes[UnitTypeId.HELLION]
+    changes[UnitTypeId.THORAP] = changes[UnitTypeId.THOR]
+    changes[UnitTypeId.LURKERMPBURROWED] = changes[UnitTypeId.LURKERMP]
+    abilities = changes.get(unit.type_id, ())
+    return any(getattr(getattr(order, 'ability', None), 'id', None) in abilities
+               for order in getattr(unit, 'orders', ()) or ())
 
 
 def build_combat_micro_rules() -> MicroRules:

@@ -23,6 +23,16 @@ def execution_blocker(ai, task):
     waiting = getattr(task.get("_act"), "waiting_reason", None)
     if waiting:
         return waiting
+    if action == "build" and target not in {"nexus", "pylon", "assimilator", "warpgate"}:
+        act = task.get("_act")
+        select = getattr(act, "position_protoss", None)
+        if callable(select) and getattr(act, "building_solver", None) is not None:
+            # Placement/power is independent of money. A blocked building must
+            # not reserve the minerals needed for an explicitly requested Pylon.
+            select(0)
+            reason = getattr(act, "waiting_reason", None)
+            if reason:
+                return reason
     if action == "build" and target == "assimilator":
         act = task.get("_act")
         finder = getattr(act, "find_best", None)
@@ -46,11 +56,22 @@ def execution_blocker(ai, task):
             producers = list(ai.structures(UnitTypeId.NEXUS).ready)
         if not producers:
             return None
+        if producer_type != UnitTypeId.NEXUS:
+            producers = [parent for parent in producers if getattr(parent, 'is_powered', True)]
+            if not producers:
+                return 'unpowered'
         spec = get_target(str(target), race="protoss")
         if spec is None:
             return None
         if all(len(getattr(parent, "orders", []) or []) >= 1 for parent in producers):
             return "producer_busy"
+    if action == 'research':
+        spec = get_target(str(target), race='protoss')
+        producer_type = BUILDINGS.get(spec.produced_at) if spec is not None else None
+        if producer_type is not None:
+            producers = list(ai.structures(producer_type).ready)
+            if producers and not any(getattr(parent, 'is_powered', True) for parent in producers):
+                return 'unpowered'
     return None
 
 
@@ -89,7 +110,7 @@ def ready_progress_target(task):
 
 
 def ability_task_state(action, snapshot, waiting_for):
-    """chrono_boost waits on a Nexus and energy. The cast itself marks completion."""
+    """chrono_boost waits on a Nexus and energy; observed effects confirm completion."""
     if action != "chrono_boost":
         raise ValueError("unsupported Protoss ability task feedback: " + str(action))
     if int(snapshot.buildings.get("nexus", 0)) <= 0:

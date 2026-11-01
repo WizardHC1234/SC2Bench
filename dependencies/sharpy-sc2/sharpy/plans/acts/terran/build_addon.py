@@ -28,6 +28,7 @@ class BuildAddon(ActBase):
         self.to_count = to_count
 
         self.tried_to_build_dict: Dict[int, float] = {}
+        self.waiting_reason = None
 
         super().__init__()
 
@@ -35,6 +36,7 @@ class BuildAddon(ActBase):
         await super().start(knowledge)
 
     async def execute(self) -> bool:
+        self.waiting_reason = None
         count = self.get_quick_count(self.unit_type)
         if count >= self.to_count:
             return True  # Step is done
@@ -70,7 +72,10 @@ class BuildAddon(ActBase):
                         count += 1
                         self.print(f"{self.unit_type} to {center}")
                 else:
+                    self.waiting_reason = "no_build_location"
                     self.print("no space")
+        if count >= self.to_count:
+            self.waiting_reason = None
         return False
 
     def get_quick_count(self, unit_type: UnitTypeId) -> int:

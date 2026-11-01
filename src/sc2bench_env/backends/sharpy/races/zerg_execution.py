@@ -90,9 +90,15 @@ def ready_progress_target(task):
 
 
 def ability_task_state(action, snapshot, waiting_for):
-    """Queen energy casts wait on a Queen. The cast itself marks completion."""
+    """Queen energy casts wait on a Queen; observed effects confirm completion."""
     if action not in {"inject_larva", "spawn_creep_tumor"}:
         raise ValueError("unsupported Zerg ability task feedback: " + str(action))
+    if action == 'spawn_creep_tumor' and not waiting_for:
+        ready = snapshot.info.get('spawn_creep_tumor_ready')
+        if ready is not None and ready > 0:
+            return DemandState.IN_PROGRESS, None
+        if ready is None and int(snapshot.units.get('queen', 0)) <= 0:
+            return DemandState.WAITING_TO_START, None
     if int(snapshot.units.get("queen", 0)) <= 0:
         return DemandState.WAITING_TO_START, "prerequisite:queen"
     if waiting_for in {"queen_unavailable", "source_unit_unavailable", "source_unit_reserved"}:

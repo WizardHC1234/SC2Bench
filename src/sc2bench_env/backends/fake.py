@@ -435,7 +435,7 @@ class FakeBackend(Backend):
         }
         worker_count = int(self.units.get(self._worker_name, 0))
         refineries = int(self.buildings.get(self._gas_name, 0))
-        workers_on_vespene = min(worker_count, 3 * refineries)
+        workers_on_vespene = min(worker_count // 2, 3 * refineries)
         workers_on_minerals = max(0, worker_count - workers_on_vespene)
         mineral_worker_saturation = 16 * max(0, base_count)
         vespene_worker_saturation = 3 * refineries
@@ -699,18 +699,12 @@ class FakeBackend(Backend):
         return True
 
     def _prerequisite_count(self, target: str) -> int:
-        if target == "command_center":
-            return self._townhalls()
-        if self._race == "zerg" and target == "hatchery":
-            return self._townhalls()
-        if self._race == "zerg" and target == "spire":
-            return int(self.buildings.get("spire", 0)) + int(self.buildings.get("greater_spire", 0))
-        if self._race == "zerg" and target == "hydralisk_den":
-            return int(self.buildings.get("hydralisk_den", 0)) + int(self.buildings.get("lurker_den", 0))
         if target.endswith(("_techlab", "_reactor")):
             parent, addon = target.rsplit("_", 1)
             return self._sync_producer_addons(parent).count(addon)
-        return self.buildings.get(target, 0) + self.units.get(target, 0) + int(target in self.upgrades)
+        from sc2bench_env.catalog.prerequisites import prerequisite_keys
+        return sum(self.buildings.get(name, 0) + self.units.get(name, 0) + int(name in self.upgrades)
+                   for name in prerequisite_keys(target, race=self._race))
 
     def _cost_key(self, action: str, target: str, to: Optional[str] = None) -> str:
         if action == "scan":
@@ -891,7 +885,7 @@ class FakeBackend(Backend):
     def _try_start_work(self) -> None:
         """Start work in order_index priority with soft resource reservation.
 
-        Earlier demands get first claim on minerals/vespene/supply/energy;
+        Earlier runnable demands get first claim on minerals/vespene/energy;
         leftovers may fund later demands. Prerequisite-blocked earlier demands
         do not reserve resources, so later ready work can run.
         """
@@ -954,6 +948,10 @@ class FakeBackend(Backend):
             need_v = float(cost["vespene"])
             need_s = int(cost["supply"]) if item.action == "train" else 0
             need_e = float(cost["energy"])
+            if need_s > budget_supply:
+                # A population-blocked request cannot start and must not hold
+                # the resources for the explicitly requested supply provider.
+                continue
             can_fund = (
                 need_m <= budget_minerals
                 and need_v <= budget_vespene
@@ -964,7 +962,7 @@ class FakeBackend(Backend):
                 # Soft-reserve toward this higher-priority demand.
                 budget_minerals = max(0.0, budget_minerals - need_m)
                 budget_vespene = max(0.0, budget_vespene - need_v)
-                budget_supply = max(0, budget_supply - need_s)
+                # Supply is committed only when native production starts.
                 budget_energy = max(0.0, budget_energy - need_e)
                 continue
 

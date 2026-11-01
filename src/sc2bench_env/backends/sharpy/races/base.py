@@ -8,6 +8,56 @@ from typing import Any, Dict, Optional, Tuple
 from sc2bench_env.runtime.task import Demand, DemandState
 
 
+def owned_units(ai: Any, unit_type: Any) -> list:
+    """Living units of one native type, including cargo, deduplicated by tag."""
+    unit_collection = getattr(ai, "units", ())
+    on_map = list(unit_collection) if hasattr(unit_collection, "__iter__") else list(unit_collection(unit_type))
+    structures = getattr(ai, "structures", ())
+    carriers = on_map + (list(structures) if hasattr(structures, "__iter__") else [])
+    candidates = list(on_map)
+    for carrier in carriers:
+        candidates.extend(getattr(carrier, "passengers", ()) or ())
+    found = {}
+    for unit in candidates:
+        if getattr(unit, "type_id", None) == unit_type:
+            found[getattr(unit, "tag", id(unit))] = unit
+    return list(found.values())
+
+
+def owned_unit_count(ai: Any, unit_type: Any) -> int:
+    return len(owned_units(ai, unit_type))
+
+
+def research_host_blocker(ai: Any, task: dict, *, race: str) -> Optional[str]:
+    """Use the started Tech act's actual compatible hosts before budgeting."""
+    if task.get('action') != 'research':
+        return None
+    act = task.get('_act')
+    types = getattr(act, 'from_buildings', None)
+    if not isinstance(types, (set, frozenset)) or not types:
+        return None
+    structures = list(ai.structures)
+    parents = [s for s in structures if s.type_id in types and getattr(s, 'is_ready', False)]
+    if not parents:
+        return None  # Catalog checks identify missing technology.
+    parents = [s for s in parents if not getattr(s, 'is_flying', False)]
+    if not parents:
+        return 'producer_unavailable'
+    if race == 'terran' and any(s.type_id.name.endswith('TECHLAB') for s in parents):
+        attached = {getattr(s, 'add_on_tag', 0) for s in structures
+                    if getattr(s, 'is_ready', False) and not getattr(s, 'is_flying', False)}
+        parents = [s for s in parents if s.tag in attached]
+        if not parents:
+            return 'producer_techlab_unavailable'
+    if race == 'protoss':
+        parents = [s for s in parents if getattr(s, 'is_powered', True)]
+        if not parents:
+            return 'unpowered'
+    if all(getattr(s, 'orders', None) is not None and len(s.orders) > 0 for s in parents):
+        return 'producer_busy'
+    return None
+
+
 class RaceAdapter(ABC):
     """Maps platform targets onto Sharpy Acts."""
 
@@ -17,9 +67,18 @@ class RaceAdapter(ABC):
     def production_owned_count(self, snapshot: Any, action: str, target: str) -> int:
         """Observed count used only to convert extra demand to an Act target.
 
-        The default uses the canonical target's raw facts, without race aliases.
+        Expansion targets count physical bases, including upgraded townhalls.
+        Other targets use the canonical target's raw facts.
         It does not credit output, count queued production or complete tasks.
         """
+        townhalls = getattr(self, "townhall_targets", None)
+        if action == "build" and townhalls and target == townhalls[0]:
+            base_count = snapshot.info.get("base_count")
+            if base_count is not None:
+                return int(base_count)
+            # Upgrade progress describes an existing building, not a new base.
+            return (snapshot.owned_count(action, target)
+                    + sum(snapshot.buildings.get(name, 0) for name in townhalls[1:]))
         return snapshot.owned_count(action, target)
 
     def ability_task_state(self, action: str, snapshot: Any,
@@ -87,6 +146,15 @@ class RaceAdapter(ABC):
         Unimplemented/unrecognized decoding returns None, without race fallback.
         """
         return None
+
+    def unit_production_counts(self, unit: Any, game_data: Any) -> Dict[str, int]:
+        """Native unfinished unit entities, excluding completed inventory."""
+        if float(getattr(unit, "build_progress", 1)) >= 1:
+            return {}
+        from sc2bench_env.catalog.registry import get_target
+        name = self.normalize_unit_name(unit.type_id.name)
+        spec = get_target(name, race=self.race_name) if name is not None else None
+        return {name: 1} if spec is not None and spec.action == "train" else {}
 
     def read_production_capacity(self, ai: Any) -> Optional[list]:
         """Read observed queue headroom, or None when not implemented.
