@@ -101,6 +101,7 @@ def build_chat_payload(
 def make_llm_call(
     *, api_key: str, base_url: str = DEFAULT_API_BASE_URL, model: str = DEFAULT_MODEL,
     timeout: float = 120, temperature: float = 0.5, thinking: bool = False,
+    preserve_think_tags: bool = False,
 ) -> Callable[..., dict[str, Any]]:
     if not api_key.strip():
         raise ValueError("LLM_API_KEY is required")
@@ -136,8 +137,11 @@ def make_llm_call(
             raw = message.get("content") or ""
             if raw and not isinstance(raw, str):
                 raise ValueError("message.content is not text")
-            content, thoughts = split_reasoning(
-                raw if isinstance(raw, str) else "")
+            if preserve_think_tags and not thinking:
+                # Prompted analysis is ordinary content, not provider reasoning.
+                content, thoughts = raw, ""
+            else:
+                content, thoughts = split_reasoning(raw)
             tool_calls = _parse_tool_calls(
                 message if isinstance(message, Mapping) else {})
             return {

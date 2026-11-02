@@ -270,6 +270,7 @@ def _require_knowledge_race(race: Any) -> str:
 
 
 def query_race_data(race: str) -> Dict[str, Any]:
+    from sc2bench_env.catalog.presentation import ordered_target_names
     from sc2bench_env.runtime.query_tools import observable_groups
 
     require_supported_own_race(race)
@@ -288,10 +289,10 @@ def query_race_data(race: str) -> Dict[str, Any]:
             structure.append(spec.name)
     return {
         "race": race,
-        "units": units,
-        "buildings": buildings,
-        "research": research,
-        "morph_townhall": structure,
+        "units": ordered_target_names(units, race=race, action="train"),
+        "buildings": ordered_target_names(buildings, race=race, action="build"),
+        "research": ordered_target_names(research, race=race, action="research"),
+        "morph_townhall": ordered_target_names(structure, race=race, action="morph_townhall"),
         "observable_only": observable_groups(race),
         "platform_abilities": [
             spec.name for spec in catalog.targets
@@ -445,7 +446,7 @@ def query_production_state(
         if row.get("larva") is not None:
             larva_available = row.get("larva")
             break
-    buildings = observation.get("building") or {}
+    buildings = observation.get("building")
     infrastructure = {
         str(name): dict(row) if isinstance(row, Mapping) else row
         for name, row in buildings.items()
@@ -497,8 +498,9 @@ def query_army_state(
 ) -> Dict[str, Any]:
     """Return group detail and ownership counts from the frozen Observation."""
     wanted = [str(item) for item in groups]
-    all_groups = observation.get("combat") or {}
-    if not isinstance(all_groups, Mapping):
+    all_groups = observation.get("combat")
+    groups_known = isinstance(all_groups, Mapping)
+    if not groups_known:
         all_groups = {}
     selected = {}
     for name, row in all_groups.items():
@@ -513,11 +515,11 @@ def query_army_state(
             selected[str(name)] = public_row
         else:
             selected[str(name)] = row
-    missing = [name for name in wanted if name not in all_groups]
+    missing = [name for name in wanted if name not in all_groups] if groups_known else []
     return {
         "own_forces": dict(observation.get("own_forces") or {}),
-        "groups": selected,
-        "outbound_group_count": sum(name != "group_0" for name in all_groups),
+        "groups": selected if groups_known else None,
+        "outbound_group_count": sum(name != "group_0" for name in all_groups) if groups_known else None,
         "unknown_groups": missing,
     }
 

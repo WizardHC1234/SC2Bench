@@ -13,9 +13,8 @@ CONTROL_RULES = """Control boundary:
 - Supply Depots, MULEs, Supply Drops, town-hall morphs, strategic scans and reinforcements require explicit actions. The backend does not automatically replace destroyed production, add technology, train units or reinforce an outbound group.
 """
 
-INTERACTION_RULES = """- Changes reports execution progress since the previous decision. Use Read tools for omitted match-state detail and Knowledge tools for static game data when the decision needs them.
-- Queries read one frozen snapshot and do not advance time. Each Action immediately returns whether it was staged, rejected or a no-op, together with its effect on unfinished work when relevant. Staged actions are stored for this decision only; they are not paid for, started or completed yet.
-- Query and Action calls made before advance use the same frozen decision snapshot. Actions and advance may share a reply if advance is last; use a separate reply when you need to inspect results or make corrections first. Call advance exactly once as the final tool call to submit staged actions and continue the game. With no new action, call advance by itself.
+INTERACTION_RULES = """- Query and Action calls made before advance use the same frozen decision snapshot. Queries do not advance time. Each Action immediately returns whether it was staged, rejected or a no-op, together with its effect on unfinished work when relevant. Staged actions are stored for this decision only; they are not paid for, started or completed yet.
+- Actions and advance may share a reply if advance is last; use a separate reply when you need to inspect results or make corrections first. Call advance exactly once as the final tool call to submit staged actions and continue the game. With no new action, call advance by itself.
 """
 
 PLANNING_RULES = """Planning context:
@@ -27,7 +26,7 @@ PLANNING_RULES = """Planning context:
 EXECUTION_RULES = """Execution model:
 - Accepted build and train requests persist across decisions until completed, cancelled or failed. Repeating one requests additional work. Check existing persistent work before adding more; cancel edits the queue by removing matching unstarted work.
 - Runnable requests use resources in submission order. Requests blocked by prerequisites, supply, production capacity or an unusable location do not reserve resources, and waiting_for reports observed blockers.
-- Actions that fail tool validation are rejected without being staged; actions already staged in this decision remain. Valid production requests can wait for resources, supply, prerequisites or production capacity. After advance, Changes reports execution progress, blockers, completion and failure.
+- Actions that fail tool validation are rejected without being staged; actions already staged in this decision remain. Valid production requests can wait for resources, supply, prerequisites or production capacity. After advance, Changes reports execution progress, blockers, completion and failure since the previous decision.
 - Production buildings add capacity; units and research still require explicit train or research actions.
 - The backend may cancel an unfinished building when it is low on health and still taking damage.
 """
@@ -113,8 +112,8 @@ ACTION_RULES = {
 }
 
 # Kept for harnesses that still quote the former per-turn reminder. The live
-# contract owns these rules in INTERACTION_RULES; Brief OBS only shows staged
-# actions under [Decision] and does not repeat the tutorial each turn.
+# contract owns these rules in INTERACTION_RULES; Brief OBS does not repeat
+# the tutorial each turn.
 DECISION_REQUEST = """[Decision Request]
 Review the current Observation and Changes. Each Action immediately reports its staged effect, rejection or no-op. Review those results before calling advance. Staged actions are stored for this decision only; they have not been paid for, started or completed. Call advance to submit them and move game time forward. If no new action is needed, call advance alone.
 """

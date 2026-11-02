@@ -19,7 +19,7 @@ def test_brief_mid_game_stays_in_soft_length_band():
     assert 1800 <= len(text) <= 4500
     assert "[Decision Request]" not in text
     assert "query_" not in text
-    assert "IMMEDIATE WEAPON THREAT" in text
+    assert "ENEMY WEAPON IN RANGE" in text
 
 
 def test_brief_hides_full_topology_but_read_tools_cover_it():
@@ -149,4 +149,5 @@ def test_prompt_and_tool_schema_keep_contract_without_per_turn_tutorial():
     assert set(dispatch.parameters["required"]) == {"source", "units", "order", "target"}
     user = render_brief_observation_text(STAGE_SAMPLES[("terran", "early")]())
     assert "[Decision Request]" not in user
-    assert user.endswith("Staged actions: none")
+    assert "[Decision]" not in user
+    assert "Staged actions: none" not in user

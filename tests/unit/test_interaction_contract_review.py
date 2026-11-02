@@ -65,6 +65,9 @@ def test_missing_production_metadata_remains_unknown():
     assert result["production_capacity"] is None
     assert result["observed_work"]["training"] is None
     assert "Production capacity:\n- unknown" in render_tool_result("query_production_state",result)
+    result = query_production_state({"building": None})
+    assert result["observed_work"]["construction"] is None
+    assert "Construction/morphs: unknown" in render_tool_result("query_production_state", result)
 
 
 @pytest.mark.parametrize("vision", ["visible","fogged"])

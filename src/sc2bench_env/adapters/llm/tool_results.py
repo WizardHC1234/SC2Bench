@@ -40,7 +40,7 @@ def _display_resource_ratio(remaining: Any, initial: Any) -> str:
 
 def _display_list(value: Any) -> str:
     if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
-        return "none"
+        return "unknown"
     items = [_display_value(item) for item in value]
     return ", ".join(items) if items else "none"
 
@@ -52,7 +52,9 @@ def _display_supply_provided(value: Any) -> str:
 
 
 def _display_counts(value: Any) -> str:
-    if not isinstance(value, Mapping) or not value:
+    if not isinstance(value, Mapping):
+        return "unknown"
+    if not value:
         return "none"
     return ", ".join(f"{name} x{count}" for name, count in value.items())
 
@@ -116,13 +118,20 @@ def _render_catalog_results(result: Mapping[str, Any], *, kind: str) -> str:
             else:
                 lines.append(f"  Produced at: {_display_value(row.get('produced_at'))}")
         elif kind == "building":
+            morph_source = row.get("morph_from") or (
+                row.get("builder") if row.get("mechanism") == "structure_morph" else None
+            )
+            supply_label = (
+                "Supply provided by completed form"
+                if morph_source else "Supply provided when complete"
+            )
             lines.append(
                 f"  Builder: {_display_value(row.get('builder'))}; "
                 f"kind {_display_value(row.get('kind'))}; "
-                f"Supply provided when complete: {_display_supply_provided(row.get('food_provided'))}"
+                f"{supply_label}: {_display_supply_provided(row.get('food_provided'))}"
             )
-            if row.get("morph_from"):
-                lines.append(f"  Morphs from: {_display_value(row.get('morph_from'))}")
+            if morph_source:
+                lines.append(f"  Morphs from: {_display_value(morph_source)}")
         else:
             lines.append(f"  Facility: {_display_value(row.get('facility'))}")
         if row.get("mechanism"):
@@ -203,7 +212,7 @@ def _render_catalog_results(result: Mapping[str, Any], *, kind: str) -> str:
 
 def _render_map_overview(result: Mapping[str, Any]) -> str:
     topology = result.get("map_topology")
-    if not isinstance(topology, Mapping):
+    if not isinstance(topology, Mapping) or not topology:
         return "Map overview\nNo map topology is available."
     lines = [f"Map overview at game time {_display_value(result.get('as_of_game_time'))}"]
     lines.append(
@@ -367,16 +376,18 @@ def _render_army_state(result: Mapping[str, Any]) -> str:
     lines.extend((
         f"Available from group_0: {_display_counts(own.get('free'))}",
         f"Unavailable for dispatch: {_display_counts(own.get('assigned'))}",
-        f"Bunker garrison: {_display_counts(own.get('bunker_garrison'))}",
-        "Groups:",
     ))
-    groups = result.get("groups") if isinstance(result.get("groups"), Mapping) else {}
+    if "bunker_garrison" in own:
+        lines.append(f"Bunker garrison: {_display_counts(own.get('bunker_garrison'))}")
+    lines.append("Groups:")
+    raw_groups = result.get("groups")
+    groups = raw_groups if isinstance(raw_groups, Mapping) else {}
     lines.insert(
         len(lines) - 1,
         f"Outbound groups: {_display_value(result.get('outbound_group_count'))}",
     )
     if not groups:
-        lines.append("- none")
+        lines.append("- none" if isinstance(raw_groups, Mapping) else "- unknown")
     for name, row in groups.items():
         if not isinstance(row, Mapping):
             lines.append(f"- {name}: {_display_value(row)}")
@@ -406,6 +417,8 @@ def _render_army_state(result: Mapping[str, Any]) -> str:
                 f"  Current order: {_display_value(row.get('style'))} "
                 f"{_display_value(row.get('target'))} — {_display_value(row.get('status'))}"
             )
+            if row.get("phase") is not None:
+                lines.append(f"  Phase: {_display_value(row.get('phase'))}")
             if "order_seconds" in row:
                 lines.append(
                     f"  Current order duration: {_display_value(row.get('order_seconds'))} s"

@@ -52,7 +52,7 @@ def test_checks_follow_facts_and_feedback_once_without_changing_them():
     assert DECISION_REQUEST not in user
     assert "[Decision Request]" not in user
     assert user.index("[Current Observation]") < user.index("[Previous Feedback]")
-    assert "[Decision]" in user
+    assert "[Decision]" not in user
     assert (observation, feedback) == before
 
 
@@ -66,7 +66,7 @@ def test_checklist_does_not_add_orders_or_dedupe_intentional_repeats(tmp_path):
         previous = copy.deepcopy(env.task_manager.production_priority_summary())
         messages = platform_turn_messages(env.latest_observation, env.latest_feedback, env.config.race if env.config else "terran")
         assert "[Decision Request]" not in messages[1]["content"]
-        assert "[Decision]" in messages[1]["content"]
+        assert "[Decision]" not in messages[1]["content"]
         assert env.task_manager.production_priority_summary() == previous
         reply = [{"name": "advance", "arguments": {"seconds": 5}}]
         drive(env, reply, agent_context={"messages": messages, "assistant_content": json.dumps(reply)})

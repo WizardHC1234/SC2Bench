@@ -19,6 +19,8 @@ from sc2bench_env.interface.tools import ToolCall, ToolResult, ToolSpec
 
 
 def _compact_value(value: Any) -> str:
+    if value is None:
+        return "unknown"
     if isinstance(value, Mapping):
         return ", ".join(f"{name} {item}" for name, item in value.items()) or "none"
     if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
@@ -84,7 +86,7 @@ def _action_result_text(status: str, data: Mapping[str, Any]) -> str:
         lines.append(f"Reason: {error['message']}")
     execution = data.get("execution")
     execution_text = {
-        "not_started_until_advance": "begins after advance",
+        "not_started_until_advance": "awaiting advance",
         "transfer_pending": "transfer pending",
         "not_staged": "not staged",
         "no_change": "no change",
@@ -112,9 +114,9 @@ def _action_result_text(status: str, data: Mapping[str, Any]) -> str:
     native = data.get("production_in_progress")
     if isinstance(native, Mapping):
         lines.append("Native work in progress (current observation):")
-        lines.append(f"- Construction: {_compact_value(native.get('construction') or {})}")
-        lines.append(f"- Training: {_compact_value(native.get('training') or {})}")
-        lines.append(f"- Research: {_compact_value(native.get('research') or [])}")
+        lines.append(f"- Construction: {_compact_value(native.get('construction'))}")
+        lines.append(f"- Training: {_compact_value(native.get('training'))}")
+        lines.append(f"- Research: {_compact_value(native.get('research'))}")
     combat = data.get("combat_state")
     if isinstance(combat, Mapping):
         before = {r["group"]: r for r in combat.get("before", [])}

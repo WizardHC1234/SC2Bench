@@ -162,10 +162,11 @@ def test_later_session_turn_keeps_self_contained_game_identity():
         later = platform_turn_messages(env.latest_observation, env.latest_feedback, env.config.race if env.config else "terran")[1]["content"]
         # Each decision remains self-contained; race and limit stay visible.
         assert "own race terran" in later and "enemy race " in later
-        assert "Time 00:05/10:00 (09:55 remaining)" in later
+        assert "Time 00:05/10:00;" in later
+        assert "remaining)" not in later
         assert "Bank:" in later and "free " in later
         assert "[Decision Request]" not in later
-        assert "[Decision]" in later
+        assert "[Decision]" not in later
     finally:
         env.close()
 

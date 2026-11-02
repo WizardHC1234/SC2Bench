@@ -143,7 +143,7 @@ def test_prompt_context_and_saved_export_share_rules_but_episode_facts_stay_dyna
         assert "enemy race zerg" in messages[1]["content"]
         assert "Time 00:00/05:21" in messages[1]["content"]
         assert "[Decision Request]" not in messages[1]["content"]
-        assert "[Decision]" in messages[1]["content"]
+        assert "[Decision]" not in messages[1]["content"]
         assert "321" not in prompt
         drive(env, [{"name": "advance", "arguments": {'seconds': 5}}])
         user = platform_turn_messages(env.latest_observation, env.latest_feedback, env.config.race if env.config else "terran")[1]["content"]

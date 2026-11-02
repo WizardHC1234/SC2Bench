@@ -20,6 +20,7 @@ def label(key):
     ability_labels = {
         "scan_ready": "Orbitals with scan energy",
         "mule_ready": "Orbitals with MULE energy",
+        "supply_drop_targets": "Supply depots eligible for supply drop",
         "chrono_ready": "Nexuses with Chrono energy",
         "recall_ready": "Main Nexus with Recall energy",
         "spawn_creep_tumor_ready": "Available creep tumor casters",
@@ -89,12 +90,6 @@ def time_clock(seconds):
         return "unknown"
     total = max(0, int(seconds))
     return f"{total // 60:02d}:{total % 60:02d}"
-
-
-def time_value(seconds):
-    if seconds is None:
-        return "unknown"
-    return f"{time_clock(seconds)} ({value(seconds)} s)"
 
 
 def resource_amount(item):
@@ -339,7 +334,7 @@ def brief_zone_lines(zones):
             vision_text = f"{ownership}; vision {vision}"
         head = f"- {zone_id} ({role}): {vision_text}"
         if threat:
-            head = f"- IMMEDIATE WEAPON THREAT - {zone_id} ({role}): {vision_text}"
+            head = f"- ENEMY WEAPON IN RANGE - {zone_id} ({role}): {vision_text}"
         parts = [head]
         own = content(row.get("own_contents"))
         if own != "none":
@@ -352,11 +347,6 @@ def brief_zone_lines(zones):
             age = row.get("enemy_information_age_seconds")
             age_text = f" (oldest sighting {int(age)}s ago)" if type(age) in (int, float) else ""
             parts.append(f"last seen {last_seen}{age_text}")
-        if threat:
-            parts.append(
-                "At least one visible enemy weapon is currently in range of an own "
-                "unit or building; this does not confirm that damage was dealt"
-            )
         lines.append("; ".join(parts))
     return lines
 
@@ -597,7 +587,7 @@ def event_lines(events, *, omit_types=(), historical=False):
         if "event_id" in row or "game_time_seconds" in row:
             stamp = (
                 f" [#{value(row.get('event_id'))}"
-                f" @ {time_value(row.get('game_time_seconds'))}]"
+                f" @ {time_clock(row.get('game_time_seconds'))}]"
             )
         lines.append(f"{index}. {value(row.get('type'))}{stamp}")
         lines.extend(extras(row, {"type", "event_id", "game_time_seconds"}))
@@ -907,15 +897,10 @@ def section(key, data, *, production_priority=None, buildings=None, training=Non
         # relying on earlier chat history for race or time-limit identity.
         current = time_clock(data.get("game_time_seconds"))
         limit = time_clock(data.get("game_time_limit_seconds"))
-        remaining = time_clock(data.get("seconds_remaining"))
         if limit != "unknown":
             timing = f"Time {current}/{limit}"
-            if remaining != "unknown":
-                timing += f" ({remaining} remaining)"
         else:
             timing = f"Time {current}"
-            if remaining != "unknown":
-                timing += f" ({remaining} remaining)"
         parts = [timing]
         if data.get("race") is not None:
             parts.append(f"own race {value(data.get('race'))}")
@@ -1005,9 +990,8 @@ def section(key, data, *, production_priority=None, buildings=None, training=Non
             ("Visible enemy", "visible_enemy_contents", lambda items: "ENEMY visible: " + content(items)),
             ("Enemy history", "last_seen_enemy_contents", lambda items: "ENEMY last seen: " + content(items)),
             ("History age (s)", "enemy_information_age_seconds"),
-            ("Immediate weapon threat", "visible_enemy_weapon_in_range", lambda active: (
-                "IMMEDIATE WEAPON THREAT - a visible armed enemy can currently reach an own unit or building; "
-                "this does not confirm damage" if active is True else
+            ("Enemy weapon in range", "visible_enemy_weapon_in_range", lambda active: (
+                "yes" if active is True else
                 "no" if active is False else "unknown"
             )),
         ])]

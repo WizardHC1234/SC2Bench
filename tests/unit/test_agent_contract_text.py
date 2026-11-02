@@ -112,7 +112,8 @@ def test_observation_context_and_section_lines_use_one_complete_view():
             if label in {"Map Topology", "Relevant Zones"}:
                 continue
             assert f"[{label}]" in text
-        assert "Time 00:00/10:00 (00:12 remaining)" in text
+        assert "Time 00:00/10:00;" in text
+        assert "remaining)" not in text
         assert "Mineral workers: 12 / saturation 16" in text
         assert "Vespene workers: 0 / saturation 0" in text
         assert "Other workers: 0" in text

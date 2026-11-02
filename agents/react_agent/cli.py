@@ -98,6 +98,7 @@ def main(argv=None) -> int:
             api_key=model["api_key"] if model else llm_api_key(),
             base_url=base_url, model=model_name, timeout=args.api_timeout,
             temperature=temperature, thinking=thinking,
+            preserve_think_tags=True,
         )
     except ValueError as error:
         parser.error(str(error))

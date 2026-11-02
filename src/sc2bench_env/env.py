@@ -410,11 +410,11 @@ class Environment:
                 groups.append(row)
             return production, groups
         upgrades = set(snapshot.info.get("upgrades") or [])
-        researching_raw = snapshot.info.get("in_progress_research") or []
+        researching_raw = snapshot.info.get("in_progress_research")
         if isinstance(researching_raw, dict):
             researching = {key for key, value in researching_raw.items() if value}
         else:
-            researching = set(researching_raw)
+            researching = set(researching_raw or [])
         decision_index = 0
         if self.recorder is not None:
             decision_index = self.recorder.decision_count
@@ -471,9 +471,15 @@ class Environment:
                 "before_groups": before_groups, "after_groups": after_groups,
                 "available_army": {k: v for k, v in submit_kwargs["idle_army"].items() if v > 0},
                 "production_in_progress": {
-                    "construction": dict(snapshot.info.get("under_construction") or {}),
-                    "training": dict(snapshot.info.get("in_production_units") or {}),
-                    "research": list(snapshot.info.get("in_progress_research") or []),
+                    "construction": (
+                        dict(snapshot.info["under_construction"])
+                        if isinstance(snapshot.info.get("under_construction"), Mapping) else None
+                    ),
+                    "training": (
+                        dict(snapshot.info["in_production_units"])
+                        if isinstance(snapshot.info.get("in_production_units"), Mapping) else None
+                    ),
+                    "research": sorted(researching) if researching_raw is not None else None,
                 },
             }
 

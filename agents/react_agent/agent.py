@@ -1,7 +1,10 @@
 """Zero-shot ReAct: reason or act, append observations, and continue."""
 from copy import deepcopy
 
-from agents.llm_agent.agent import LLMAgent, InvalidDecisionLimit, _model_call, _print_block
+from agents.llm_agent.agent import (
+    LLMAgent, InvalidDecisionLimit, _model_call, _pretty_json, _print_block,
+    _tool_query_title,
+)
 from agents.llm_agent.client import make_llm_call
 from agents.llm_agent.config import llm_api_key, llm_base_url, llm_model
 from agents.llm_agent.tools import tool_schemas
@@ -82,12 +85,19 @@ class ReActAgent(LLMAgent):
             elif any(not isinstance(c.get("arguments"), dict) for c in calls):
                 problem = "None of these calls was submitted. Tool arguments must be JSON objects."
             if problem:
+                if self.verbose:
+                    _print_block("Tool reminder", problem)
                 self._reject_tool_reply(calls, problem)
                 self.messages.append({"role": "user", "content": problem})
                 continue
 
             for index, call in enumerate(calls):
                 tool_call = ToolCall(str(call.get("name") or ""), deepcopy(call["arguments"]))
+                if self.verbose:
+                    _print_block(
+                        _tool_query_title(tool_call.name),
+                        f"{tool_call.name} {_pretty_json(tool_call.arguments)}",
+                    )
                 try:
                     result = request.call_tool(tool_call)
                     if not isinstance(result, ToolResult):
@@ -96,10 +106,13 @@ class ReActAgent(LLMAgent):
                 except Exception as error:
                     # The callback may have applied the action before failing.
                     # Stop rather than replaying an action of unknown outcome.
+                    error_text = f"status: execution_unknown\nerror_type: {type(error).__name__}"
                     self.messages.append({
                         "role": "tool", "tool_call_id": call["id"],
-                        "content": f"status: execution_unknown\nerror_type: {type(error).__name__}",
+                        "content": error_text,
                     })
+                    if self.verbose:
+                        _print_block("Tool result", error_text)
                     self._reject_tool_reply(calls[index + 1:], "Not submitted after a tool execution error.")
                     raise AgentStopped("agent_stopped", agent_context=context()) from error
                 self.messages.append({"role": "tool", "tool_call_id": call["id"], "content": rendered})
@@ -154,5 +167,6 @@ def create_agent(call_llm=None, **agent_options) -> ReActAgent:
         call_llm = make_llm_call(
             api_key=llm_api_key(), base_url=llm_base_url(), model=llm_model(),
             thinking=bool(agent_options.get("thinking_requested", False)),
+            preserve_think_tags=True,
         )
     return ReActAgent(call_llm, **agent_options)

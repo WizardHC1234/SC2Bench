@@ -110,8 +110,23 @@ def render_brief_observation_text(
     infrastructure: List[str] = [
         "Buildings:", *brief_building_lines(data.get("building") or {}),
     ]
+    research = data.get("research")
+    if isinstance(research, dict):
+        # Waiting research is already described with its blocker in Production.
+        # Keep native progress, completion and any unrepresented status here.
+        represented = {
+            (row.get("target"), "waiting_for:" + row["waiting_for"])
+            for row in data.get("production_priority") or []
+            if row.get("action") == "research" and row.get("state") != "failed"
+            and isinstance(row.get("waiting_for"), str)
+            and row["waiting_for"] not in {"", "unknown"}
+        }
+        research = {
+            target: status for target, status in research.items()
+            if (target, status) not in represented
+        }
     for label_text, lines in (
-        ("Research", section("research", data.get("research"), race=race)),
+        ("Research", section("research", research, race=race)),
         ("Targetable structures", section("structures", data.get("structures"), race=race)),
     ):
         if useful(lines):
@@ -174,7 +189,6 @@ def render_brief_observation_text(
         "Changes",
         section("recent_events", data.get("recent_events"), race=race),
     )
-    blocks.append("[Decision]\nStaged actions: none")
     return "\n\n".join(blocks)
 
 @dataclass

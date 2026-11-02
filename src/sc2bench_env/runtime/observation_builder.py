@@ -559,7 +559,10 @@ def available_targets(
             grouped["research"].append(spec.name)
         elif spec.action == "morph_townhall" and ready(spec.morph_from, exact=True) and prereqs_met(spec):
             grouped["morph_townhall"].append(spec.name)
-    return grouped
+    from sc2bench_env.catalog.presentation import ordered_target_names
+
+    return {action: ordered_target_names(names, race=race, action=action)
+            for action, names in grouped.items()}
 
 
 def relevant_zone_ids(

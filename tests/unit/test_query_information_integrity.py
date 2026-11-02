@@ -1,4 +1,6 @@
 """Filtered queries must retain honest totals, locations and error scope."""
+import pytest
+
 from sc2bench_env.runtime.query_tools import query_army_state, query_production_state
 from sc2bench_env.adapters.llm.tool_results import render_tool_result
 
@@ -25,10 +27,12 @@ def test_reserved_morph_sources_are_not_labeled_outbound():
 def test_destination_is_not_rendered_as_observed_group_location():
     result = query_army_state({"combat": {"group_1": {
         "style": "attack", "target": "zone_9", "status": "active", "alive": {"marine": 4},
+        "phase": "moving",
     }}})
     text = render_tool_result("query_army_state", result)
     assert "Location: zone_9" not in text
     assert "Current order: attack zone_9" in text
+    assert "Phase: moving" in text
     assert "Nearest zone: unknown" in text
     from sc2bench_env.interface.observations import render_observation_text
     full = render_observation_text({"combat": result["groups"]})
@@ -59,3 +63,29 @@ def test_townhall_id_filter_keeps_source_and_observed_morph():
     }, targets=["townhall_0"], race="zerg")
     assert set(result["infrastructure"]) == {"hatchery", "lair"}
     assert result["observed_work"]["construction"] == {"lair": 1}
+
+
+@pytest.mark.parametrize("inventory,shown", [(None, "unknown"), ({}, "none")])
+def test_read_query_text_keeps_unknown_inventories_distinct_from_empty(inventory, shown):
+    text = render_tool_result("query_zone_state", {"zones": [{
+        "zone_id": "zone_0",
+        "own_contents": {"units": inventory, "buildings": inventory},
+        "visible_enemy_contents": {"units": inventory, "buildings": inventory},
+        "last_seen_enemy_contents": {"units": inventory, "buildings": inventory},
+    }]})
+    assert f"Own: units={shown}; buildings={shown}" in text
+    assert f"Visible enemy: units={shown}; buildings={shown}" in text
+    text = render_tool_result("query_army_state", {"own_forces": {
+        "army": inventory, "free": inventory, "assigned": inventory,
+    }, "groups": {}})
+    assert f"Total army: {shown}" in text
+    assert f"Available from group_0: {shown}" in text
+
+
+@pytest.mark.parametrize("groups,shown,count", [(None, "unknown", None), ({}, "none", 0)])
+def test_unobserved_groups_are_not_reported_as_zero_outbound_groups(groups, shown, count):
+    result = query_army_state({"combat": groups}, groups=["group_1"])
+    assert result["outbound_group_count"] == count
+    assert result["unknown_groups"] == ([] if groups is None else ["group_1"])
+    text = render_tool_result("query_army_state", result)
+    assert f"Groups:\n- {shown}" in text

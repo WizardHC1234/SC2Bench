@@ -23,6 +23,10 @@ from sc2bench_env.runtime.tool_turn import ToolTurnError
 from sc2bench_env.versus.match import VersusMatch
 
 
+def _print_block(title: str, text: str) -> None:
+    print(f"\n[{title}]\n{text}", flush=True)
+
+
 def execute_command(channel: PlayerChannel, match: VersusMatch, player: int, command: Command) -> None:
     with channel._lock:
         if channel.match_closed or command.turn_id != channel.active_turn_id:
@@ -75,6 +79,7 @@ class EpisodeDrive:
                 self._final_answer.append(text)
             else:
                 self._commentary.append(text)
+        _print_block("Model note", text)
 
     def _take_commentary(self) -> Optional[str]:
         with self._notes_lock:
@@ -109,7 +114,9 @@ class EpisodeDrive:
             game = turn_input.observation.get("game") if isinstance(turn_input.observation, dict) else None
             race = str(game.get("race")) if isinstance(game, dict) and game.get("race") else "terran"
             self.messages.append({"role": "system", "content": system_prompt(race=race)})
-        self.messages.append({"role": "user", "content": turn_input.render(first=False)})
+        content = turn_input.render(first=False)
+        self.messages.append({"role": "user", "content": content})
+        _print_block("Agent input", content)
 
     def add_tool(self, name: str, arguments: dict[str, Any], payload: dict[str, Any]) -> None:
         from sc2bench_env.external.mcp_server import _agent_visible_text
@@ -127,11 +134,14 @@ class EpisodeDrive:
                 },
             }],
         })
+        content = _agent_visible_text(name, payload)
         self.messages.append({
             "role": "tool",
             "tool_call_id": call_id,
-            "content": _agent_visible_text(name, payload),
+            "content": content,
         })
+        _print_block("Tool call", f"{name} {json.dumps(arguments, ensure_ascii=False, indent=2)}")
+        _print_block("Tool result", content)
 
 
 def execute_environment_command(channel: PlayerChannel, drive: EpisodeDrive, command: Command) -> None:
@@ -186,6 +196,7 @@ def _prompt_for_advance(adapter: Any, handle: Any, channel: PlayerChannel, execu
         return False
     if drive is not None:
         drive.messages.append({"role": "user", "content": _ADVANCE_REMINDER})
+        _print_block("Tool reminder", _ADVANCE_REMINDER)
     _drive(lambda: remind(handle, _ADVANCE_REMINDER), channel, execute)
     return True
 

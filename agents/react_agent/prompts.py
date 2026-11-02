@@ -5,11 +5,10 @@ from sc2bench_env.interface.platform_prompt import default_prompt_parts
 
 
 REACT_GUIDANCE = (
-    "Interact with StarCraft II to achieve the objective described above. "
-    "Reason about the current observation and interaction history when deciding what to do next. "
+    "Reason about the current observation, interaction history and tool results when deciding what to do next. "
     "You may reason before acting, or act directly when the next action is clear. "
-    "Write any reasoning in message content and use native tool calls for actions. "
-    "Use the returned observations to update your understanding and choose the next action. "
+    "Any reasoning in message content MUST be enclosed within <think> and </think> tags. "
+    "Use native tool calls for actions. "
     "Observations come from the environment; do not generate them yourself."
 )
 NO_TOOLS = (

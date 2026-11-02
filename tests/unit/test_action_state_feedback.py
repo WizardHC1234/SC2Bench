@@ -192,3 +192,49 @@ def test_started_building_remains_visible_after_its_request_completes(tmp_path):
         assert result.data["production_in_progress"]["construction"]["supply_depot"] == 1
     finally:
         env.close()
+
+
+@pytest.mark.parametrize("race,townhall", [
+    ("terran", "command_center"), ("protoss", "nexus"), ("zerg", "hatchery"),
+])
+def test_staged_response_does_not_promise_construction_after_advance(race, townhall):
+    env = Environment("fake", record_trajectory=False)
+    try:
+        env.reset(EpisodeConfig(race=race))
+        env.backend.minerals = 0
+        turn = env.begin_tool_turn()
+        result = call(turn, "build", target=townhall)
+        text = LLMAdapter(race=race).render_tool_result(ToolCall("build", {}), result)
+        assert result.status == "staged" and "Execution: awaiting advance" in text
+        assert "begins after advance" not in text
+        observation, _, _, _ = commit(env, turn)
+        work = next(row for row in observation.production_priority if row["target"] == townhall)
+        assert work["waiting_for"] == "resources"
+        assert observation.building[townhall]["under_construction"] == 0
+    finally:
+        env.close()
+
+
+def test_native_work_preserves_unknowns_and_filters_inactive_research(monkeypatch):
+    env = Environment("fake", record_trajectory=False)
+    try:
+        env.reset()
+        snapshot = env.backend.snapshot()
+        snapshot.info.update({
+            "under_construction": None,
+            "in_production_units": None,
+            "in_progress_research": {"stimpack": 1, "combat_shield": 0},
+        })
+        monkeypatch.setattr(env.backend, "snapshot", lambda: snapshot)
+        turn = env.begin_tool_turn()
+        result = call(turn, "build", target="supply_depot")
+        assert result.data["production_in_progress"] == {
+            "construction": None, "training": None, "research": ["stimpack"],
+        }
+        text = LLMAdapter().render_tool_result(ToolCall("build", {}), result)
+        assert "- Construction: unknown" in text
+        assert "- Training: unknown" in text
+        assert "- Research: stimpack" in text
+        assert "combat_shield" not in text
+    finally:
+        env.close()

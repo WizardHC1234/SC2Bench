@@ -79,6 +79,18 @@ def test_text_results_expose_supply_and_keep_research_fields_semantic():
     assert "Can attack:" not in research_text
 
 
+@pytest.mark.parametrize("race,target", [
+    ("terran", "orbital_command"), ("terran", "planetary_fortress"),
+    ("protoss", "warpgate"), ("zerg", "lair"), ("zerg", "hive"),
+])
+def test_building_morph_supply_is_labeled_as_the_completed_form(race, target):
+    row = query_building_data([target], race=race)["results"][0]
+    text = render_tool_result("query_building_data", {"results": [row]})
+    assert "Supply provided by completed form:" in text
+    assert "Supply provided when complete:" not in text
+    assert f"Morphs from: {row.get('morph_from') or row['builder']}" in text
+
+
 def test_runtime_vitals_come_from_the_same_client_version():
     stalker = query_unit_data(["stalker"], race="protoss")["results"][0]
     assert stalker["health"] == 80.0

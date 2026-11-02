@@ -28,7 +28,6 @@ BRIEF_REQUIRED_MARKERS = (
     "[Available Targets]",
     "[Army]",
     "[Relevant Zones]",
-    "[Decision]",
 )
 
 BRIEF_CORE_PHRASES = (
@@ -53,13 +52,15 @@ def test_stage_samples_render_required_brief_sections(race, stage):
     text = render_brief_observation_text(observation)
     for marker in BRIEF_REQUIRED_MARKERS:
         assert marker in text, marker
+    assert "[Decision]" not in text
+    assert "Staged actions: none" not in text
     for phrase in BRIEF_CORE_PHRASES:
         assert phrase in text, phrase
     assert "map_topology" not in text.lower()
     assert "query_" not in text
     # Self-contained Game line each decision.
     assert f"own race {race}" in text
-    assert "Time " in text and "remaining)" in text
+    assert "Time " in text and "remaining)" not in text
 
 
 @pytest.mark.parametrize("race,stage", list(STAGE_SAMPLES))

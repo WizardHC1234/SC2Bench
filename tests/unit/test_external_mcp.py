@@ -257,6 +257,19 @@ def test_two_external_agents_play_a_match_through_mcp(tmp_path):
 
 
 def test_one_external_agent_plays_the_builtin_ai(tmp_path):
+    class VisibleAgent(_ScriptedAgent):
+        def bind_transcript(self, transcript):
+            self.transcript = transcript
+
+        def _decide(self, context):
+            self.transcript("The current production needs time.", "commentary")
+            rejected = _rpc(context, "tools/call", {
+                "name": "train", "arguments": {"target": "scv", "count": 0},
+            })
+            assert rejected["isError"] is True
+            super()._decide(context)
+            self.transcript("The decision is submitted.", "final_answer")
+
     spec = match_file_from_dict({
         "match": {
             "backend": "fake",
@@ -290,7 +303,7 @@ def test_one_external_agent_plays_the_builtin_ai(tmp_path):
             game_time_limit_seconds=2, blocking_decisions=True,
         ))
         outcome = run_builtin_mcp(
-            env, _ScriptedAgent(), context,
+            env, VisibleAgent(), context,
             server=server, channel=channel, max_decisions=6, marker="continuity-marker",
         )
     finally:
@@ -306,6 +319,15 @@ def test_one_external_agent_plays_the_builtin_ai(tmp_path):
     assert "user" in roles and "tool" in roles
     assert session["model"] == "gpt-5.6-luna"
     assert session["scope"] == "episode"
+    log = next(tmp_path.glob("*/log.txt")).read_text(encoding="utf-8")
+    for text in (
+        "[Agent input]", "[Current Observation]", "[Economy]",
+        "[Model note]\nThe current production needs time.",
+        '[Tool call]\nadvance {\n  "seconds": 1\n}',
+        "[Tool result]\nStatus: committed", "Status: rejected",
+        "The decision is submitted.",
+    ):
+        assert text in log
 
 
 def test_agent_files_stay_in_the_record_until_the_session_is_saved(tmp_path):
@@ -328,7 +350,7 @@ def test_agent_files_stay_in_the_record_until_the_session_is_saved(tmp_path):
     assert list(record.rglob("auth.json")) == []
 
 
-def test_recorded_transcript_includes_the_model_reply():
+def test_recorded_transcript_includes_the_model_reply(capsys):
     from sc2bench_env.external.adapters.codex_session import CodexAppSession
     from sc2bench_env.external.runner import EpisodeDrive
 
@@ -357,6 +379,12 @@ def test_recorded_transcript_includes_the_model_reply():
         "params": {"item": {"type": "reasoning", "encrypted_content": "secret"}},
     })
     assert notes == [("hello", "commentary")]
+    log = capsys.readouterr().out
+    assert log.count("I'll train an SCV.") == 1
+    assert log.count("SCV queued.") == 1
+    assert '[Tool call]\ntrain {\n  "unit_type": "scv"\n}' in log
+    assert "[Tool result]\nStatus: staged" in log
+    assert "secret" not in log
 
 
 def test_codex_disconnect_after_reply_does_not_report_a_server_failure():

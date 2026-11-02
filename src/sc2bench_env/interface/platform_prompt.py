@@ -41,8 +41,10 @@ def default_prompt_parts(race: str = "terran") -> PromptParts:
     contract. decision_guidance is default advice a harness may replace.
     """
     require_supported_own_race(race)
+    from sc2bench_env.catalog.knowledge import bound_snapshot
     from sc2bench_env.catalog.registry import render_observation_guide
 
+    game_version = bound_snapshot()["manifest"]["game_version"]
     if race == "protoss":
         role = (
             "You are an autonomous StarCraft II agent controlling protoss through SC2Bench.\n"
@@ -65,7 +67,7 @@ def default_prompt_parts(race: str = "terran") -> PromptParts:
         execution = CONTROL_RULES + "\n" + PLANNING_RULES + "\n" + EXECUTION_RULES + "\n" + ARMY_RULES
         game = GAME_RULES
     return PromptParts(
-        role_and_objective=role.strip(),
+        role_and_objective=f"{role.strip()}\nGame version: StarCraft II {game_version}.",
         game_rules=GAME_BACKGROUND.strip() + "\n\n" + game.strip(),
         observation_rules=render_observation_guide().strip(),
         tool_interaction=INTERACTION_RULES.strip(),

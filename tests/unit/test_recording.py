@@ -294,8 +294,9 @@ def test_text_context_uses_pre_decision_observation_and_full_sections(tmp_path):
     env = Environment(record_dir=tmp_path)
     initial = env.reset()
     messages = platform_turn_messages(env.latest_observation, env.latest_feedback, env.config.race if env.config else "terran")
-    for section in ("[Relevant Zones]", "[Army]", "[Abilities]", "[Economy]", "[Decision]"):
+    for section in ("[Relevant Zones]", "[Army]", "[Abilities]", "[Economy]"):
         assert section in messages[1]["content"]
+    assert "[Decision]" not in messages[1]["content"]
     assert "zone_0" in messages[1]["content"]
     drive(env, [{"name": "advance", "arguments": {'seconds': 5}}])
     entry = _steps(env)[-1]

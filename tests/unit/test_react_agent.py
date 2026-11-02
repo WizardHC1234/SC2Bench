@@ -41,7 +41,7 @@ def test_feedback_loop_full_session_and_saved_analysis(tmp_path, capsys, race, w
     assert info["end_reason"] == "time_limit"
     assert len(seen) == 4
     assert len([m for m in agent.messages if m["role"] == "system"]) == 1
-    assert "Interact with StarCraft II" in seen[0][0]["content"]
+    assert "Reason about the current observation" in seen[0][0]["content"]
     assert f"controlling {race}" in seen[0][0]["content"]
     assert "Train one worker" in json.dumps(seen[-1])
     assert "Train one worker" in capsys.readouterr().out
@@ -49,7 +49,13 @@ def test_feedback_loop_full_session_and_saved_analysis(tmp_path, capsys, race, w
     assert session["scope"] == "episode"
     assert "Train one worker" in json.dumps(session["messages"])
     assert (directory / "metrics.json").is_file()
-    assert "Train one worker" in (directory / "log.txt").read_text(encoding="utf8")
+    log = (directory / "log.txt").read_text(encoding="utf8")
+    assert "Train one worker" in log
+    assert "[Knowledge query]\nquery_unit_data {" in log
+    assert f'"names": [\n    "{worker}"' in log
+    assert f'[Tool call]\ntrain {{\n  "target": "{worker}",\n  "count": 1\n}}' in log
+    assert '[Tool call]\nadvance {\n  "seconds": 5\n}' in log
+    assert "[Tool result]\nStatus: staged" in log
 
 
 def test_rejected_reply_does_not_discard_earlier_staged_work(tmp_path):
@@ -137,7 +143,7 @@ def test_thinking_fields_survive_tool_and_text_replies(tmp_path, capsys, mode):
     session = json.loads((directory / "session.json").read_text(encoding="utf8"))
     assert any(m.get("reasoning_content") == "Allow the existing production to finish."
                for m in session["messages"])
-    assert "Interact with StarCraft II" in session["messages"][0]["content"]
+    assert "Reason about the current observation" in session["messages"][0]["content"]
     assert "Allow the existing production to finish." in (directory / "log.txt").read_text(encoding="utf8")
 
 
@@ -152,6 +158,47 @@ def test_factory_passes_native_thinking_setting(monkeypatch):
     assert options["thinking"] is True
 
 
+def test_prompted_analysis_survives_transport_history_and_recording_without_native_thinking(
+    tmp_path, monkeypatch, capsys,
+):
+    from io import BytesIO
+    import agents.llm_agent.client as client
+
+    analysis = "<think>The current construction needs time to finish.</think>"
+    payloads = []
+
+    def serve(request, **kwargs):
+        payloads.append(json.loads(request.data))
+        message = {"role": "assistant", "content": analysis}
+        if len(payloads) > 1:
+            message["tool_calls"] = [{
+                "id": f"advance_{len(payloads)}", "type": "function",
+                "function": {"name": "advance", "arguments": '{"seconds": 5}'},
+            }]
+        return BytesIO(json.dumps({"choices": [{"message": message}]}).encode())
+
+    monkeypatch.setattr(client, "urlopen", serve)
+    monkeypatch.setattr("agents.react_agent.agent.llm_api_key", lambda: "test-key")
+    monkeypatch.setattr("agents.react_agent.agent.llm_base_url", lambda: "http://example.invalid/v1")
+    agent = create_agent(thinking_requested=False)
+    env = Environment("fake", record_dir=tmp_path)
+    try:
+        info = run_episode(env, agent, EpisodeConfig(game_time_limit_seconds=10))
+        directory = env.record_path
+    finally:
+        env.close()
+
+    assert info["end_reason"] == "time_limit"
+    assert len(payloads) == 3
+    assert all(p["chat_template_kwargs"]["enable_thinking"] is False for p in payloads)
+    assert any(m.get("content") == analysis for m in payloads[-1]["messages"])
+    assert all("reasoning_content" not in m for m in agent.messages)
+    session = json.loads((directory / "session.json").read_text(encoding="utf8"))
+    assert any(m.get("content") == analysis for m in session["messages"])
+    assert analysis in (directory / "log.txt").read_text(encoding="utf8")
+    assert analysis in capsys.readouterr().out
+
+
 def test_cli_runs_and_records_direct_episode(tmp_path, monkeypatch):
     import agents.react_agent.cli as cli
     monkeypatch.setattr(cli, "make_llm_call", lambda **_: lambda messages, **__: reply())
@@ -160,7 +207,7 @@ def test_cli_runs_and_records_direct_episode(tmp_path, monkeypatch):
     paths = list(tmp_path.rglob("session.json"))
     assert len(paths) == 1
     session = json.loads(paths[0].read_text(encoding="utf8"))
-    assert "Interact with StarCraft II" in session["messages"][0]["content"]
+    assert "Reason about the current observation" in session["messages"][0]["content"]
     assert (paths[0].parent / "log.txt").is_file()
 
 
