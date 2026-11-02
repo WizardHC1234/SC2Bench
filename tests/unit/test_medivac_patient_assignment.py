@@ -44,6 +44,26 @@ def test_no_duplicate_cast_when_only_patient_is_already_being_healed():
     assert micro.unit_solve_combat(med[1],Action(None,False)).ability is None
 
 
+def test_proto_point_heal_order_does_not_crash():
+    """SC2 heal orders carry an unhashable protobuf Point, not a unit tag."""
+    from s2clientprotocol import common_pb2
+    point = common_pb2.Point(x=61.734130859375, y=108.869140625, z=8.0)
+    try:
+        hash(point)
+    except TypeError as error:
+        assert type(point).__name__ == "Point" and "unhashable" in str(error)
+    else:
+        raise AssertionError("protobuf Point was hashable; this is not the crash type")
+    micro, med, patients = setup()
+    med[0].orders = [NS(ability=NS(id=A.MEDIVACHEAL_HEAL), target=point)]
+    med[1].orders = [NS(ability=NS(id=A.MEDIVACHEAL_HEAL), target=common_pb2.Point2D(x=1, y=2))]
+    first = micro.unit_solve_combat(med[0], Action(None, False))
+    second = micro.unit_solve_combat(med[1], Action(None, False))
+    assert first.target is patients[0]
+    assert second.target is patients[1]
+    assert all(type(tag) is int for tag in micro.ai._bench_medivac_patients[1].values())
+
+
 def test_unacknowledged_patient_claim_expires_next_frame():
     micro,med,patients=setup()
     micro.unit_solve_combat(med[0],Action(None,False))

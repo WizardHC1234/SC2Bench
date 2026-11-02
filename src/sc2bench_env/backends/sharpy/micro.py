@@ -76,16 +76,19 @@ class MicroMedivacsSupport(MicroStep):
                 claims = self.ai._bench_medivac_patients = (frame, {})
             claims = claims[1]
             patients = {patient.tag: patient for patient in healable}
-            own_target = self._healing_target(unit)
+            own_target = self._patient_tag(self._healing_target(unit))
             if own_target in patients:
                 claims[unit.tag] = own_target
                 return NoAction()
             if claims.get(unit.tag) in patients:
                 return NoAction()
-            occupied = {target for caster, target in claims.items() if caster != unit.tag}
+            occupied = {target for caster, target in claims.items()
+                        if caster != unit.tag and isinstance(target, int)}
             for other in getattr(self.ai, "units", ()):
                 if other.type_id == UnitTypeId.MEDIVAC and other.tag != unit.tag:
-                    occupied.add(self._healing_target(other))
+                    other_target = self._patient_tag(self._healing_target(other))
+                    if other_target is not None:
+                        occupied.add(other_target)
             available = healable.filter(lambda patient: patient.tag not in occupied)
             if available:
                 patient = available.closest_to(unit)
@@ -101,6 +104,16 @@ class MicroMedivacsSupport(MicroStep):
     def _healing_target(unit):
         return next((order.target for order in getattr(unit, "orders", ())
                      if "HEAL" in str(getattr(getattr(order, "ability", None), "id", "")).upper()), None)
+
+    @staticmethod
+    def _patient_tag(target):
+        """Heal orders may target a unit tag or a map point. Only a tag is a patient."""
+        if type(target) is int:
+            return target
+        tag = getattr(target, "tag", None)
+        if type(tag) is int:
+            return tag
+        return None
 
     @staticmethod
     def _is_healable(target: Unit) -> bool:
