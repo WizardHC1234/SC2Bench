@@ -4,14 +4,14 @@
     "map": "KairosJunctionLE",
     "race": "terran",
     "enemy_race": "terran",
-    "opponent": "veryhard",
+    "opponent": "hard",
     "enemy_style": "macro",
     "max_decisions": 500,
     "game_time_limit_seconds": 1800
   },
   "validation": {
-    "model": "gpt-6-sol",
-    "reasoning_effort": "high"
+    "model": "gpt-5.6-sol",
+    "reasoning_effort": "medium"
   },
   "players": [
     { "id": "player_0", "agent": { "adapter": "codex_cli" } },

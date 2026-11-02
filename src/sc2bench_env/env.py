@@ -356,6 +356,7 @@ class Environment:
         snapshot = self.backend.snapshot()
         preview_base = deepcopy(self.task_manager)
         idle_army = self._idle_army_counts(snapshot)
+        source_pool = self._idle_army_counts(snapshot, include_morph_reservations=False)
         observed_groups = self._outbound_group_counts(snapshot)
         original = {d.demand_id: d for d in preview_base.active_demands()}
         original_groups = {d.group: dict(d.units or {}) for d in original.values()
@@ -441,6 +442,7 @@ class Environment:
                 "known_upgrades": upgrades,
                 "researching": researching,
                 "idle_army": dict(idle_army),
+                "source_pool": dict(source_pool),
                 "group_army": deepcopy(observed_groups),
                 "bunker_garrison": snapshot.info.get("bunker_garrison"),
             }
@@ -505,6 +507,7 @@ class Environment:
             batch, game_time=snapshot.game_time_seconds, baseline_owned=baselines,
             known_upgrades=upgrades, researching=researching,
             idle_army=self._idle_army_counts(snapshot),
+            source_pool=self._idle_army_counts(snapshot, include_morph_reservations=False),
             group_army=self._outbound_group_counts(snapshot),
             bunker_garrison=snapshot.info.get("bunker_garrison"),
         )
@@ -1048,9 +1051,10 @@ class Environment:
         from sc2bench_env.runtime.observation_builder import build_observation
         return build_observation(snapshot, self.task_manager, self.config, self._previous_observation)
 
-    def _idle_army_counts(self, snapshot) -> dict[str, int]:
+    def _idle_army_counts(self, snapshot, *, include_morph_reservations=True) -> dict[str, int]:
         from sc2bench_env.runtime.observation_builder import idle_army_counts
-        return idle_army_counts(snapshot, self.task_manager)
+        return idle_army_counts(snapshot, self.task_manager,
+                                include_morph_reservations=include_morph_reservations)
 
     def _outbound_group_counts(self, snapshot) -> dict[str, dict[str, int]]:
         """Current living counts keyed by stable public group ID."""

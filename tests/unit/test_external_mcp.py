@@ -357,3 +357,47 @@ def test_recorded_transcript_includes_the_model_reply():
         "params": {"item": {"type": "reasoning", "encrypted_content": "secret"}},
     })
     assert notes == [("hello", "commentary")]
+
+
+def test_codex_disconnect_after_reply_does_not_report_a_server_failure():
+    import http.client
+    import socket
+    import struct
+    import threading
+    from urllib.parse import urlsplit
+
+    channel = PlayerChannel()
+    server = MatchMcpServer((channel,))
+    completed = threading.Event()
+    errors = []
+    original = server._httpd.process_request_thread
+
+    def finish_request(*args):
+        try:
+            original(*args)
+        finally:
+            completed.set()
+
+    server._httpd.process_request_thread = finish_request
+    server._httpd.handle_error = lambda *args: errors.append(args[1])
+    server.start()
+    connection = socket.create_connection(('127.0.0.1', server.port), timeout=3)
+    try:
+        path = urlsplit(server.urls()[0]).path
+        body = json.dumps({'jsonrpc': '2.0', 'id': 1, 'method': 'ping'}).encode()
+        headers = (f'POST {path} HTTP/1.1\r\nHost: localhost\r\n'
+                   f'Authorization: Bearer {server.tokens()[0]}\r\n'
+                   f'Content-Length: {len(body)}\r\n\r\n').encode()
+        connection.sendall(headers + body)
+        response = http.client.HTTPResponse(connection)
+        response.begin()
+        assert json.loads(response.read())['result'] == {}
+        response.close()
+        # Codex can terminate its persistent HTTP connection at match end.
+        connection.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack('ii', 1, 0))
+        connection.close()
+        assert completed.wait(3)
+        assert not errors
+    finally:
+        connection.close()
+        server.stop()

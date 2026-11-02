@@ -703,7 +703,7 @@ class TrajectoryRecorder:
             "status": status,
             "execution_state": execution_state,
             "name": call.get("name"),
-            "arguments": dict(call.get("arguments") or {}),
+            "arguments": deepcopy(call.get("arguments")),
             "call": call,
             "result": payload,
             "rendered_result": rendered_result,

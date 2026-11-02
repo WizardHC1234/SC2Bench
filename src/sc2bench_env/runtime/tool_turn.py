@@ -1,6 +1,7 @@
 """One decision's tool calls: query immediately, stage actions, close on advance."""
 from __future__ import annotations
 
+from copy import deepcopy
 
 from typing import Any, Callable, Mapping, Optional, Sequence
 from uuid import uuid4
@@ -52,7 +53,7 @@ class ToolTurn:
     ) -> None:
         self.turn_id = uuid4().hex
         self.race = race
-        self._observation = observation
+        self._observation = deepcopy(observation)
         self._game_time = float(game_time_seconds)
         self._decision_index = int(decision_index)
         self._record = record
@@ -74,6 +75,9 @@ class ToolTurn:
     def call(self, tool_call: ToolCall) -> ToolResult:
         if not isinstance(tool_call, ToolCall):
             return self._reject("invalid_arguments", "tool call must be a ToolCall", None)
+        if not isinstance(tool_call.name, str) or not tool_call.name.strip():
+            return self._reject("invalid_arguments", "tool name must be a non-empty string", None)
+        tool_call = ToolCall(tool_call.name, deepcopy(tool_call.arguments))
         if self._retired or self._consumed:
             return self._reject("stale_turn", "this tool turn is no longer active", tool_call)
         if self._closed:
@@ -148,7 +152,7 @@ class ToolTurn:
             "must be" in error or error.startswith("race must be")
         ):
             return self._reject("invalid_arguments", error, tool_call)
-        result = ToolResult(status="ok", data=dict(payload))
+        result = ToolResult(status="ok", data=deepcopy(dict(payload)))
         self._record_call(spec.kind, tool_call, result)
         return result
 
@@ -359,7 +363,8 @@ class ToolTurn:
                 kind = "unknown"
             if kind == "action":
                 data = {
-                    "action": tool_call.name, "request": dict(tool_call.arguments),
+                    "action": tool_call.name,
+                    "request": dict(tool_call.arguments) if isinstance(tool_call.arguments, Mapping) else {},
                     "effect": {}, "execution": "not_staged",
                     "error": {"code": code, "message": message},
                 }

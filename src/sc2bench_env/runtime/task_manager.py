@@ -20,6 +20,7 @@ from sc2bench_env.runtime.task import (
     Demand,
     DemandState,
     train_birth_allowance,
+    pending_morph_source_counts,
 )
 
 
@@ -73,6 +74,7 @@ class TaskManager:
     event_limit: int = 16
     event_counter: int = 0
     _boundary_event_id: int = 0
+    _boundary_events: List[dict] = field(default_factory=list)
     _current_game_time: float = 0.0
     group_counter: int = 0
     race: str = "terran"
@@ -90,12 +92,10 @@ class TaskManager:
         """Mark the start of one submit-and-advance boundary for Feedback events."""
         self._current_game_time = float(game_time)
         self._boundary_event_id = self.event_counter
+        self._boundary_events.clear()
 
     def events_since_boundary(self) -> List[dict]:
-        return [
-            event for event in self.recent_events
-            if int(event.get("event_id", 0)) > self._boundary_event_id
-        ]
+        return list(self._boundary_events)
 
     def historical_events(self, *, limit: int = 8) -> List[dict]:
         older = [
@@ -114,6 +114,7 @@ class TaskManager:
         self.recent_events.clear()
         self.event_counter = 0
         self._boundary_event_id = 0
+        self._boundary_events.clear()
         self._current_game_time = 0.0
         self.group_counter = 0
 
@@ -126,6 +127,7 @@ class TaskManager:
             "recent_events": deepcopy(self.recent_events),
             "event_counter": self.event_counter,
             "boundary_event_id": self._boundary_event_id,
+            "boundary_events": deepcopy(self._boundary_events),
             "current_game_time": self._current_game_time,
             "group_counter": self.group_counter,
             "race": self.race,
@@ -139,6 +141,10 @@ class TaskManager:
         self.recent_events = deepcopy(state["recent_events"])
         self.event_counter = int(state["event_counter"])
         self._boundary_event_id = int(state["boundary_event_id"])
+        self._boundary_events = deepcopy(state.get("boundary_events", [
+            event for event in self.recent_events
+            if int(event.get("event_id", 0)) > self._boundary_event_id
+        ]))
         self._current_game_time = float(state["current_game_time"])
         self.group_counter = int(state["group_counter"])
         self.race = state["race"]
@@ -164,8 +170,14 @@ class TaskManager:
         idle_army: Dict[str, int] | None = None,
         group_army: Dict[str, Dict[str, int]] | None = None,
         bunker_garrison: Dict[str, int] | None = None,
+        source_pool: Dict[str, int] | None = None,
     ) -> List[ActionReceipt]:
-        """Apply one validated decision batch in array order."""
+        """Apply one validated decision batch in array order.
+
+        source_pool is dispatchable home stock before unpaid morph holds. With
+        that snapshot, cancelling prior work can release exact source counts.
+        Both count dictionaries are updated for a continuing staged preview.
+        """
         if not isinstance(decision, DecisionBatch):
             raise TypeError("submit_decision requires a DecisionBatch")
         self._current_game_time = float(game_time)
@@ -174,26 +186,51 @@ class TaskManager:
         upgrades = known_upgrades or set()
         in_research = researching or set()
         available_army = dict(idle_army or {})
+        pool = dict(source_pool if source_pool is not None else available_army)
+        initial_ids = set(self.demands)
+
+        def reserved_sources():
+            demands = self.active_demands()
+            if source_pool is None:
+                # Without the pre-reservation stock, only sources acquired by
+                # this submission can safely be returned to a legacy caller.
+                demands = [d for d in demands if d.demand_id not in initial_ids]
+            return pending_morph_source_counts(demands, pool, race=self.race)
+
         batch = decision
 
         for action in batch.actions:
-            receipts.append(
-                self._apply_game_action(
-                    action,
-                    game_time=game_time,
-                    baselines=baselines,
-                    upgrades=upgrades,
-                    researching=in_research,
-                    idle_army=available_army,
-                    group_army=group_army or {},
-                    bunker_garrison=bunker_garrison,
-                )
+            releases_sources = action.action == "cancel" and action.target_action == "train"
+            before_reserved = reserved_sources() if releases_sources else {}
+            before_available = dict(available_army) if action.action == "combat" else {}
+            receipt = self._apply_game_action(
+                action,
+                game_time=game_time,
+                baselines=baselines,
+                upgrades=upgrades,
+                researching=in_research,
+                idle_army=available_army,
+                group_army=group_army or {},
+                bunker_garrison=bunker_garrison,
             )
+            receipts.append(receipt)
+            if receipt.result == "accepted" and releases_sources:
+                after_reserved = reserved_sources()
+                for name, count in before_reserved.items():
+                    released = max(0, count - after_reserved.get(name, 0))
+                    available_army[name] = available_army.get(name, 0) + released
+            if receipt.result == "accepted" and action.action == "combat":
+                for name, count in before_available.items():
+                    taken = max(0, count - available_army.get(name, 0))
+                    pool[name] = max(0, pool.get(name, 0) - taken)
         # Preview submits the same turn as two calls. Write the reserved
         # counts back so the next call sees units already taken.
         if idle_army is not None:
             idle_army.clear()
             idle_army.update(available_army)
+        if source_pool is not None:
+            source_pool.clear()
+            source_pool.update(pool)
         return receipts
 
     def _apply_game_action(
@@ -1241,14 +1278,14 @@ class TaskManager:
     def _reserve_morph_sources(self, demand: Demand, idle_army: Dict[str, int]) -> None:
         """A morph accepted earlier in this batch keeps its source units."""
         from sc2bench_env.catalog.registry import get_target
+        from sc2bench_env.catalog.sources import allocate_unit_sources
 
         spec = get_target(demand.target, race=self.race) if demand.target else None
-        source = getattr(spec, "produced_at", "") if spec is not None else ""
-        if not source:
+        if spec is None:
             return
-        each = 2 if demand.mechanism == "merge" else 1
-        need = max(0, int(demand.remaining)) * each
-        idle_army[source] = max(0, int(idle_army.get(source, 0)) - need)
+        reserved = allocate_unit_sources(spec, demand.remaining, idle_army, race=self.race)
+        for name, count in reserved.items():
+            idle_army[name] -= count
 
     def _copy_production_facts(self, demand: Demand) -> None:
         from sc2bench_env.catalog.registry import get_target
@@ -1388,5 +1425,8 @@ class TaskManager:
         payload.setdefault("event_id", self.event_counter)
         payload.setdefault("game_time_seconds", float(self._current_game_time))
         self.recent_events.append(payload)
+        # Feedback must include all changes since the decision boundary even
+        # when the rolling observation history has already evicted them.
+        self._boundary_events.append(payload)
         if len(self.recent_events) > self.event_limit:
             self.recent_events = self.recent_events[-self.event_limit :]

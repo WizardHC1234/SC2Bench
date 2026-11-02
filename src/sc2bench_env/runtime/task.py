@@ -48,6 +48,24 @@ def train_birth_allowance(count: int, batch: int) -> int:
     return ((needed + size - 1) // size) * size
 
 
+def pending_morph_source_counts(demands, available, *, race):
+    """Allocate current stock to unpaid morph outputs in demand order."""
+    from sc2bench_env.catalog.registry import get_target
+    from sc2bench_env.catalog.sources import allocate_unit_sources
+    stock, reserved = dict(available), {}
+    for demand in demands:
+        if demand.action != "train" or demand.mechanism not in {"unit_morph", "merge"}:
+            continue
+        spec = get_target(demand.target, race=race)
+        if spec is None:
+            continue
+        pending = max(0, demand.remaining - int(demand.in_flight or 0))
+        for name, count in allocate_unit_sources(spec, pending, stock, race=race).items():
+            reserved[name] = reserved.get(name, 0) + count
+            stock[name] -= count
+    return reserved
+
+
 @dataclass
 class Demand:
     """One ordered production / research / ability demand."""

@@ -213,6 +213,15 @@ def test_e2e_base_energy_cast(race, action, evidence, monkeypatch) -> None:
         assert_obs_consistent(obs)
         if race == "zerg":
             drive(env, [_wait(3)])
+        else:
+            # Chrono requires observed active production; the platform does
+            # not train a Probe automatically merely to provide a spell target.
+            obs, _, terminated, _ = drive(env, [
+                {"name": "train", "arguments": {"target": "probe", "count": 1}},
+                _wait(1),
+            ])
+            assert not terminated
+            assert obs.training.get("probe", {}).get("in_production", 0) >= 1
         _, feedback, terminated, _ = drive(env, [
             {"name": action, "arguments": {}},
             _wait(6),

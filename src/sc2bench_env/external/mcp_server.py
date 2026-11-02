@@ -111,6 +111,14 @@ class MatchMcpServer:
 class _Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
+    def handle(self) -> None:
+        try:
+            super().handle()
+        except (ConnectionResetError, BrokenPipeError):
+            # A Codex process can close its keep-alive connection after the
+            # final reply. The completed tool call remains completed.
+            self.close_connection = True
+
     def log_message(self, fmt: str, *args: Any) -> None:
         return None
 

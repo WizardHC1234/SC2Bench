@@ -150,6 +150,11 @@ def _spec_payload(spec, *, kind: str, race: str = "terran") -> Dict[str, Any]:
             "produced_at": spec.produced_at,
             "dispatchable": spec.dispatchable,
         })
+        from sc2bench_env.catalog.sources import unit_source_names
+        sources = unit_source_names(spec, race=race)
+        if len(sources) > 1:
+            payload["source_options"] = list(sources)
+            payload["source_count"] = 2 if spec.mechanism == "merge" else 1
     elif kind == "building":
         worker = {"protoss": "probe", "zerg": "drone"}.get(race, "scv")
         payload.update({"builder": spec.produced_at or spec.morph_from or worker, "kind": spec.kind})
@@ -180,8 +185,9 @@ def _lookup(name: str, *, race: str, expected_actions: Sequence[str], kind: str)
         )
         return payload
     payload = attach(payload, race, spec.name)
-    if not spec.executable:
-        payload["availability"] = "knowledge_only"
+    # The executable catalog owns platform support. Observation overlays can
+    # retain historical entries for units later exposed through production.
+    payload["availability"] = "controllable" if spec.executable else "knowledge_only"
     return payload
 
 

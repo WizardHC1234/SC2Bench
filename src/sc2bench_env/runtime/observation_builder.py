@@ -74,6 +74,7 @@ def build_observation(snapshot, task_manager, config, previous=None) -> Observat
         structures=list(snapshot.info.get("structures") or []),
         research=research,
         units=dict(snapshot.units),
+        production=snapshot.info.get("production"),
     )
     return Observation(
         game_time_seconds=snapshot.game_time_seconds,
@@ -136,32 +137,18 @@ def build_observation(snapshot, task_manager, config, previous=None) -> Observat
         terminated=snapshot.terminated,
     )
 
-def morph_source_reservations(task_manager) -> dict[str, int]:
+def morph_source_reservations(task_manager, available) -> dict[str, int]:
     """Source units held by an unfinished unit morph or merge.
 
     In-flight morphs have already left the source count, so only units still
     waiting to start are held back from a new combat order.
     """
-    from sc2bench_env.catalog.registry import get_target
-
-    reserved: dict[str, int] = {}
-    race = getattr(task_manager, "race", None)
-    for demand in task_manager.active_demands():
-        if demand.action != "train" or demand.mechanism not in {"unit_morph", "merge"}:
-            continue
-        spec = get_target(demand.target, race=race) if demand.target else None
-        source = getattr(spec, "produced_at", "") if spec is not None else ""
-        if not source:
-            continue
-        pending = max(0, int(demand.remaining) - int(demand.in_flight or 0))
-        each = 2 if demand.mechanism == "merge" else 1
-        if pending <= 0:
-            continue
-        reserved[source] = reserved.get(source, 0) + pending * each
-    return reserved
+    from sc2bench_env.runtime.task import pending_morph_source_counts
+    return pending_morph_source_counts(task_manager.active_demands(), available,
+                                      race=getattr(task_manager, "race", None))
 
 
-def assigned_army_counts(snapshot, task_manager, *, combat=None) -> dict[str, int]:
+def assigned_army_counts(snapshot, task_manager, *, combat=None, include_morph_reservations=True) -> dict[str, int]:
     bound: dict[str, int] = {}
     if combat is not None:
         for label, row in combat.items():
@@ -179,10 +166,15 @@ def assigned_army_counts(snapshot, task_manager, *, combat=None) -> dict[str, in
             units = alive if isinstance(alive, dict) else (demand.units or {})
             for name, count in units.items():
                 bound[str(name)] = bound.get(str(name), 0) + int(count)
-    for name, count in morph_source_reservations(task_manager).items():
-        bound[str(name)] = bound.get(str(name), 0) + int(count)
     for name, count in dict(snapshot.info.get("unavailable_army") or {}).items():
+        if not include_morph_reservations:
+            count = max(0, int(count) - int((snapshot.info.get("releasable_morph_sources") or {}).get(name, 0)))
         bound[str(name)] = max(bound.get(str(name), 0), int(count))
+    available = {name: max(0, int(count) - bound.get(name, 0))
+                 for name, count in snapshot.units.items()}
+    if include_morph_reservations:
+        for name, count in morph_source_reservations(task_manager, available).items():
+            bound[name] = bound.get(name, 0) + count
     return bound
 
 def own_forces_view(snapshot, task_manager, *, combat=None):
@@ -193,11 +185,12 @@ def own_forces_view(snapshot, task_manager, *, combat=None):
         race=getattr(task_manager, "race", None),
     )
 
-def idle_army_counts(snapshot, task_manager, *, combat=None) -> dict[str, int]:
+def idle_army_counts(snapshot, task_manager, *, combat=None, include_morph_reservations=True) -> dict[str, int]:
     army = dict(split_own_forces(
         snapshot.units, race=getattr(task_manager, "race", None),
     ).army)
-    bound = assigned_army_counts(snapshot, task_manager, combat=combat)
+    bound = assigned_army_counts(snapshot, task_manager, combat=combat,
+                                include_morph_reservations=include_morph_reservations)
     return {
         name: max(0, int(army.get(name, 0)) - int(bound.get(name, 0)))
         for name in set(army) | set(bound)
@@ -494,6 +487,7 @@ def available_targets(
     structures: Optional[Sequence[Mapping[str, Any]]] = None,
     research: Optional[Mapping[str, Any]] = None,
     units: Optional[Mapping[str, Any]] = None,
+    production: Optional[Sequence[Mapping[str, Any]]] = None,
 ) -> Dict[str, List[str]]:
     """Tech and producer availability. Finished or running research is omitted.
 
@@ -517,6 +511,7 @@ def available_targets(
                 running.add(str(name))
 
     from sc2bench_env.catalog.prerequisites import prerequisite_keys
+    from sc2bench_env.catalog.sources import unit_source_names
 
     def ready(name: str, *, exact: bool = False) -> bool:
         keys = (name,) if exact else prerequisite_keys(name, race=race)
@@ -531,6 +526,18 @@ def available_targets(
     def prereqs_met(spec) -> bool:
         return all(ready(req) for req in spec.prerequisites)
 
+    def producer_ready(spec) -> bool:
+        if spec.mechanism in {"unit_morph", "merge"}:
+            return any(ready(name) for name in unit_source_names(spec, race=race))
+        if spec.mechanism == "larva":
+            # Surviving larva can hatch after the last town hall dies. A live
+            # town hall also supports requests waiting for its next larva.
+            return ready(spec.produced_at) or any(
+                isinstance(row, Mapping) and row.get("facility") == "larva"
+                and type(row.get("ready_grounded")) is int and row["ready_grounded"] > 0
+                for row in production or ())
+        return ready(spec.produced_at)
+
     grouped: Dict[str, List[str]] = {"build": [], "train": [], "research": [], "morph_townhall": []}
     for spec in catalog.targets:
         if spec.action not in grouped or not spec.executable:
@@ -540,7 +547,7 @@ def available_targets(
             continue
         if spec.action == "build" and prereqs_met(spec):
             grouped["build"].append(spec.name)
-        elif spec.action == "train" and ready(spec.produced_at) and prereqs_met(spec):
+        elif spec.action == "train" and prereqs_met(spec) and producer_ready(spec):
             grouped["train"].append(spec.name)
         elif (
             spec.action == "research"
@@ -741,6 +748,7 @@ def compact_observation(
                 structures=observation.get("structures"),
                 research=observation.get("research") if isinstance(observation.get("research"), Mapping) else None,
                 units=_observation_units(observation),
+                production=observation.get("production"),
             )
         except ValueError:
             payload["available_targets"] = {}

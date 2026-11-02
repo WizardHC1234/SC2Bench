@@ -675,14 +675,24 @@ class FakeBackend(Backend):
         spec = get_target(item.target, race=self._race)
         return spec is None or spec.mechanism != "structure_morph"
 
-    def _morph_source(self, item: _WorkItem) -> Optional[tuple[str, int]]:
+    def _morph_source(self, item: _WorkItem) -> Optional[Dict[str, int]]:
         if item.action != "train":
             return None
         spec = get_target(item.target, race=self._race)
         if spec is None or spec.mechanism not in {"unit_morph", "merge"}:
             return None
-        each = 2 if spec.mechanism == "merge" else 1
-        return spec.produced_at, each
+        from sc2bench_env.catalog.sources import allocate_unit_sources
+        return allocate_unit_sources(spec, 1, self._free_morph_units(), race=self._race)
+
+    def _free_morph_units(self) -> Dict[str, int]:
+        self._refresh_combat_alive()
+        available = dict(self.units)
+        for group in self._queue:
+            if group.action != "combat" or group.phase != "combat" or group.demand_id not in self._active_ids:
+                continue
+            for name, count in (group.alive_units or {}).items():
+                available[name] = max(0, int(available.get(name, 0)) - int(count))
+        return available
 
     def _take_units(self, name: str, count: int) -> None:
         left = int(self.units.get(name, 0)) - int(count)
@@ -784,8 +794,15 @@ class FakeBackend(Backend):
             )
             return f"prerequisite:{missing}"
         morph = self._morph_source(item)
-        if morph is not None and int(self.units.get(morph[0], 0)) < morph[1]:
-            return f"source_unit_unavailable:{morph[0]}"
+        if morph is not None:
+            spec = get_target(item.target, race=self._race)
+            required = 2 if spec.mechanism == "merge" else 1
+            if sum(morph.values()) < required:
+                from sc2bench_env.catalog.sources import allocate_unit_sources
+                if sum(allocate_unit_sources(spec, 1, self.units, race=self._race).values()) >= required:
+                    return "source_unit_reserved"
+                source = "templar" if item.target == "archon" else spec.produced_at
+                return f"source_unit_unavailable:{source}"
         if self._consumes_worker(item) and int(self.units.get(self._worker_name, 0)) <= 0:
             return f"prerequisite:{self._worker_name}"
         if item.action == "build" and item.target == "orbital_command":
@@ -846,8 +863,11 @@ class FakeBackend(Backend):
                 indices = range(max(0, int(self.buildings.get(producer, 0))))
             return [(f"research:{producer}", index, 0) for index in indices]
         if item.action == "train" and spec.mechanism in {"unit_morph", "merge"}:
+            from sc2bench_env.catalog.sources import unit_source_names
             each = 2 if spec.mechanism == "merge" else 1
-            slots = int(self.units.get(producer, 0)) // each
+            available = self._free_morph_units()
+            slots = sum(int(available.get(name, 0))
+                        for name in unit_source_names(spec, race=self._race)) // each
             return [(f"morph:{producer}", index, 0) for index in range(max(0, slots))]
         if producer in {"command_center", "hatchery"}:
             return [(f"train:{producer}", index, 0) for index in range(self._townhalls())]
@@ -1000,7 +1020,8 @@ class FakeBackend(Backend):
                 budget_supply -= need_s
                 morph = self._morph_source(item)
                 if morph is not None:
-                    self._take_units(morph[0], morph[1])
+                    for name, count in morph.items():
+                        self._take_units(name, count)
 
             if item.action == "build":
                 if self._consumes_worker(item):

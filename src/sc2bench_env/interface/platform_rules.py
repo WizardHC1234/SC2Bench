@@ -1,5 +1,8 @@
 """Model-facing contract text; each rule has one presentation owner."""
 
+GAME_BACKGROUND = """StarCraft II is a real-time strategy game. As game time advances, both sides can gather resources, expand, produce units, research upgrades and move their armies. Enemy activity continues outside your vision.
+"""
+
 ROLE_RULES = """Your objective is to destroy enemy structures before the time limit. Fog may hide surviving enemies, including flying structures, so an empty visible-enemy list is not proof of victory. If play continues with no enemy structures visible, use last-seen information, scouting or scans to search unconfirmed areas. Only Observation.terminated/result establishes the outcome, and reaching the time limit results in a Tie.
 """
 

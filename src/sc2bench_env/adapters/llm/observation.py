@@ -14,7 +14,7 @@ def platform_messages(
     prompt: str, observation: Dict[str, Any], feedback: Optional[Dict[str, Any]] = None,
     previous: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, str]]:
-    # Structured Observation keeps complete event history for records. The
+    # Structured Observation carries a bounded event history. The
     # turn text presents only meaningful events produced by the last advance:
     # execution changes belong in Changes, while receipts own submission state.
     # Advance / staging rules live in the Platform Prompt, not every OBS turn.

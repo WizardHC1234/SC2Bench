@@ -50,7 +50,13 @@ def remove_agent_workspace(work_dir: str, record_dir: Optional[str | Path]) -> N
     def _make_writable(function, target, _error) -> None:
         os.chmod(target, stat.S_IWRITE)
         function(target)
-    shutil.rmtree(path, onerror=_make_writable)
+    # Codex's plugin cache can exceed MAX_PATH even though the episode root
+    # does not. Keep validation on normal resolved paths, then use Win32's
+    # extended-length form only for the already-validated removal target.
+    target = str(path)
+    if os.name == "nt" and not target.startswith("\\\\?\\"):
+        target = "\\\\?\\UNC\\" + target[2:] if target.startswith("\\\\") else "\\\\?\\" + target
+    shutil.rmtree(target, onerror=_make_writable)
 
 
 def default_paths() -> dict[str, str]:

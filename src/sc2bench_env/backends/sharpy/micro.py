@@ -346,15 +346,37 @@ class MissionMicroRules(MicroRules):
         if not builders:
             self._builder_yields.clear()
             return None
+        ground = {other.tag: other for other in
+                  [*getattr(ai, 'units', ()), *getattr(ai, 'structures', ())]
+                  if not getattr(other, 'is_flying', False)}
+        for tag, (actor, _) in list(self._builder_yields.items()):
+            if actor not in builders or tag not in ground:
+                self._builder_yields.pop(tag, None)
         held = self._builder_yields.get(unit.tag)
         if held is not None:
             worker = builders.get(held[0])
-            if worker is not None and unit.distance_to(worker[0]) < 3:
-                return held[1]
+            if worker is not None:
+                actor, goal = worker
+                if actor.type_id == UnitTypeId.QUEEN:
+                    dx, dy = goal.x-actor.position.x, goal.y-actor.position.y
+                    length = (dx*dx+dy*dy)**.5
+                    radius = float(getattr(unit, 'radius', .5)) + float(getattr(actor, 'radius', .875))
+                    # Clear the next rows before the caster reaches them, then
+                    # keep them aside until she has passed, rather than letting
+                    # them return to the rally point while she is approaching.
+                    if length >= 3 and (-radius-.5 < (
+                            dx*(unit.position.x-actor.position.x)
+                            + dy*(unit.position.y-actor.position.y))/length < 8+radius):
+                        return held[1]
+                elif unit.distance_to(actor) < 3:
+                    return held[1]
             self._builder_yields.pop(unit.tag, None)
         for worker, goal in builders.values():
+            if worker.tag == unit.tag:
+                continue
             radius = float(getattr(unit, 'radius', .5)) + float(getattr(worker, 'radius', .375))
-            if unit.distance_to(worker) > radius + 1:
+            queen = worker.type_id == UnitTypeId.QUEEN
+            if not queen and unit.distance_to(worker) > radius + 1:
                 continue
             dx, dy = goal.x-worker.position.x, goal.y-worker.position.y
             length = (dx*dx+dy*dy)**.5
@@ -363,16 +385,26 @@ class MissionMicroRules(MicroRules):
             dx, dy = dx/length, dy/length
             ux, uy = unit.position.x-worker.position.x, unit.position.y-worker.position.y
             lateral = -dy*ux+dx*uy
-            if not (-.5 < dx*ux+dy*uy < radius+1) or abs(lateral) > radius+.2:
+            ahead = dx*ux+dy*uy
+            limit = min(length, 8) if queen else radius+1
+            if not (-.5 < ahead < limit) or abs(lateral) > radius+.2:
                 continue
             side = 1 if lateral >= 0 else -1
             for direction in (side, -side):
-                for distance in (1.5, 2.5, 3.5, 4.5):
+                for distance in ((1.5, 2.5, 3.5, 4.5, 5.5, 6.5) if queen else (1.5, 2.5, 3.5, 4.5)):
+                    if queen and direction*lateral+distance < radius+.3:
+                        continue
                     point = unit.position.offset((-dy*direction*distance, dx*direction*distance))
                     pathable = getattr(ai, 'in_pathing_grid', None)
-                    occupied = any(other.tag != unit.tag and not getattr(other, 'is_flying', False)
+                    occupied = any(other.tag != unit.tag
                         and other.position.distance_to(point) < float(getattr(other, 'radius', .5)) + float(getattr(unit, 'radius', .5)) + .1
-                        for other in getattr(ai, 'units', ()))
+                        for other in ground.values())
+                    # Multiple defenders can be processed against the same
+                    # frozen positions. Their destinations must stay distinct.
+                    occupied = occupied or any(tag != unit.tag and point.distance_to(destination)
+                        < float(getattr(unit, 'radius', .5)) + float(getattr(other, 'radius', .5)) + .1
+                        for tag, (_, destination) in self._builder_yields.items()
+                        for other in [ground[tag]])
                     if self.boundary(point) and (not callable(pathable) or pathable(point)) and not occupied:
                         self._builder_yields[unit.tag] = (worker.tag, point)
                         return point

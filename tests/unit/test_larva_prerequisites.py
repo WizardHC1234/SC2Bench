@@ -25,3 +25,24 @@ def test_queen_still_requires_a_townhall_to_train():
     task={'action':'train','target':'queen'}
     assert macro._prereq_blocked(task)
     assert task['_waiting_for']=='prerequisite:hatchery'
+
+
+def test_observed_larva_keeps_hatching_options_after_all_townhalls_are_lost():
+    from sc2bench_env.backends.base import BackendSnapshot
+    from sc2bench_env.interface.config import EpisodeConfig
+    from sc2bench_env.runtime.observation_builder import build_observation
+    from sc2bench_env.runtime.task_manager import TaskManager
+    snapshot = BackendSnapshot(units={"drone": 2}, buildings={"spawning_pool": 1}, info={
+        "production": [{"facility": "larva", "ready_grounded": 1, "capacity": 1,
+                        "occupied_slots": 0, "free_slots": 1}],
+    })
+    obs = build_observation(snapshot, TaskManager(race="zerg"), EpisodeConfig(race="zerg"))
+    assert {"drone", "overlord", "zergling"} <= set(obs.available_targets["train"])
+    assert "queen" not in obs.available_targets["train"]
+    assert "roach" not in obs.available_targets["train"]
+
+
+def test_no_base_and_no_larva_does_not_advertise_hatching():
+    from sc2bench_env.runtime.observation_builder import available_targets
+    result = available_targets(race="zerg", production=[{"facility": "larva", "ready_grounded": 0}])
+    assert not {"drone", "overlord", "zergling", "queen"}.intersection(result["train"])

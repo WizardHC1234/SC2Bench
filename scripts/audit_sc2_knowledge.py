@@ -14,7 +14,7 @@ from sc2bench_env.catalog.knowledge import (  # noqa: E402
 )
 from sc2bench_env.catalog.registry import get_catalog, get_target  # noqa: E402
 from sc2bench_env.runtime.query_tools import catalog_roles as _roles, names_for  # noqa: E402
-from sc2bench_env.runtime.query_tools import query_unit_data  # noqa: E402
+from sc2bench_env.runtime.query_tools import query_unit_data, query_building_data  # noqa: E402
 
 
 def _allowlist() -> set[str]:
@@ -48,6 +48,11 @@ def collect_issues() -> list[str]:
                     issues.append(f"missing_prerequisite:{race}:{spec.name}:{req}")
             if spec.action == "research":
                 continue
+            query = query_unit_data if spec.action == "train" else query_building_data
+            availability = query([spec.name], race=race)["results"][0].get("availability")
+            expected = "controllable" if spec.executable else "knowledge_only"
+            if availability != expected:
+                issues.append(f"catalog_capability_mismatch:{race}:{spec.name}")
             native = primary_unit(race, spec.name)
             aliases = (_aliases().get('units') or {}).get(race) or {}
             supplied = set(spec.prerequisites) | {spec.produced_at, spec.morph_from}

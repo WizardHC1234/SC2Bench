@@ -3,6 +3,7 @@ from __future__ import annotations
 
 
 import math
+from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Literal, Mapping, Optional, Sequence, Tuple
 
@@ -25,7 +26,8 @@ class ToolCall:
     arguments: Dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
-        return {"name": self.name, "arguments": dict(self.arguments)}
+        arguments = dict(self.arguments) if isinstance(self.arguments, Mapping) else self.arguments
+        return {"name": self.name, "arguments": deepcopy(arguments)}
 
     def to_internal_entry(self) -> Dict[str, Any]:
         if "action" in self.arguments:
@@ -270,8 +272,14 @@ def _action_description(name: str, race: str) -> str:
     if name == "train":
         mechanism = {
             "terran": "The platform queues them at compatible producers.",
-            "protoss": "The platform trains, warps in or merges them as required by the target.",
-            "zerg": "The platform trains, hatches or morphs them as required by the target.",
+            "protoss": (
+                "The platform trains, warps in or merges them as required by the target. "
+                "Merges use eligible Templars from group_0; outbound units are unavailable."
+            ),
+            "zerg": (
+                "The platform trains, hatches or morphs them as required by the target. "
+                "Army morphs use eligible source units from group_0; outbound units are unavailable."
+            ),
         }[race]
         blockers = {
             "terran": "resources, supply, prerequisites or production capacity",

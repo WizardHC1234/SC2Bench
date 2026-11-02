@@ -110,7 +110,11 @@ def _render_catalog_results(result: Mapping[str, Any], *, kind: str) -> str:
                 f"alive {_display_value(row.get('client_food_required'))}; "
                 f"Supply provided when complete: {_display_supply_provided(row.get('food_provided'))}"
             )
-            lines.append(f"  Produced at: {_display_value(row.get('produced_at'))}")
+            if row.get("source_options"):
+                lines.append(f"  Merge sources: {_display_value(row.get('source_count'))} total from "
+                             f"{_display_list(row['source_options'])}; mixed pairs allowed")
+            else:
+                lines.append(f"  Produced at: {_display_value(row.get('produced_at'))}")
         elif kind == "building":
             lines.append(
                 f"  Builder: {_display_value(row.get('builder'))}; "

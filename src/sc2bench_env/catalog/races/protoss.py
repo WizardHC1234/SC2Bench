@@ -55,7 +55,8 @@ def _unit(
         vespene=vespene,
         supply=supply,
         base_time_seconds=seconds,
-        prerequisites=tuple(dict.fromkeys((producer, *prerequisites))),
+        prerequisites=(tuple(prerequisites) if name == "archon"
+                       else tuple(dict.fromkeys((producer, *prerequisites)))),
         semantics="append",
         success_boundary="units_produced",
         produced_at=producer,

@@ -50,6 +50,9 @@ def test_existing_larva_can_hatch_a_drone_after_townhall_loss(monkeypatch):
             if state['phase']==3:break
         Path('analysis/platform_audit/larva_no_base_native.json').write_text(json.dumps(state,indent=2),encoding='utf8')
         assert state['phase']==3 and state['larvae'] and state['drone_offered'],state
+        state['advertised_train'] = list(obs.available_targets['train'])
+        assert {'drone', 'overlord', 'zergling'} <= set(state['advertised_train']), state
+        assert 'queen' not in state['advertised_train'], state
         drive(env,[{'name':'train','arguments':{'target':'drone','count':1}},
                    {'name':'advance','arguments':{'seconds':15}}])
         snapshot=env.backend.snapshot()

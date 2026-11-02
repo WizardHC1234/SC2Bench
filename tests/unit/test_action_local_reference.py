@@ -11,7 +11,7 @@ from sc2bench_env.catalog.registry import (
     render_system_prompt, targets_for_action,
 )
 from sc2bench_env.interface.decision_rules import decision_json_schema
-from sc2bench_env.interface.platform_rules import ACTION_RULES, GAME_RULES
+from sc2bench_env.interface.platform_rules import ACTION_RULES, GAME_BACKGROUND, GAME_RULES
 from sc2bench_env.interface.prompt_fields import COMMAND_TEMPLATES
 from sc2bench_env.recording.reader import read_episode
 
@@ -38,7 +38,7 @@ def test_target_reference_and_action_semantics_stay_out_of_the_system_prompt(ver
 
 def test_game_basics_contains_rules_and_background_not_another_catalog():
     prompt, execution, basics = chapters()
-    assert basics == GAME_RULES.rstrip()
+    assert basics == GAME_BACKGROUND.strip() + "\n\n" + GAME_RULES.rstrip()
     assert "Action Catalog" not in prompt
     assert "Target tables (terran):" not in execution
     assert "cost minerals/vespene" not in basics

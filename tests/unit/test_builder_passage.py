@@ -1,5 +1,7 @@
 """Resting ground defenders make local space for a builder, without overriding combat."""
 from types import SimpleNamespace as NS
+import json
+from pathlib import Path
 import pytest
 from sc2.position import Point2
 from sc2.ids.unit_typeid import UnitTypeId as U
@@ -57,5 +59,61 @@ def test_explicit_inject_queen_gets_a_clear_local_passage_and_releases_it_after_
     assert alternative is not None and alternative.distance_to(blocker.position)>=1.1
     act._pending_cast=None
     assert r._builder_passage(unit) is None
+
+
+def test_recorded_queen_crowd_clears_multiple_rows_without_colliding_destinations():
+    fixture = json.loads((Path(__file__).parents[1] / 'fixtures' / 'inject_round_110_crowd.json').read_text())
+    r = rules()
+    r.boundary = lambda _: True
+    r.ai.workers = []
+    r.ai.in_pathing_grid = lambda _: True
+    units = [UnitStub(row['tag'], getattr(U, row['type']), position=row['position'],
+                      radius=row['radius'], orders=[]) for row in fixture['nearby_ground']]
+    r.ai.units = units
+    queen = next(u for u in units if u.tag == fixture['caster'])
+    goal = Point2(fixture['target'])
+    act = NS(_pending_cast={'caster': queen.tag, 'point': goal})
+    r.ai._macro_tasks = [{'action': 'inject_larva', '_act': act}]
+    dx, dy = goal.x - queen.position.x, goal.y - queen.position.y
+    length = (dx * dx + dy * dy) ** .5
+    dx, dy = dx / length, dy / length
+    cleared = []
+    for unit in units:
+        if unit.type_id not in {U.ROACH, U.HYDRALISK, U.ZERGLING}:
+            continue
+        ux, uy = unit.position.x - queen.position.x, unit.position.y - queen.position.y
+        ahead, lateral = dx * ux + dy * uy, -dy * ux + dx * uy
+        if not (0 < ahead < 6 and abs(lateral) < queen.radius + unit.radius + .2):
+            continue
+        point = r._builder_passage(unit)
+        assert point is not None, (unit.type_id, unit.position, ahead)
+        px, py = point.x - queen.position.x, point.y - queen.position.y
+        assert abs(-dy * px + dx * py) >= queen.radius + unit.radius + .2
+        assert all(point.distance_to(other.position) >= unit.radius + other.radius + .1
+                   for other in units if other.tag != unit.tag)
+        assert all(point.distance_to(other_point) >= unit.radius + other.radius + .1
+                   for other, other_point in cleared)
+        cleared.append((unit, point))
+    assert any(unit.distance_to(queen) > 4 for unit, _ in cleared)
+    # A row clears before the Queen reaches it, and stays clear until she passes.
+    far, point = next((u, p) for u, p in cleared if u.distance_to(queen) > 4)
+    far.position = point
+    assert r._builder_passage(far) == point
+    act._pending_cast = None
+    assert r._builder_passage(far) is None
+
+
+def test_queen_passage_does_not_move_distant_rows_or_defenders_behind_her():
+    r, unit, queen = scene(U.ROACH)
+    r.boundary = lambda _: True
+    queen.type_id = U.QUEEN
+    queen.radius = .875
+    r.ai.workers = []
+    r.ai.units = [unit, queen]
+    r.ai._macro_tasks = [{'action': 'inject_larva', '_act': NS(
+        _pending_cast={'caster': queen.tag, 'point': Point2((30, 10))})}]
+    for position in [(20, 10), (7, 10), (13, 14)]:
+        unit.position = Point2(position)
+        assert r._builder_passage(unit) is None
     r.ai._macro_tasks=[]
     assert r._builder_passage(unit) is None

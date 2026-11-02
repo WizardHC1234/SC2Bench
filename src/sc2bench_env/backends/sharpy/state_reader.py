@@ -284,6 +284,7 @@ def read_snapshot(
     ready_unit_tags: Dict[str, List[int]] = {}
     building_entity_tags: Dict[str, List[int]] = {}
     unavailable_army: Dict[str, int] = {}
+    releasable_morph_sources: Dict[str, int] = {}
     townhall_targets = getattr(adapter, "townhall_targets", None)
     warpgate_completed = 0
     warpgate_under_construction = 0
@@ -336,10 +337,14 @@ def read_snapshot(
             excluded_fn = getattr(adapter, "home_gather_excluded", None)
             excluded = set(excluded_fn()) if callable(excluded_fn) else set()
             in_home_pool = pool_tags is None or unit.tag in pool_tags or name in excluded
-            if (not in_home_pool
-                    or int(unit.tag) in morph_tags
-                    or not available_for_mission(unit, getattr(ai, "roles", None), getattr(ai, "bench_combat_tags", set()))):
+            mission_available = in_home_pool and available_for_mission(
+                unit, getattr(ai, "roles", None), getattr(ai, "bench_combat_tags", set()))
+            if not mission_available or int(unit.tag) in morph_tags:
                 _bump(unavailable_army, name)
+            if mission_available and int(unit.tag) in morph_tags:
+                orders = getattr(unit, "orders", ()) or ()
+                if not any("MORPH" in str(getattr(getattr(o.ability, "id", None), "name", "")) for o in orders):
+                    _bump(releasable_morph_sources, name)
 
         # Detect workers that already accepted a build command but the structure
         # entity may not exist yet.
@@ -525,6 +530,7 @@ def read_snapshot(
             "ready_unit_tags": ready_unit_tags,
             "building_entity_tags": building_entity_tags,
             "unavailable_army": unavailable_army,
+            **({"releasable_morph_sources": releasable_morph_sources} if releasable_morph_sources else {}),
             "bunker_garrison": bunker_garrison,
             "group0_engaged": bool(getattr(ai, "bench_group0_engaged", False)),
             "group0_zone_id": group0_zone_id,
