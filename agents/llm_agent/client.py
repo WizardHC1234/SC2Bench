@@ -8,6 +8,7 @@ import ssl
 import time
 from email.utils import parsedate_to_datetime
 from http.client import HTTPException
+from socket import timeout as SocketTimeout
 from typing import Any, Callable, Mapping, Optional
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
@@ -165,7 +166,8 @@ def make_llm_call(
             return {
                 "content": "", "raw_content": "", "model": model,
                 "thinking_requested": thinking, "actual_messages": messages,
-                "error": type(exc).__name__, "http_status": status,
+                "error": "TimeoutError" if isinstance(exc, (TimeoutError, SocketTimeout)) else type(exc).__name__,
+                "http_status": status,
                 "retryable": retryable,
                 "retry_after_seconds": (
                     _retry_after_seconds(exc) if isinstance(exc, HTTPError) else None

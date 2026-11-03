@@ -287,10 +287,14 @@ class MissionMicroRules(MicroRules):
             return NoAction()
         if self.boundary is None or self.return_point is None:
             return command
-        # Combat chooses attacks, approach, kiting, support and abilities.
-        # A station leash must not replace these with a rally/hold command.
-        if visible_combat_enemies(getattr(self, "ai", None), unit, group_units,
-                                  unit_values=getattr(self,"unit_values",None)):
+        # Local combat can cross the station edge. Sight alone must not keep
+        # pulling a defending group after a fleeing enemy across the map.
+        enemies = visible_combat_enemies(getattr(self, "ai", None), unit, group_units,
+                                        unit_values=getattr(self,"unit_values",None))
+        if enemies and (
+                not self.hold_position or self.boundary(unit.position)
+                or any(self.boundary(enemy.position) for enemy in enemies)
+                or self._weapon_contact(unit, enemies)):
             return command
         if self.hold_position and not getattr(unit, 'is_flying', False):
             yield_point = self._builder_passage(unit)
@@ -317,8 +321,7 @@ class MissionMicroRules(MicroRules):
                         return command
                 except (AttributeError,TypeError,ValueError):
                     pass
-            if isinstance(command,NoAction) and (
-                    self.boundary(unit.position) or self._local_enemy_present(unit)):
+            if isinstance(command,NoAction) and self.boundary(unit.position):
                 if (not self.compact_station or getattr(unit, 'is_flying', False)
                         or (self.at_station(unit, group_units=group_units) and self._stationary(unit))):
                     return command
@@ -335,6 +338,23 @@ class MissionMicroRules(MicroRules):
                 return Action(None,False,AbilityId.HOLDPOSITION_HOLD)
             return Action(self.return_point, False)
         return command
+
+    def _weapon_contact(self, unit, enemies):
+        """Keep firing and evasive micro when either side can already shoot."""
+        from sc2bench_env.backends.sharpy.weapon_facts import has_active_weapon
+
+        values = getattr(self, "unit_values", None)
+        for enemy in enemies:
+            for attacker, target in ((unit, enemy), (enemy, unit)):
+                if not has_active_weapon(attacker):
+                    continue
+                if values is not None:
+                    reach = float(values.real_range(attacker, target))
+                    if reach > 0 and attacker.distance_to(target) <= reach:
+                        return True
+                elif callable(getattr(attacker, "target_in_range", None)) and attacker.target_in_range(target):
+                    return True
+        return False
 
     def _builder_passage(self, unit):
         """Let a builder or an explicitly casting Queen pass resting defenders."""

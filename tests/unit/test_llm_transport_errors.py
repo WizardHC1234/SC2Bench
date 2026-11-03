@@ -82,6 +82,24 @@ def test_invalid_api_response_json_is_classified_and_retried(monkeypatch, capsys
         env.close()
 
 
+def test_python39_socket_timeout_keeps_a_recognizable_error_type(monkeypatch, capsys):
+    legacy_timeout = type("timeout", (OSError,), {})
+    monkeypatch.setattr(llm, "SocketTimeout", legacy_timeout)
+    monkeypatch.setattr(llm, "urlopen", MagicMock(side_effect=legacy_timeout("private-test-secret")))
+    env = Environment("fake", record_trajectory=False)
+    try:
+        observation = env.reset()
+        client = example.make_llm_call(api_key="private-test-secret", base_url="http://example.invalid/v1")
+        agent = example.create_agent(client, verbose=False, max_api_attempts=1)
+        turn = agent(AgentInput(observation, None, tuple(env.tool_specs()), lambda _call: None))
+        assert turn.stop_after_call_failures
+        assert turn.call_failures[0]["api_error_type"] == "TimeoutError"
+        assert turn.call_failures[0]["api_retryable"] is True
+        assert "private-test-secret" not in capsys.readouterr().out
+    finally:
+        env.close()
+
+
 def test_unreviewed_error_name_is_not_printed_or_recorded(capsys):
     env = Environment("fake", record_trajectory=False)
     try:

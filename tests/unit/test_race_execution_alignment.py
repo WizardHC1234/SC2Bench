@@ -115,6 +115,19 @@ def test_versioned_targets_follow_the_bound_snapshot():
         assert not snapshot_has_ability("MorphBuildingGatewayWarpGateFree")
         assert snapshot_has_ability("ArchonWarp")
         assert snapshot_has_ability("MorphToTransportOverlord")
+        from sc2bench_env.runtime.observation_builder import available_targets
+        from sc2bench_env.interface.actions import parse_game_action
+        from sc2bench_env.catalog.registry import get_catalog
+        for race in ("terran", "protoss", "zerg"):
+            buildings = {s.name: {"completed": 1} for s in get_catalog(race=race).targets
+                         if s.action in {"build", "morph_townhall"}}
+            available = available_targets(race=race, building=buildings)
+            for target in available["research"]:
+                parse_game_action({"name": "research", "arguments": {"target": target}}, race=race)
+            if race == "terran":
+                assert "interference_matrix" not in available["research"]
+            if race == "zerg":
+                assert "microbial_shroud" not in available["research"]
 
     overlord = query_unit_data(["overlord"], race="zerg")["results"][0]
     transport = query_unit_data(["transport_overlord"], race="zerg")["results"][0]

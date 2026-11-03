@@ -61,3 +61,12 @@ def test_a_cancelled_native_build_order_releases_the_site_without_a_cache():
 def test_pending_terran_production_keeps_its_addon_footprint_clear(source):
     act,_=setup(U.ENGINEERINGBAY,A.TERRANBUILD_BARRACKS,source)
     assert asyncio.run(act.checked_position(Point2((13.5,9.5))))==Point2((6,10))
+
+
+@pytest.mark.parametrize("flying", [False, True])
+def test_existing_terran_producer_keeps_its_future_addon_space_clear(flying):
+    act, point = setup(U.ENGINEERINGBAY, A.TERRANBUILD_ENGINEERINGBAY, "none")
+    act.ai.structures = [NS(type_id=U.FACTORY, position=point, is_flying=flying)]
+    candidate = point.offset((3.5, -.5))
+    result = asyncio.run(act.checked_position(candidate))
+    assert result == (candidate if flying else Point2((6, 10)))

@@ -98,6 +98,22 @@ def test_grid_recovery_can_use_a_further_slot_in_the_same_base_zone():
     assert act.ai.can_place.call_args.args[1]==[valid]
 
 
+@pytest.mark.parametrize("kind", [U.BARRACKS, U.FACTORY, U.STARPORT])
+def test_terran_default_and_cached_slots_require_a_legal_addon_pad(kind):
+    act = GridBuilding(kind, 1)
+    bad, good = Point2((10.5, 10.5)), Point2((15.5, 10.5))
+    blocked_pad = bad.offset((2.5, -.5))
+    act.ai = NS(time=0, _game_data=NS(units={kind.value: NS(footprint_radius=1.5)}),
+                structures=[], actions=[], workers=[],
+                can_place=AsyncMock(side_effect=lambda unit_type, positions:
+                    [point != blocked_pad if unit_type == U.SUPPLYDEPOT else True for point in positions]),
+                find_placement=AsyncMock(return_value=None))
+    act.building_solver = NS(buildings3x3=[bad, good])
+    act.clear_worker = MagicMock()
+    assert asyncio.run(act.checked_position(bad)) == good
+    act.ai.find_placement.assert_not_awaited()
+
+
 @pytest.mark.parametrize("race,kind,ability", [
     (Race.Terran,U.COMMANDCENTER,A.TERRANBUILD_COMMANDCENTER),
     (Race.Protoss,U.NEXUS,A.PROTOSSBUILD_NEXUS),

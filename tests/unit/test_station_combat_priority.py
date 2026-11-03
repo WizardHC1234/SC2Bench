@@ -118,6 +118,31 @@ def test_station_resumes_when_visible_contact_is_gone():
     assert r.guard_action(unit,command).ability==A.HOLDPOSITION_HOLD
 
 
+@pytest.mark.parametrize("kind", [U.MARINE, U.STALKER, U.ROACH])
+@pytest.mark.parametrize("keep_order", [False, True])
+def test_defend_does_not_follow_a_visible_fleeing_enemy_far_from_the_objective(kind, keep_order):
+    r = rules()
+    r.boundary = lambda p: p.distance_to(r.return_point) <= 18
+    unit = UnitStub(1, kind, position=(60, 10), sight_range=11)
+    enemy = UnitStub(2, U.MARINE, position=(70, 10))
+    r.ai.all_enemy_units = [enemy]
+    chase = NoAction() if keep_order else Action(enemy, True)
+    command = r.guard_action(unit, chase)
+    assert not command.is_attack
+    assert command.position == r.return_point
+
+
+def test_defender_outside_its_zone_keeps_kiting_when_enemy_can_shoot_it():
+    r = rules()
+    r.boundary = lambda p: p.distance_to(r.return_point) <= 18
+    unit = UnitStub(1, U.MARINE, position=(60, 10), sight_range=11)
+    enemy = UnitStub(2, U.MARAUDER, position=(66, 10))
+    r.ai.all_enemy_units = [enemy]
+    r.unit_values = NS(real_range=lambda attacker, target: 7 if attacker is enemy else 5)
+    kite = Action(Point2((57, 10)), False)
+    assert r.guard_action(unit, kite) is kite
+
+
 def test_sieged_tank_keeps_firing_with_shared_vision_beyond_its_own_sight():
     r=rules();r.unit_values=NS(real_range=lambda *_:14)
     tank=UnitStub(1,U.SIEGETANKSIEGED,position=(13,10),sight_range=11)

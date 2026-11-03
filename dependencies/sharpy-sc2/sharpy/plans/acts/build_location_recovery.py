@@ -69,6 +69,13 @@ class BuildLocationRecovery:
         ours = [(point, radius)]
         if self.unit_type in production:
             ours.append((point.offset((2.5, -.5)), 1.0))
+        for structure in getattr(self.ai, "structures", ()):
+            if structure.type_id not in production or getattr(structure, "is_flying", False):
+                continue
+            pad = structure.position.offset((2.5, -.5))
+            if any(abs(a.x-pad.x) < ar+1-.001 and abs(a.y-pad.y) < ar+1-.001
+                   for a, ar in ours):
+                return True
         orders = [(getattr(data, 'abilities', {}).get(action.ability.value), action.target)
                   for action in getattr(self.ai, 'actions', ())]
         orders.extend((order.ability, order.target) for worker in getattr(self.ai, 'workers', ())
@@ -88,10 +95,18 @@ class BuildLocationRecovery:
                 return True
         return False
 
+    async def _placeable_positions(self, positions):
+        allowed = await self.ai.can_place(self.unit_type, positions)
+        if self.unit_type in {UnitTypeId.BARRACKS, UnitTypeId.FACTORY, UnitTypeId.STARPORT}:
+            pads = [point.offset((2.5, -.5)) for point in positions]
+            addon_allowed = await self.ai.can_place(UnitTypeId.SUPPLYDEPOT, pads)
+            allowed = [main and addon for main, addon in zip(allowed, addon_allowed)]
+        return allowed
+
     async def checked_position(self, position: Point2, *, max_distance=8) -> Optional[Point2]:
         """Recheck dynamic placement before issuing a build at a cached grid point."""
         self.waiting_reason = None
-        allowed = await self.ai.can_place(self.unit_type, [position])
+        allowed = await self._placeable_positions([position])
         if (allowed and allowed[0] and not self._recently_rejected(position)
                 and not self._pending_build_overlap(position)):
             return position
@@ -113,7 +128,7 @@ class BuildLocationRecovery:
             key=lambda point: point.distance_to_point2(position),
         )
         if candidates:
-            valid = await self.ai.can_place(self.unit_type, candidates)
+            valid = await self._placeable_positions(candidates)
             for point, possible in zip(candidates, valid):
                 if possible:
                     return point

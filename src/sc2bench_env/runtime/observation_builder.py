@@ -512,6 +512,9 @@ def available_targets(
 
     from sc2bench_env.catalog.prerequisites import prerequisite_keys
     from sc2bench_env.catalog.sources import unit_source_names
+    from sc2bench_env.catalog.registry import known_target_names
+
+    supported_research = set(known_target_names("research", race=race))
 
     def ready(name: str, *, exact: bool = False) -> bool:
         keys = (name,) if exact else prerequisite_keys(name, race=race)
@@ -551,6 +554,7 @@ def available_targets(
             grouped["train"].append(spec.name)
         elif (
             spec.action == "research"
+            and spec.name in supported_research
             and spec.name not in finished
             and spec.name not in running
             and ready(spec.produced_at)
