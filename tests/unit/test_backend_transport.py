@@ -73,7 +73,7 @@ def test_far_safe_travel_loads_without_transport_field(style):
 
 @pytest.mark.parametrize('old', ['harass', 'pressure', 'assault', 'contain', 'retreat'])
 def test_old_styles_and_combat_retreat_are_not_public_styles(old):
-    assert COMBAT_STYLES == ('attack', 'defend')
+    assert COMBAT_STYLES == ('attack', 'defend', 'clear')
     batch = [{"name": "dispatch_group", "arguments": {
                  'source': 'group_0', 'order': old,
                  'target': 'zone_1', 'units': {'marine': 1},

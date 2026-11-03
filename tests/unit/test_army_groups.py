@@ -121,8 +121,12 @@ def test_invalid_group_shape_rejects_whole_batch_without_effect(env, command):
 
 def test_schema_matches_create_update_return():
     jsonschema = pytest.importorskip("jsonschema")
-    for command in [dispatch(), {"name": "combat", "arguments": {'group': "group_1", 'style': "attack", 'target': "zone_10"}},
-                    {"name": "retreat", "arguments": {'group': "group_1"}}]:
+    for command in [
+        {"name": "dispatch_group", "arguments": {"source": "group_0", "units": {"marine": 6}, "order": "attack", "target": "zone_15"}},
+        {"name": "attack_group", "arguments": {"group": "group_1", "target": "zone_10"}},
+        {"name": "attack_group", "arguments": {"group": "group_1", "mode": "clear"}},
+        {"name": "retreat_group", "arguments": {"group": "group_1"}},
+    ]:
         jsonschema.validate([command, {"name": "advance", "arguments": {'seconds': 5}}], decision_json_schema())
 
 

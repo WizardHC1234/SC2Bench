@@ -191,6 +191,32 @@ def test_real_runner_does_not_receive_the_legacy_clock_limit(monkeypatch):
     assert run_game.call_args.kwargs["realtime"] is False
 
 
+def test_cleanup_disconnect_does_not_overwrite_confirmed_protocol_victory(monkeypatch):
+    _ensure_runtime_paths()
+    import sc2
+    from sc2.bot_ai import BotAI
+    from sc2.data import Result
+    from sc2bench_env.backends.sharpy import bot as bot_module
+
+    backend = SharpyBackend()
+    backend._config = EpisodeConfig()
+    backend._adapter = MagicMock()
+
+    def finished_then_closed(*args, **kwargs):
+        backend._bridge.note_raw_result(Result.Victory, {1: Result.Victory, 2: Result.Defeat})
+        raise ConnectionResetError("Cannot write to closing transport")
+
+    monkeypatch.setattr(sc2, "run_game", finished_then_closed)
+    monkeypatch.setattr(sc2.maps, "get", MagicMock(return_value=object()))
+    monkeypatch.setattr(bot_module, "BenchBot", MagicMock(return_value=MagicMock(spec=BotAI)))
+    worker = threading.Thread(target=backend._run_game_thread, daemon=True)
+    worker.start()
+    worker.join(5)
+    assert not worker.is_alive() and backend._game_error is None
+    assert backend.snapshot().result == "Result.Victory"
+    assert backend.snapshot().end_reason == "game_ended"
+
+
 def test_realtime_sleep_matches_one_game_second():
     from sc2bench_env.backends.sharpy.bot import realtime_sleep_seconds
     assert realtime_sleep_seconds(22, 0) == pytest.approx(22 / 22.4)

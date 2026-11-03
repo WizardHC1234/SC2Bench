@@ -6,7 +6,7 @@ from typing import Any, Mapping, Optional, Sequence
 
 from sc2bench_env.adapters.llm.tool_results import render_tool_result
 from sc2bench_env.interface.agent import AgentInput
-from sc2bench_env.interface.observation_text import render_feedback_text
+from sc2bench_env.interface.observation_text import render_feedback_text, army_order_text
 from sc2bench_env.interface.observations import render_observation_text
 from sc2bench_env.interface.platform_prompt import (
     PromptParts,
@@ -124,9 +124,9 @@ def _action_result_text(status: str, data: Mapping[str, Any]) -> str:
         for row in combat.get("after", []):
             group = row["group"]
             old = before.get(group)
-            order = f"{row.get('order')} {row.get('target') or 'unknown'}"
+            order = army_order_text(row.get("order"), row.get("target"))
             if old and (old.get("order"), old.get("target")) != (row.get("order"), row.get("target")):
-                order = f"{old.get('order')} {old.get('target') or 'unknown'} -> {order}"
+                order = f"{army_order_text(old.get('order'), old.get('target'))} -> {order}"
             lines.append(f"- {group}: {order}; allocated {_compact_value(row.get('allocated_units') or {})}")
             if row.get("observed_units") != row.get("allocated_units"):
                 lines.append(f"  Observed units at decision: {_compact_value(row.get('observed_units') or {})}")

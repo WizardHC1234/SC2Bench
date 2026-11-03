@@ -980,6 +980,12 @@ class BenchBot(KnowledgeBot):
                 if phase:
                     # Internal fight is a control branch, not observed contact.
                     row["phase"] = "executing" if phase == "fight" else str(phase)
+                if row["style"] == "clear":
+                    search = act.clear_search
+                    row["search"] = search.observation()
+                    row["target"] = search.current.zone_id if search.current else None
+                    if phase == "fight":
+                        row["phase"] = search.phase
                 holding_since = getattr(act, "_holding_since", None)
                 if holding_since is not None:
                     row["holding_since_game_time"] = float(holding_since)

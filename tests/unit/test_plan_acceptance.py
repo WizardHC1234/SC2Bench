@@ -146,7 +146,10 @@ def test_prompt_and_tool_schema_keep_contract_without_per_turn_tutorial():
         "dispatch_group", "attack_group", "defend_group", "advance",
     } <= names
     dispatch = next(spec for spec in tool_specs("terran") if spec.name == "dispatch_group")
-    assert set(dispatch.parameters["required"]) == {"source", "units", "order", "target"}
+    assert set(dispatch.parameters["required"]) == {"source", "units", "order"}
+    forms = dispatch.parameters["oneOf"]
+    assert {"source", "units", "order", "target"} == set(forms[0]["required"])
+    assert {"source", "units", "order", "mode"} == set(forms[1]["required"])
     user = render_brief_observation_text(STAGE_SAMPLES[("terran", "early")]())
     assert "[Decision Request]" not in user
     assert "[Decision]" not in user

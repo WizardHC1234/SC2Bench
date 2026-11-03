@@ -150,6 +150,33 @@ def _group_sort_key(item):
     return (int(suffix) if suffix.isdigit() else float("inf"), name)
 
 
+def army_order_text(style, target):
+    if style == "clear":
+        return "clear" + (f" -> {target}" if target else "")
+    return f"{value(style)} {value(target)}"
+
+
+def clear_search_lines(row):
+    search = row.get("search")
+    if not isinstance(search, dict):
+        return []
+    detail = []
+    if search.get("target_kind"):
+        detail.append(str(search["target_kind"]).replace("_", " "))
+    if search.get("position") is not None:
+        detail.append(f"at {value(search['position'])}")
+    detail.append(f"points inspected {search.get('visited', 0)}/{search.get('total', 0)}")
+    if search.get("skipped"):
+        detail.append(f"points skipped {search['skipped']}")
+    detail.append(f"sweeps {search.get('sweeps', 0)}")
+    lines = ["  Search: " + "; ".join(detail)]
+    if search.get("blocked"):
+        lines.append("  Search obstacles: " + "; ".join(
+            f"{reason.replace('_', ' ')} {count}" for reason, count in search["blocked"].items()
+        ))
+    return lines
+
+
 def combat_lines(groups):
     if not groups:
         return ["none"]
@@ -174,13 +201,15 @@ def combat_lines(groups):
             )
         else:
             lines.append(
-                f"  Current order: {value(row.get('style'))} "
-                f"{value(row.get('target'))} — {value(row.get('status'))}"
+                f"  Current order: {army_order_text(row.get('style'), row.get('target'))} — {value(row.get('status'))}"
             )
+            if row.get("style") == "clear" and row.get("phase"):
+                lines.append(f"  Phase: {value(row['phase'])}")
             if "order_seconds" in row:
                 lines.append(f"  Current order duration: {value(row.get('order_seconds'))} s")
         if "requested" in row:
             lines.append(f"  Originally requested: {counts(row['requested'])}")
+        lines.extend(clear_search_lines(row))
         if "assigned" in row:
             lines.append(f"  Assigned to outbound order: {value(row['assigned'])}")
         if isinstance(transition, dict):
@@ -208,7 +237,7 @@ def combat_lines(groups):
                                  "nearest_zone", "assigned", "visible_enemy_nearby",
                                  "weapon_cooldown_active_count", "cloaked", "forms", "skill_evidence",
                                  "transport", "order_transition", "attack_result", "holding_seconds",
-                                 "order_seconds"}))
+                                 "order_seconds", "search"}))
     return lines
 
 
@@ -265,7 +294,7 @@ def brief_combat_lines(groups):
         style = value(row.get("style"))
         target = value(row.get("target"))
         phase = value(row.get("phase") or row.get("status"))
-        header = f"{group}: {style} {target}; {phase}"
+        header = f"{group}: {army_order_text(row.get('style'), row.get('target'))}; {phase}"
         nearest = row.get("nearest_zone")
         if nearest and nearest != row.get("target"):
             header += f"; near {value(nearest)}"
@@ -278,6 +307,7 @@ def brief_combat_lines(groups):
         elif group != "group_0" and "order_seconds" in row:
             header += f"; order active {value(row.get('order_seconds'))} s"
         lines.append(header)
+        lines.extend(clear_search_lines(row))
         if group == "group_0":
             free = row.get("alive") if "alive" in row else row.get("free")
             if free:

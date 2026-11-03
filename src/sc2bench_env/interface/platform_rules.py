@@ -35,7 +35,7 @@ ARMY_RULES = """Army groups:
 - group_0 is the permanent home pool. Eligible new army units gather at a completed natural base when available, otherwise at the main. Use its available counts for dispatch or reinforcement; units performing another platform-managed role, scouting, transporting or assigned to an outbound group are unavailable. A returned group joins it only after arriving home.
 - New units do not automatically reinforce outbound groups.
 - Army orders persist until changed. Reassess existing groups as objectives, positions and threats change, and issue new orders when appropriate.
-- An attack group holds at its target after arrival when the target is visible and no visible enemies remain nearby. A new attack_group or defend_group order redirects it.
+- A fixed-target attack group holds at its target after arrival when the target is visible and no visible enemies remain nearby. A new attack_group or defend_group order redirects it.
 - Zone numbers do not imply adjacency; query routes when path choice matters.
 """
 
@@ -87,7 +87,7 @@ ZERG_GAME_RULES = """- Minerals and gas pay for buildings, units and research. D
 # Action-local behavior is exposed through each Action tool's schema.
 COMBAT_DISPATCH_RULES = "dispatch_group atomically splits requested units from group_0 or another active group into a new attack or defend group. group_0 itself remains at home. attack_group and defend_group only change an existing outbound group's order."
 COMBAT_RETARGET_RULES = "reinforce_group transfers a requested subset without changing the destination order; merge_groups transfers whole groups; retreat_group returns a whole outbound group home. Transfers do not pass through group_0 unless home is the destination."
-COMBAT_STYLE_RULES = "attack advances toward the target zone and uses combat micro on contact. After arrival with the target visible and no visible enemies nearby, the group holds there. defend deploys near its target, prioritizes local combat on contact and resumes holding when contact ends. Acceptance is not arrival or success."
+COMBAT_STYLE_RULES = "attack advances toward the target zone and uses combat micro on contact. After arrival with the target visible and no visible enemies nearby, the group holds there. mode=clear instead searches continuously for enemy structures, using current sightings, last-seen positions and map search points; a completed sweep does not mean all enemies are destroyed. defend deploys near its target, prioritizes local combat on contact and resumes holding when contact ends. Acceptance is not arrival or success."
 
 ACTION_RULES = {
     "build": "Request one additional structure or structure form. The platform chooses a legal placement or a valid source building. A town hall is placed as an expansion. Gas buildings require a free geyser at a ready owned town hall. Completes when construction or the structure morph starts.",
@@ -102,8 +102,8 @@ ACTION_RULES = {
     "spawn_creep_tumor": "Plant one creep tumor on creep, toward the enemy. A burrowed tumor spreads the next one for free. If none can, one ready Queen spends 25 energy. It is not cast automatically.",
     "scout": 'Send one SCV along the ordered route; route="all" performs one expansion-zone sweep. A new scout command replaces existing scout work, and the scout\'s death fails the task without automatic replacement. Arrival does not guarantee full-zone visibility or that every enemy was found.',
     "morph_townhall": "Morph the selected town hall to the requested form. The request completes when a native morph order or the target form is observed, not when the new form finishes.",
-    "dispatch_group": "Split the requested units from group_0 or another active group into a new group and give it an attack or defend order. The split is all-or-nothing; the source keeps its own ID and order. group_0 remains the home pool.",
-    "attack_group": "Order an existing outbound group to attack a zone, whether or not the zone is currently visible. This changes that group's order and does not create a group or change its membership.",
+    "dispatch_group": "Split the requested units from group_0 or another active group into a new group and give it an attack or defend order. For continuous map clearing, use order=attack, mode=clear and omit target. The split is all-or-nothing; the source keeps its own ID and order. group_0 remains the home pool.",
+    "attack_group": "Order an existing outbound group to attack a target zone, whether or not the zone is currently visible. Alternatively, use mode=clear without target to search for and attack enemy structures continuously. Clear mode prioritizes visible attackable structures, then last-seen positions, then map search points, resuming search after local combat. Another attack, defend or retreat order replaces it. This does not create a group or change its membership; repeating the same order preserves progress.",
     "defend_group": "Order an existing outbound group to defend a zone. This changes that group's order and does not create a group or change its membership. The group deploys near the target, fights local contacts and resumes holding when contact ends.",
     "reinforce_group": "Transfer the requested units from group_0 or an active outbound source to an active destination without changing the destination order. Transfers are all-or-nothing and remain pending until the units physically join; destination group_0 means return home.",
     "merge_groups": "Move all living source members into the destination without passing through group_0. The destination keeps its ID and order. Missing, duplicate, withdrawing or recalling groups reject the whole call.",

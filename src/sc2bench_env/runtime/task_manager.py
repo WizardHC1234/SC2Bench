@@ -359,7 +359,7 @@ class TaskManager:
             else:
                 destination = None
 
-            if destination is not None and destination.style == "attack":
+            if destination is not None and destination.style in {"attack", "clear"}:
                 rejection = self._queen_attack_rejection(
                     action, requested, destination=destination_name,
                 )
@@ -479,7 +479,7 @@ class TaskManager:
                 return ActionReceipt(action=action.public_action or "combat", result="rejected", group=action.group,
                                      reason="group_not_reinforceable", action_id=action.action_id)
             requested = {str(name): int(count) for name, count in sorted(action.units.items())}
-            if existing.style == "attack":
+            if existing.style in {"attack", "clear"}:
                 rejection = self._queen_attack_rejection(
                     action, requested, group=action.group,
                 )
@@ -535,7 +535,7 @@ class TaskManager:
                 if existing.group in group_army
                 else dict(existing.units or {})
             )
-            if action.action == "combat" and action.style == "attack":
+            if action.action == "combat" and action.style in {"attack", "clear"}:
                 rejection = self._queen_attack_rejection(
                     action, existing_members, group=action.group,
                 )
@@ -566,7 +566,8 @@ class TaskManager:
                                      result="idempotent_noop" if unchanged else "accepted")
             withdrawing = action.action == "retreat"
             unchanged = (existing.withdrawing and existing.retreat_method != "recall" if withdrawing else
-                         not existing.withdrawing and existing.style == action.style and existing.target == action.target)
+                         not existing.withdrawing and existing.recall_status != "pending"
+                         and existing.style == action.style and existing.target == (action.target or ""))
             if not unchanged:
                 existing.withdrawing = withdrawing
                 if withdrawing:
@@ -577,6 +578,7 @@ class TaskManager:
                     existing.style, existing.target = action.style, action.target or ""
                     existing.retreat_method = "move"
                     existing.recall_status = None
+                    existing.recall_failure = None
                 existing.command_revision += 1
                 existing.updated_at = game_time
                 existing.order_started_at = game_time
@@ -593,7 +595,7 @@ class TaskManager:
             requested = {
                 str(name): int(count) for name, count in sorted((action.units or {}).items())
             }
-            if action.style == "attack":
+            if action.style in {"attack", "clear"}:
                 rejection = self._queen_attack_rejection(action, requested)
                 if rejection is not None:
                     return rejection
@@ -603,7 +605,7 @@ class TaskManager:
                     demand.is_active
                     and demand.action == "combat"
                     and demand.style == action.style
-                    and demand.target == action.target
+                    and demand.target == (action.target or "")
                     and dict(sorted((demand.units or {}).items())) == requested
                 ):
                     if action.action_id:
@@ -812,7 +814,7 @@ class TaskManager:
         assert destination is not None
         sources = [groups[name] for name in source_names]
         assert all(source is not None for source in sources)
-        if destination.style == "attack":
+        if destination.style in {"attack", "clear"}:
             combined: Dict[str, int] = {}
             for demand in demands:
                 observed = (

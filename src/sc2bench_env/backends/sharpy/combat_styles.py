@@ -150,6 +150,7 @@ def available_for_mission(unit, roles, reserved_tags) -> bool:
 def style_move_type_name(style: str) -> str:
     return {
         "attack": "Assault",
+        "clear": "Assault",
         # This Sharpy version has no MoveType.Hold. MissionMicroRules supplies
         # equivalent hold behavior after Assault micro proposes each command.
         "defend": "Assault",

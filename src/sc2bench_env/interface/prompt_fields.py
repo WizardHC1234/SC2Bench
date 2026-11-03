@@ -33,11 +33,13 @@ ACTION_FIELDS = {
         "source": "group_0 or an observed active group ID",
         "units": "object: army unit name -> positive integer count",
         "order": "attack or defend",
-        "target": "observed zone ID string",
+        "target": "observed zone ID string; omit in clear mode",
+        "mode": "optional clear for order=attack; omit target",
     },
     "attack_group": {
         "group": "observed outbound group ID",
-        "target": "observed zone ID string",
+        "target": "observed zone ID string; omit in clear mode",
+        "mode": "optional clear for continuous map clearing; omit target",
     },
     "defend_group": {
         "group": "observed outbound group ID",

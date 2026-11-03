@@ -791,6 +791,9 @@ class ActCombatMission(ActBase):
 
     def __init__(self, style: str, zone_id: str, units: Mapping[str, int]):
         super().__init__()
+        from sc2bench_env.backends.sharpy.clear_search import ClearMapSearch
+
+        self.clear_search = ClearMapSearch()
         self.style = str(style)
         self.zone_id = str(zone_id)
         self.units = {str(name): int(count) for name, count in dict(units or {}).items()}
@@ -844,6 +847,15 @@ class ActCombatMission(ActBase):
             self.recall_failure = None
             return
         self._command_revision = revision
+        self.retreat_method = retreat_method
+        if self.recall_status in {"pending", "failed"}:
+            self.recall_status = None
+            self.recall_failure = None
+            self.recall_report = None
+        if style != self.style or zone_id != self.zone_id:
+            from sc2bench_env.backends.sharpy.clear_search import ClearMapSearch
+
+            self.clear_search = ClearMapSearch()
         self.style, self.zone_id = style, zone_id
         self._hold_point = None
         self.failure_reason = None
@@ -1012,6 +1024,22 @@ class ActCombatMission(ActBase):
         # Sharpy real_range handles flying targets, radii and unit-specific ranges.
         # Its spell-range overrides do not imply an active weapon.
         return has_active_weapon(attacker) and self.unit_values.real_range(attacker, target) > 0
+
+    def _clear_weapon_range(self, unit, target) -> float:
+        """Include weapon forms the existing micro can select while travelling."""
+        reach = float(self.unit_values.real_range(unit, target)) if self._can_hit(unit, target) else 0.0
+        name = self._platform_name(unit.type_id)
+        data = getattr(getattr(self.ai, "_game_data", None), "units", {})
+        if name is not None:
+            for form in self._own_adapter().combat_forms(name):
+                if form == unit.type_id:
+                    continue
+                row = data.get(form.value)
+                for weapon in getattr(getattr(row, "_proto", None), "weapons", ()):
+                    if weapon.type in ({2, 3} if target.is_flying else {1, 3}) and weapon.damage > 0:
+                        reach = max(reach, float(weapon.range) + float(getattr(unit, "radius", 0))
+                                    + float(getattr(target, "radius", 0)))
+        return reach
 
     def _is_passenger(self, unit) -> bool:
         if getattr(unit, "is_flying", False) or getattr(unit, "is_structure", False):
@@ -1681,7 +1709,7 @@ class ActCombatMission(ActBase):
         if self.end_reason or self.failure_reason:
             return True
 
-        target = self._resolve_target()
+        target = self.ai.start_location if self.style == "clear" else self._resolve_target()
         if target is None:
             self.failure_reason = f"invalid_zone:{self.zone_id}"
             return True
@@ -1725,6 +1753,34 @@ class ActCombatMission(ActBase):
 
         if self.phase == "withdrawing":
             return self._run_withdraw(free)
+
+        if self.style == "clear":
+            from sc2bench_env.backends.sharpy.zone_contents import is_currently_visible_enemy
+
+            registry = getattr(self.ai, "zone_registry", None)
+            previous = self.clear_search.current
+            contact = any(
+                is_currently_visible_enemy(enemy)
+                and any(unit.distance_to(enemy) <= max(15, float(getattr(unit, "sight_range", 0)))
+                        and (self._can_hit(unit, enemy) or self._can_hit(enemy, unit))
+                        for unit in free)
+                for enemy in list(self.ai.enemy_units) + list(self.ai.enemy_structures)
+            )
+            target = await self.clear_search.update(
+                self.ai, registry, free, lambda unit, enemy: self._clear_weapon_range(unit, enemy) > 0,
+                self._clear_weapon_range,
+                in_contact=contact or self.phase in {"load", "transit", "unload"},
+                can_transport=bool(self._mission_carriers(free)),
+                check_weapons=not cargo_tags,
+            )
+            if target is None:
+                target = free.center if free else self.ai.start_location
+            current = self.clear_search.current
+            if self.phase == "fight" and current is not None and (
+                previous is None or previous.key != current.key
+            ):
+                self._transport_attempted = False
+                self._load_started_at = self._unload_started_at = None
 
         _, zone = self._resolve_zone()
         if self.style == "defend" and zone is not None:
@@ -1814,7 +1870,7 @@ class ActCombatMission(ActBase):
         """Fast attackers wait just ahead of the slower body instead of stringing out."""
         from sc2bench_env.backends.sharpy.combat_styles import march_formation
 
-        if self.style != "attack":
+        if self.style not in {"attack", "clear"}:
             return [], None
         ahead, hold, _rear = march_formation(units, target)
         if not ahead or hold is None or self._army_in_contact(units):

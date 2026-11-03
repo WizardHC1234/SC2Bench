@@ -47,10 +47,14 @@ def normalize_target_aliases(
     if action == "dispatch_group":
         entry["action"] = "combat"
         entry["style"] = entry.pop("order", None)
+        if entry.pop("mode", None) == "clear":
+            entry["style"] = "clear"
         return entry, ()
     if action in {"attack_group", "defend_group"}:
         entry["action"] = "combat"
         entry["style"] = "attack" if action == "attack_group" else "defend"
+        if action == "attack_group" and entry.pop("mode", None) == "clear":
+            entry["style"] = "clear"
         return entry, ()
     if action == "reinforce_group":
         entry["action"] = "combat"

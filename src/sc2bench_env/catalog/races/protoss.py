@@ -297,6 +297,10 @@ PROTOSS_TARGETS: Tuple[TargetSpec, ...] = (
         description="Bind dispatchable home army and attack the chosen zone. Backend handles local micro; no automatic map search or reinforcements.",
     ),
     _combat(
+        "clear",
+        description="Search for and attack enemy structures with the selected group. Search continues after local combat; no automatic reinforcements or victory inference.",
+    ),
+    _combat(
         "defend",
         description="Bind home army and hold a zone's defensive point without chasing enemies or attacking structures. Does not auto-reinforce.",
     ),

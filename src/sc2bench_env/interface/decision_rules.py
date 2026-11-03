@@ -21,7 +21,7 @@ def _unsupported_name(kind: str, name: str, choices: Sequence[str]) -> str:
     suffix = f"; closest valid: {', '.join(candidates)}" if candidates else ""
     return f"unsupported {kind} {name!r}{suffix}"
 
-COMBAT_STYLES: Tuple[str, ...] = ("attack", "defend")
+COMBAT_STYLES: Tuple[str, ...] = ("attack", "defend", "clear")
 # Canonical runtime verbs after public ToolCall names have been normalized.
 # Public names such as attack_group and retreat_group live in tools.ACTION_TOOLS.
 INTERNAL_ACTION_VERBS: Tuple[str, ...] = (
@@ -286,10 +286,10 @@ def _validate_entry_values(raw: Mapping[str, Any], *, verb: str, index: int, rac
             if has_order:
                 raise DecisionSchemaError(f"{where}: reinforcement uses only group and units")
         elif has_group:
-            if not ("style" in raw and "target" in raw):
+            if not ("style" in raw and ("target" in raw or style == "clear")):
                 raise DecisionSchemaError(f"{where}: retargeting requires style, target and group")
         elif has_units:
-            if not ("style" in raw and "target" in raw):
+            if not ("style" in raw and ("target" in raw or style == "clear")):
                 raise DecisionSchemaError(f"{where}: creating a group requires style, target and units")
         else:
             raise DecisionSchemaError(f"{where}: combat must create, retarget or reinforce a group")
@@ -315,7 +315,9 @@ def _validate_entry_values(raw: Mapping[str, Any], *, verb: str, index: int, rac
         if has_order:
             if not isinstance(style, str) or style.strip().lower() not in COMBAT_STYLES:
                 raise DecisionSchemaError(f"{where}.style must be one of {list(COMBAT_STYLES)}")
-            if not isinstance(target, str) or not re.match(ZONE_PATTERN, target.strip().lower()):
+            if style == "clear" and "target" in raw:
+                raise DecisionSchemaError(f"{where}: clear mode does not take a target")
+            if style != "clear" and (not isinstance(target, str) or not re.match(ZONE_PATTERN, target.strip().lower())):
                 raise DecisionSchemaError(f"{where}.target must be a zone_id string copied from Observation, not a numeric index; received {target!r}")
         if not isinstance(units, Mapping) or not units:
             if has_group and not has_units:
@@ -465,6 +467,33 @@ def _tool_call_object_schema(
     }
 
 
+def army_order_argument_schema(name: str) -> Dict[str, Any]:
+    """Shared public schema for a fixed objective or continuous map clearing."""
+    target = {"type": "string", "pattern": ZONE_PATTERN,
+              "description": "zone_id from Observation; omit in clear mode"}
+    if name == "dispatch_group":
+        common = {
+            "source": {"type": "string", "pattern": ANY_GROUP_PATTERN},
+            "units": {"type": "object", "minProperties": 1,
+                      "additionalProperties": {"type": "integer", "minimum": 1}},
+            "order": {"type": "string", "enum": ["attack", "defend"]},
+        }
+    else:
+        common = {"group": {"type": "string", "pattern": GROUP_PATTERN}}
+    fixed = {"type": "object", "properties": {**common, "target": target},
+             "required": [*common, "target"], "additionalProperties": False}
+    clearing = {**common, "mode": {"type": "string", "enum": ["clear"],
+                                   "description": "continuously search for and attack enemy structures"}}
+    if name == "dispatch_group":
+        clearing["order"] = {"type": "string", "enum": ["attack"]}
+    return {
+        "type": "object", "properties": {**common, "target": target, "mode": clearing["mode"]},
+        "required": list(common), "additionalProperties": False,
+        "oneOf": [fixed, {"type": "object", "properties": clearing,
+                          "required": list(clearing), "additionalProperties": False}],
+    }
+
+
 def decision_json_schema(*, race: str = "terran") -> Dict[str, Any]:
     """Platform-owned JSON Schema for one NormalizedToolCall array (draft-07)."""
     require_supported_own_race(race)
@@ -606,6 +635,11 @@ def decision_json_schema(*, race: str = "terran") -> Dict[str, Any]:
         }
         or known_target_names(schema["properties"]["name"]["const"], race=race)
     ]
+
+    for schema in item_schemas:
+        name = schema["properties"]["name"]["const"]
+        if name in {"dispatch_group", "attack_group"}:
+            schema["properties"]["arguments"] = army_order_argument_schema(name)
 
     return {
         "$schema": "http://json-schema.org/draft-07/schema#",

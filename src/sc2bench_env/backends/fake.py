@@ -65,6 +65,7 @@ class _WorkItem:
     # Internal virtual producer/channel; never exposed in Agent Observation.
     production_slot: Optional[tuple[str, int, int]] = None
     withdrawing: bool = False
+    clear_elapsed: float = 0.0
     birth_count: int = 1
 
 
@@ -217,6 +218,8 @@ class FakeBackend(Backend):
                             int(pending_external.get(str(name), 0)) + int(count)
                         )
                 for item in existing_items:
+                    if item.style != demand.style:
+                        item.clear_elapsed = 0.0
                     item.style, item.target = demand.style, demand.target
                     previous_requested = dict(item.units or {})
                     desired = dict(demand.units or {})
@@ -570,6 +573,15 @@ class FakeBackend(Backend):
                 "visible_enemy_nearby": None,
                 "weapon_cooldown_active_count": None,
             }
+            if item.style == "clear":
+                index = int(item.clear_elapsed // 8) % FAKE_ZONE_COUNT
+                combat_progress[item.demand_id].update(
+                    target=f"zone_{index}",
+                    phase="withdrawing" if item.withdrawing else "searching",
+                    search={"visited": index, "total": FAKE_ZONE_COUNT,
+                            "sweeps": int(item.clear_elapsed // (8 * FAKE_ZONE_COUNT)),
+                            "target_kind": "search_point", "position": [20 * index, 0]},
+                )
         if combat_progress:
             info["combat_progress"] = combat_progress
         return BackendSnapshot(
@@ -1114,6 +1126,8 @@ class FakeBackend(Backend):
                 continue
             if item.action == "combat" and item.phase == "combat":
                 alive_total = sum((item.alive_units or {}).values())
+                if item.style == "clear" and not item.withdrawing:
+                    item.clear_elapsed += dt
                 if item.withdrawing:
                     item.remaining_seconds -= dt
                 if item.withdrawing and item.remaining_seconds <= 0 and alive_total > 0:

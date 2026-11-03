@@ -978,7 +978,13 @@ class SharpyBackend(Backend):
             from sc2.protocol import ProtocolError
 
             replay = self._bridge.replay_path
-            if (self._bridge.leave_requested and isinstance(exc, ProtocolError)
+            if (isinstance(exc, ConnectionError) and self._bridge.raw_result_ready
+                    and self._bridge.outcome_published and self._bridge.snapshot.terminated
+                    and self._bridge.snapshot.end_reason == "game_ended"):
+                # The protocol result is already confirmed by on_end. A later
+                # socket close during BurnySC2 cleanup cannot change the match.
+                logger.warning("SC2 closed the connection after recording its result: %s", exc)
+            elif (self._bridge.leave_requested and isinstance(exc, ProtocolError)
                     and "Not in a game" in str(exc) and replay is not None and replay.is_file()
                     and replay.stat().st_size > 0):
                 # Explicit leave already saved the replay in BenchBot. Preserve

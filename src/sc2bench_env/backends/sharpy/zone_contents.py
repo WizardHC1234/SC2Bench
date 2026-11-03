@@ -98,6 +98,10 @@ class ZoneEnemyTracker:
     def reset(self) -> None:
         self._records.clear()
 
+    def structure_sightings(self):
+        """Last observed structures, never inferred opponent state."""
+        return tuple(record for record in self._records.values() if record.is_structure)
+
     def observe(
         self,
         *,

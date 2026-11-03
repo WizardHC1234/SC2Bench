@@ -231,7 +231,7 @@ def combat_summary(snapshot, task_manager) -> dict[str, dict]:
         summary[label] = {
             "status": "active",
             "style": current_style,
-            "target": demand.target,
+            "target": row.get("target") if current_style == "clear" else demand.target,
             "requested": dict(demand.units or {}),
             "alive": {str(k): int(v) for k, v in alive.items()},
             "assigned": bool(row.get("assigned", True)),
@@ -301,6 +301,8 @@ def combat_summary(snapshot, task_manager) -> dict[str, dict]:
             summary[label]["cloaked"] = dict(row["cloaked"])
         if row.get("forms"):
             summary[label]["forms"] = dict(row["forms"])
+        if row.get("search") and current_style == "clear":
+            summary[label]["search"] = dict(row["search"])
         if row.get("skill_evidence"):
             summary[label]["skill_evidence"] = dict(row["skill_evidence"])
         if "transport" in row:
@@ -720,7 +722,7 @@ def compact_observation(
         brief_group_fields = {
             "status", "style", "target", "phase", "alive", "nearest_zone",
             "visible_enemy_nearby", "order_transition", "attack_result", "holding_seconds",
-            "order_seconds",
+            "order_seconds", "search",
         }
         combat = {
             name: ({key: value for key, value in row.items() if key in brief_group_fields}

@@ -334,33 +334,18 @@ def _action_description(name: str, race: str) -> str:
 
 
 def _action_specs(race: str = "terran") -> Tuple[ToolSpec, ...]:
-    from sc2bench_env.interface.decision_rules import action_tool_argument_schema
+    from sc2bench_env.interface.decision_rules import action_tool_argument_schema, army_order_argument_schema
 
     schemas = []
     available_actions = action_tool_names(race)
     for name in available_actions:
-        if name == "dispatch_group":
-            source = {"type": "string", "description": "group_0 or an active outbound group ID"}
-            units = {
-                "type": "object", "minProperties": 1,
-                "description": "dispatchable unit name to positive count",
-                "additionalProperties": {"type": "integer", "minimum": 1},
-            }
+        if name in {"dispatch_group", "attack_group"}:
             schemas.append(ToolSpec(
                 name=name, kind="action", description=_action_description(name, race),
-                parameters={
-                    "type": "object", "additionalProperties": False,
-                    "properties": {
-                        "source": source,
-                        "units": units,
-                        "order": {"type": "string", "enum": ["attack", "defend"]},
-                        "target": {"type": "string", "description": "zone_id from Observation or query_map_overview"},
-                    },
-                    "required": ["source", "units", "order", "target"],
-                },
+                parameters=army_order_argument_schema(name),
             ))
             continue
-        if name in {"attack_group", "defend_group"}:
+        if name == "defend_group":
             schemas.append(_spec(name, _action_description(name, race), {
                 "group": {
                     "type": "string",

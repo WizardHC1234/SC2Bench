@@ -142,7 +142,7 @@ class GameAction:
                 return f"reinforce {self.group} with {composition}"
             units = self.units or {}
             composition = " ".join(f"{name} {count}" for name, count in sorted(units.items()))
-            return f"{self.style} {self.target} with {composition}".strip()
+            return f"{self.style} {self.target or ''} with {composition}".strip()
         if self.action == "merge_groups":
             return f"merge {', '.join(self.sources or ())} into {self.destination}"
         if self.target:
@@ -151,19 +151,22 @@ class GameAction:
 
     def to_tool_call(self) -> dict[str, Any]:
         if self.public_action == "dispatch_group":
+            order = ({"order": "attack", "mode": "clear"} if self.style == "clear"
+                     else {"order": self.style, "target": self.target})
             return {
                 "name": "dispatch_group",
                 "arguments": {
                     "source": self.source,
                     "units": dict(self.units or {}),
-                    "order": self.style,
-                    "target": self.target,
+                    **order,
                 },
             }
         if self.public_action in {"attack_group", "defend_group"}:
             return {
                 "name": self.public_action,
-                "arguments": {"group": self.group, "target": self.target},
+                "arguments": {"group": self.group, **(
+                    {"mode": "clear"} if self.style == "clear" else {"target": self.target}
+                )},
             }
         if self.public_action == "reinforce_group":
             return {
@@ -224,6 +227,14 @@ def _validate_race(race: str) -> None:
 def _internal_entry(raw: Mapping[str, Any], *, index: int = 0, race: str = "terran") -> dict[str, Any]:
     try:
         call = parse_tool_call(raw, index=index)
+        if call.name in {"dispatch_group", "attack_group"}:
+            from sc2bench_env.interface.decision_rules import army_order_argument_schema
+            from sc2bench_env.interface.tools import ToolSpec, validate_tool_arguments
+            error = validate_tool_arguments(ToolSpec(
+                call.name, "action", "", army_order_argument_schema(call.name),
+            ), call.arguments)
+            if error:
+                raise ValueError(error)
         internal = call.to_internal_entry()
     except ValueError as exc:
         raise ActionValidationError(str(exc)) from exc
@@ -414,8 +425,8 @@ def parse_game_action(raw: Mapping[str, Any], *, race: str = "terran") -> GameAc
         style = _require_str(raw.get("style"), "style").lower()
         if style not in COMBAT_STYLES:
             raise ActionValidationError(f"combat.style must be one of {list(COMBAT_STYLES)}")
-        target = _require_str(raw.get("target"), "target").lower()
-        if not _ZONE_TARGET_RE.match(target):
+        target = None if style == "clear" else _require_str(raw.get("target"), "target").lower()
+        if target is not None and not _ZONE_TARGET_RE.match(target):
             raise ActionValidationError("combat.target must be a stable zone_id")
         if has_group:
             return GameAction(

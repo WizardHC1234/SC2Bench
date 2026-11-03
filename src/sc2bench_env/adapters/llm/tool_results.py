@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any, Mapping, Sequence
 
+from sc2bench_env.interface.observation_text import army_order_text, clear_search_lines
+
 def _display_value(value: Any) -> str:
     if value is None:
         return "unknown"
@@ -414,8 +416,7 @@ def _render_army_state(result: Mapping[str, Any]) -> str:
             )
         else:
             lines.append(
-                f"  Current order: {_display_value(row.get('style'))} "
-                f"{_display_value(row.get('target'))} — {_display_value(row.get('status'))}"
+                f"  Current order: {army_order_text(row.get('style'), row.get('target'))} — {_display_value(row.get('status'))}"
             )
             if row.get("phase") is not None:
                 lines.append(f"  Phase: {_display_value(row.get('phase'))}")
@@ -425,6 +426,7 @@ def _render_army_state(result: Mapping[str, Any]) -> str:
                 )
         if "requested" in row:
             lines.append(f"  Requested total: {_display_counts(row.get('requested'))}")
+        lines.extend(clear_search_lines(row))
         reinforcements = row.get("reinforcements")
         if isinstance(reinforcements, Sequence) and not isinstance(reinforcements, (str, bytes)):
             for index, reinforcement in enumerate(reinforcements, 1):
