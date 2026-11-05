@@ -104,7 +104,7 @@ def normalize_agent_call(value: Any) -> Optional[dict[str, Any]]:
     error_type = value.get("error_type")
     if not isinstance(error_type, str) or not error_type:
         error_type = None
-    return {
+    result = {
         "call_id": call_id,
         "role": role,
         "model": model,
@@ -115,3 +115,7 @@ def normalize_agent_call(value: Any) -> Optional[dict[str, Any]]:
         "error_type": error_type,
         "http_status": http_status,
     }
+    if isinstance(value.get("tool_argument_repairs"), list):
+        from copy import deepcopy
+        result["tool_argument_repairs"] = deepcopy(value["tool_argument_repairs"])
+    return result

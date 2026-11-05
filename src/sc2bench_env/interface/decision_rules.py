@@ -240,7 +240,10 @@ def _validate_entry_values(raw: Mapping[str, Any], *, verb: str, index: int, rac
         if route == "all":
             return
         if not isinstance(route, Sequence) or isinstance(route, (str, bytes)) or not route:
-            raise DecisionSchemaError(f"{where}.route must be a non-empty array of zone_ids")
+            raise DecisionSchemaError(
+                f'{where}.route must be a non-empty JSON array of zone_ids, or the string "all"; '
+                'pass the array directly, not a quoted JSON-encoded array'
+            )
         for item in route:
             if not isinstance(item, str) or not re.match(ZONE_PATTERN, item.strip().lower()):
                 raise DecisionSchemaError(f"{where}.route items must be zone_ids")
@@ -408,7 +411,11 @@ def action_tool_argument_schema(verb: str) -> Tuple[Dict[str, Any], Tuple[str, .
         "spawn_creep_tumor": {},
         "scout": {
             "route": {
-                "description": 'ordered zone_id array, or the string "all"',
+                # Some XML tool parsers default missing top-level type to
+                # string without consulting oneOf. Keep the equivalent type
+                # union explicit so route arrays survive provider conversion.
+                "type": ["array", "string"],
+                "description": 'ordered zone_id JSON array (pass directly, never encode the array as a string), or the string "all"',
                 "oneOf": [
                     {"type": "string", "const": "all"},
                     {"type": "array", "minItems": 1, "items": {"type": "string"}},

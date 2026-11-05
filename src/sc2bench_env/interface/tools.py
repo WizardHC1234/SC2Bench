@@ -109,6 +109,11 @@ def validate_tool_arguments(spec: ToolSpec, arguments: Mapping[str, Any]) -> Opt
         if not isinstance(schema, Mapping):
             continue
         expected = schema.get("type")
+        if isinstance(expected, list):
+            choices = [kind for kind in expected if isinstance(kind, str)]
+            expected = next((kind for kind in choices if _schema_type_ok(value, kind)), None)
+            if expected is None:
+                return f"{key} must be one of types {choices}"
         if isinstance(expected, str) and not _schema_type_ok(value, expected):
             return f"{key} must be {expected}"
         enum = schema.get("enum")

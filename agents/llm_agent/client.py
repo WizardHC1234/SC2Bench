@@ -15,6 +15,7 @@ from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
 from .config import DEFAULT_API_BASE_URL, DEFAULT_MODEL
+from .tool_arguments import repair_arguments
 
 
 def _https_context() -> ssl.SSLContext:
@@ -35,7 +36,8 @@ def split_reasoning(text: str) -> tuple[str, str]:
     return content.strip(), "\n\n".join(thought.strip() for thought in thoughts)
 
 
-def _parse_tool_calls(message: Mapping[str, Any]) -> list[dict[str, Any]]:
+def _parse_tool_calls(message: Mapping[str, Any], tools=None) -> list[dict[str, Any]]:
+    schemas = {t['function']['name']: t['function']['parameters'] for t in tools or []}
     parsed = []
     for item in message.get("tool_calls") or []:
         if not isinstance(item, Mapping):
@@ -44,16 +46,21 @@ def _parse_tool_calls(message: Mapping[str, Any]) -> list[dict[str, Any]]:
             item.get("function"), Mapping) else item
         arguments = function.get("arguments") if isinstance(
             function, Mapping) else {}
+        original_arguments = arguments
         if isinstance(arguments, str):
             try:
                 arguments = json.loads(arguments)
             except json.JSONDecodeError:
-                arguments = {"_raw": arguments}
+                pass
+        name = str(function.get("name") or item.get("name") or "")
+        arguments, repairs = repair_arguments(arguments, schemas.get(name, {"type": "object"}))
         parsed.append({
             "id": str(item.get("id") or ""),
-            "name": str(function.get("name") or item.get("name") or ""),
-            "arguments": arguments if isinstance(arguments, dict) else {},
+            "name": name,
+            "arguments": arguments if isinstance(arguments, dict) else {"_raw": original_arguments},
             "raw": item,
+            **({"argument_repairs": {"paths": repairs, "original_arguments": original_arguments,
+                                      "repaired_arguments": arguments}} if repairs else {}),
         })
     return parsed
 
@@ -144,7 +151,7 @@ def make_llm_call(
             else:
                 content, thoughts = split_reasoning(raw)
             tool_calls = _parse_tool_calls(
-                message if isinstance(message, Mapping) else {})
+                message if isinstance(message, Mapping) else {}, tools)
             return {
                 "content": content, "raw_content": raw if isinstance(raw, str) else "",
                 "reasoning": message.get("reasoning_content") or message.get("reasoning") or thoughts,

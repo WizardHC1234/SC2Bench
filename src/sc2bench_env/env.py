@@ -1055,6 +1055,9 @@ class Environment:
 
     def _build_observation(self, snapshot) -> Observation:
         from sc2bench_env.runtime.observation_builder import build_observation
+        collect = getattr(self.backend, "collect_execution_events", None)
+        if callable(collect):
+            self.task_manager.record_execution_events(collect())
         return build_observation(snapshot, self.task_manager, self.config, self._previous_observation)
 
     def _idle_army_counts(self, snapshot, *, include_morph_reservations=True) -> dict[str, int]:

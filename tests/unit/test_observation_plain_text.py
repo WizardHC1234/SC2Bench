@@ -148,7 +148,7 @@ def test_home_pool_count_has_one_text_owner():
     assert "Available home members:" not in text
     assert "group_0:" in text
     assert "Nearest zone: unknown" in text
-    assert "Current order: defend zone_0 — active" in text
+    assert "Home rally target: zone_0; not an observed unit location" in text
 
 
 def test_groups_sorted_numerically_and_scout_route_remains_ordered():

@@ -1,5 +1,6 @@
 """Zero-shot ReAct: reason or act, append observations, and continue."""
 from copy import deepcopy
+import json
 
 from agents.llm_agent.agent import (
     LLMAgent, InvalidDecisionLimit, _model_call, _pretty_json, _print_block,
@@ -35,6 +36,7 @@ class ReActAgent(LLMAgent):
         self._sent_tools = schemas
         failures, decision_calls = [], []
         response, attempt = {}, 1
+        seen_queries = set()
 
         def context():
             result = self._turn_context(response, request, attempt, failures)
@@ -103,6 +105,13 @@ class ReActAgent(LLMAgent):
                     if not isinstance(result, ToolResult):
                         raise TypeError("invalid tool result")
                     rendered = adapter.render_tool_result(tool_call, result)
+                    if str(call.get("name")).startswith("query_"):
+                        key = (tool_call.name, json.dumps(tool_call.arguments, sort_keys=True))
+                        if key in seen_queries:
+                            rendered += ("\nFrozen decision snapshot: this query has already been read. "
+                                         "Repeating it does not advance time or finish pending work. "
+                                         "Call advance when this decision is complete.")
+                        seen_queries.add(key)
                 except Exception as error:
                     # The callback may have applied the action before failing.
                     # Stop rather than replaying an action of unknown outcome.

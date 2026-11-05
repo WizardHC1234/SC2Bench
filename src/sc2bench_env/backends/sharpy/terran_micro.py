@@ -172,12 +172,41 @@ class MicroWidowMine(GenericMicro):
 
 
 class MicroLiberatorSafe(MicroLiberators):
+    def __init__(self):
+        super().__init__()
+        self.deployed_points = {}
+
     def unit_solve_combat(self, unit, command):
         if self.move_type in RETREAT:
             if unit.type_id == UnitTypeId.LIBERATORAG:
                 return Action(None, False, AbilityId.MORPH_LIBERATORAAMODE)
             return Action(command.position if command.position is not None else self.original_target, False)
+        if unit.type_id == UnitTypeId.LIBERATORAG:
+            # Defender mode auto-fires inside its deployed circle. Generic
+            # attack-move, move and hold commands are illegal in this form.
+            ground = [e for e in self.enemies_near_by if visible_enemy(e)
+                      and not e.is_flying and not e.is_structure
+                      and e.distance_to(unit) <= 10 + float(getattr(e, 'radius', .5))]
+            point = self.deployed_points.get(unit.tag)
+            if point is not None:
+                ground = [e for e in ground if e.distance_to(point) <= 5 + float(getattr(e, 'radius', .5))]
+            if ground:
+                return NoAction()
+            return Action(None, False, AbilityId.MORPH_LIBERATORAAMODE)
         return super().unit_solve_combat(unit, command)
+
+    def final_solve(self, unit, command):
+        proposed = super().final_solve(unit, command)
+        if proposed.ability == AbilityId.MORPH_LIBERATORAGMODE:
+            if not self.cd_manager.is_ready(unit.tag, AbilityId.MORPH_LIBERATORAGMODE):
+                return command
+            # The deploy point has a shorter range than the complete firing
+            # circle. Targeting an enemy at 10 range directly fails natively.
+            point = proposed.position
+            point = unit.position.towards(point, min(4.9, unit.distance_to(point)))
+            self.deployed_points[unit.tag] = point
+            return Action(point, False, AbilityId.MORPH_LIBERATORAGMODE)
+        return proposed
 
 
 class MicroVikingSafe(MicroVikings):

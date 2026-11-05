@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Mapping, Sequence
 
-from sc2bench_env.interface.observation_text import army_order_text, clear_search_lines
+from sc2bench_env.interface.observation_text import army_order_text, clear_search_lines, combat_phase_text
 
 def _display_value(value: Any) -> str:
     if value is None:
@@ -403,7 +403,10 @@ def _render_army_state(result: Mapping[str, Any]) -> str:
         )
         lines.append(f"- {name}: {_display_counts(row.get('alive'))}")
         lines.append(f"  Nearest zone: {_display_value(row.get('nearest_zone'))}")
-        if holding_after_attack:
+        if name == "group_0":
+            lines.append(f"  Home rally target: {_display_value(row.get('target'))}; not an observed unit location")
+            lines.append(f"  Contact: {combat_phase_text(row.get('phase'))}")
+        elif holding_after_attack:
             lines.append(
                 f"  Current activity: holding at {_display_value(row.get('target'))}"
             )
@@ -419,7 +422,7 @@ def _render_army_state(result: Mapping[str, Any]) -> str:
                 f"  Current order: {army_order_text(row.get('style'), row.get('target'))} — {_display_value(row.get('status'))}"
             )
             if row.get("phase") is not None:
-                lines.append(f"  Phase: {_display_value(row.get('phase'))}")
+                lines.append(f"  Phase: {combat_phase_text(row.get('phase'))}")
             if "order_seconds" in row:
                 lines.append(
                     f"  Current order duration: {_display_value(row.get('order_seconds'))} s"

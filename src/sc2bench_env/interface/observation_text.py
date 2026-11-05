@@ -16,6 +16,11 @@ def value(item: Any) -> str:
     return str(item).replace("\n", " ").replace("|", "/")
 
 
+def combat_phase_text(phase):
+    """Contact flags do not establish weapon fire or successful defense."""
+    return {"engaging": "enemy contact", "guarding": "no enemy contact reported"}.get(phase, value(phase))
+
+
 def label(key):
     ability_labels = {
         "scan_ready": "Orbitals with scan energy",
@@ -192,7 +197,10 @@ def combat_lines(groups):
         members = counts(row.get("alive")) if "alive" in row else None
         lines.append(f"{group}: {members}" if members is not None else f"{group}:")
         lines.append(f"  Nearest zone: {value(row.get('nearest_zone'))}")
-        if holding_after_attack:
+        if group == "group_0":
+            lines.append(f"  Home rally target: {value(row.get('target'))}; not an observed unit location")
+            lines.append(f"  Contact: {combat_phase_text(row.get('phase'))}")
+        elif holding_after_attack:
             lines.append(f"  Current activity: holding at {value(row.get('target'))}")
             if "holding_seconds" in row:
                 lines.append(f"  Holding duration: {value(row.get('holding_seconds'))} s")
@@ -204,7 +212,7 @@ def combat_lines(groups):
                 f"  Current order: {army_order_text(row.get('style'), row.get('target'))} — {value(row.get('status'))}"
             )
             if row.get("style") == "clear" and row.get("phase"):
-                lines.append(f"  Phase: {value(row['phase'])}")
+                lines.append(f"  Phase: {combat_phase_text(row['phase'])}")
             if "order_seconds" in row:
                 lines.append(f"  Current order duration: {value(row.get('order_seconds'))} s")
         if "requested" in row:
@@ -293,8 +301,10 @@ def brief_combat_lines(groups):
         )
         style = value(row.get("style"))
         target = value(row.get("target"))
-        phase = value(row.get("phase") or row.get("status"))
+        phase = combat_phase_text(row.get("phase") or row.get("status"))
         header = f"{group}: {army_order_text(row.get('style'), row.get('target'))}; {phase}"
+        if group == "group_0":
+            header = f"{group}: home pool; rally target {target}; {phase}"
         nearest = row.get("nearest_zone")
         if nearest and nearest != row.get("target"):
             header += f"; near {value(nearest)}"
@@ -309,9 +319,9 @@ def brief_combat_lines(groups):
         lines.append(header)
         lines.extend(clear_search_lines(row))
         if group == "group_0":
+            lines.append("  Rally target is not the members' current location; see Relevant Zones.")
             free = row.get("alive") if "alive" in row else row.get("free")
-            if free:
-                lines.append(f"  Free: {counts(free)}")
+            lines.append(f"  Free: {counts(free)}")
             if row.get("unavailable"):
                 lines.append(f"  Unavailable: {counts(row.get('unavailable'))}")
         elif "alive" in row:
@@ -462,7 +472,7 @@ def brief_available_target_lines(data):
         "research": "Available research",
         "morph_townhall": "Available townhall morph",
     }
-    lines = []
+    lines = ["Technology checklist only; resources, supply, producer or placement may still block starting."]
     for key, title in labels.items():
         names = data.get(key) or []
         if not names and key == "morph_townhall":
@@ -582,6 +592,8 @@ def brief_priority_lines(data):
         remaining = row.get("remaining")
         qty = f" x{remaining}" if type(remaining) is int else ""
         summary = []
+        if row.get("action") != "train" and row.get("state") not in {None, "", "unknown"}:
+            summary.append(execution_state_text(row["state"]))
         if row.get("action") == "train":
             summary.append(f"paid {value(row.get('in_production'))}")
             summary.append(f"unstarted {value(row.get('waiting_to_produce'))}")
@@ -595,7 +607,7 @@ def brief_priority_lines(data):
             summary.append(f"FAILED; reason: {blocker}")
         elif waiting_for not in {None, "", "unknown"}:
             summary.append(f"waiting for {blocker}")
-        elif state not in {None, "", "unknown"}:
+        elif state not in {None, "", "unknown"} and row.get("action") == "train":
             summary.append(execution_state_text(state))
         lines.append(
             f"{index}. {value(row.get('action'))} {target}{qty}: " + "; ".join(summary)

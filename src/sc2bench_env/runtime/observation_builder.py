@@ -577,9 +577,8 @@ def relevant_zone_ids(
 ) -> List[str]:
     """Zones needed for the current decision; the complete map remains queryable.
 
-    Do not treat routine count changes or corridor adjacency as relevance. Mining,
-    production and moving armies change those values almost every turn and used to
-    expand the briefing back to nearly the whole map.
+    Keep current army locations even without an explicit outbound order. Routine
+    worker traffic and corridor adjacency do not make a zone relevant.
     """
     del previous  # Retained for compatibility with existing callers.
     zones = list(observation.get("zone_state") or [])
@@ -591,6 +590,14 @@ def relevant_zone_ids(
         if row.get("known_owner") == "self":
             selected.add(zone_id)
         if row.get("known_owner") == "enemy":
+            selected.add(zone_id)
+        own = row.get("own_contents")
+        units = own.get("units") if isinstance(own, Mapping) else None
+        if isinstance(units, Mapping) and any(
+            name not in {"scv", "probe", "drone", "mule", "larva"}
+            and type(count) in {int, float} and count > 0
+            for name, count in units.items()
+        ):
             selected.add(zone_id)
         if row.get("visible_enemy_weapon_in_range"):
             selected.add(zone_id)

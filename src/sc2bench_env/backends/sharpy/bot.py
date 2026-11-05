@@ -234,6 +234,23 @@ class BenchBot(KnowledgeBot):
             return False
         from sc2.ids.ability_id import AbilityId
         attack_orders = {AbilityId.ATTACK, AbilityId.ATTACK_ATTACK}
+        if unit is not None and unit.type_id == UnitTypeId.LIBERATORAG:
+            ability = getattr(action, 'ability', None)
+            target = getattr(action, 'target', None)
+            if ability in {AbilityId.MORPH_LIBERATORAGMODE, AbilityId.LIBERATORMORPHTOAG_LIBERATORAGMODE}:
+                return False  # Cached availability can outlive the mobile form.
+            if ability in attack_orders and not hasattr(target, 'type_id'):
+                return False  # Defender mode cannot attack a point.
+            if ability in {AbilityId.MOVE_MOVE, AbilityId.MOVE,
+                           AbilityId.HOLDPOSITION_HOLD, AbilityId.HOLDPOSITION}:
+                from sc2.unit_command import UnitCommand
+                action = UnitCommand(AbilityId.MORPH_LIBERATORAAMODE, unit)
+        if unit is not None and getattr(action, 'ability', None) in attack_orders:
+            target = getattr(action, 'target', None)
+            if hasattr(target, 'is_flying'):
+                capability = 'can_attack_air' if target.is_flying else 'can_attack_ground'
+                if getattr(unit, capability, None) is False:
+                    return False
         if unit is not None and getattr(action, 'ability', None) in attack_orders:
             cooldowns = getattr(getattr(self, 'knowledge', None), 'cooldown_manager', None)
             available = getattr(cooldowns, 'available_dict', {})
@@ -318,6 +335,15 @@ class BenchBot(KnowledgeBot):
                 seen.add(key)
         state.action_errors = errors
         self._pending_submission_errors = []
+        bridge = getattr(self, 'bridge', None)
+        if bridge is not None:
+            actors = {u.tag: u for u in list(self.units) + list(self.structures)}
+            with bridge.lock:
+                for error in errors:
+                    actor = actors.get(error.unit_tag)
+                    kind = actor.type_id.name.lower() if actor is not None else 'unknown'
+                    key = (kind, int(error.ability_id), int(error.result))
+                    bridge.native_command_errors[key] = bridge.native_command_errors.get(key, 0) + 1
 
     def _record_engine_observation(self, snapshot, *, response=None) -> None:
         from sc2bench_env.recording.engine import observation_sample
@@ -704,7 +730,7 @@ class BenchBot(KnowledgeBot):
         saved = []
         for micro in self._home_micro_objects():
             fields = {}
-            for name in ("locks", "pending_locks", "turret_points", "prepared_at", "claimed_until", "siege_status"):
+            for name in ("locks", "pending_locks", "turret_points", "prepared_at", "claimed_until", "siege_status", "deployed_points"):
                 if hasattr(micro, name):
                     fields[name] = deepcopy(getattr(micro, name))
             saved.append(fields)

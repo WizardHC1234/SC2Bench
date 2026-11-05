@@ -317,8 +317,11 @@ class ToolTurn:
                 return [r for r in rows or [] if r.get("group") in names]
             if "after_groups" in preview:
                 data["combat_state"] = {
+                    "scope": "action_related_groups",
                     "before": related(preview.get("after_groups") if unchanged else preview.get("before_groups")),
                     "after": related(preview.get("after_groups")),
+                    "other_groups": [r for r in preview.get("after_groups") or []
+                                     if r.get("group") not in names],
                     "home_available": dict(preview.get("available_army") or {}),
                 }
 

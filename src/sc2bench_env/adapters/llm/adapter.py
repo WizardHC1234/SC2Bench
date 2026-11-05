@@ -120,7 +120,9 @@ def _action_result_text(status: str, data: Mapping[str, Any]) -> str:
     combat = data.get("combat_state")
     if isinstance(combat, Mapping):
         before = {r["group"]: r for r in combat.get("before", [])}
-        lines.append("Groups after staging:")
+        if status == "rejected":
+            lines.append("This rejected call staged no group changes.")
+        lines.append("Action-related group previews (not a complete army listing):")
         for row in combat.get("after", []):
             group = row["group"]
             old = before.get(group)
@@ -140,6 +142,11 @@ def _action_result_text(status: str, data: Mapping[str, Any]) -> str:
                 lines.append(f"  Pending transfers: {_compact_value(row['pending_transfers'])}")
         if not combat.get("after"):
             lines.append("none")
+        if combat.get("other_groups"):
+            lines.append("Other group previews, unchanged by this call:")
+            for row in combat["other_groups"]:
+                lines.append(f"- {row['group']}: {army_order_text(row.get('order'), row.get('target'))}; "
+                             f"allocated {_compact_value(row.get('allocated_units') or {})}")
         lines.append(f"Home available after staging: {_compact_value(combat.get('home_available') or {})}")
     normalizations = data.get("normalizations")
     if isinstance(normalizations, Sequence) and not isinstance(normalizations, (str, bytes)):

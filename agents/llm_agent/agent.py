@@ -81,7 +81,7 @@ def _model_call(response: Mapping[str, Any]) -> dict[str, Any]:
     if isinstance(latency, bool) or not isinstance(latency, (int, float)):
         latency = None
     model = response.get("model")
-    return {
+    result = {
         "call_id": uuid4().hex,
         "role": "main",
         "model": model if isinstance(model, str) and model else None,
@@ -90,6 +90,13 @@ def _model_call(response: Mapping[str, Any]) -> dict[str, Any]:
         "output_tokens": _optional_usage_token(usage, "completion_tokens", "output_tokens"),
         "latency_seconds": None if latency is None else float(latency),
     }
+    calls = response.get("tool_calls")
+    repairs = [{"tool": call.get("name"), "tool_call_id": call.get("id"), **call["argument_repairs"]}
+               for call in calls if isinstance(call, Mapping)
+               and isinstance(call.get("argument_repairs"), Mapping)] if isinstance(calls, list) else []
+    if repairs:
+        result["tool_argument_repairs"] = repairs
+    return result
 
 
 class LLMAgent:

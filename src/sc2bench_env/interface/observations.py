@@ -144,7 +144,7 @@ def render_brief_observation_text(
     combat = dict(data.get("combat") or {})
     home = combat.get("group_0")
     free = forces_data.get("free") if isinstance(forces_data, dict) else None
-    if isinstance(home, dict) and isinstance(free, dict) and "alive" not in home and free:
+    if isinstance(home, dict) and isinstance(free, dict) and "alive" not in home:
         home = dict(home)
         home["alive"] = dict(free)
         combat["group_0"] = home

@@ -1421,6 +1421,11 @@ class TaskManager:
                 summary[demand.target] = f"waiting_for:{demand.waiting_for}"
         return summary
 
+    def record_execution_events(self, events: Iterable[dict]) -> None:
+        """Publish backend diagnostics without changing demand completion state."""
+        for event in events:
+            self._push_event(event)
+
     def _push_event(self, event: dict) -> None:
         self.event_counter += 1
         payload = dict(event)

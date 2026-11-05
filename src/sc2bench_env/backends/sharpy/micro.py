@@ -285,6 +285,11 @@ class MissionMicroRules(MicroRules):
     def guard_action(self, unit, command, *, group_units=()):
         if _form_change_pending(unit):
             return NoAction()
+        if unit.type_id == UnitTypeId.LIBERATORAG and isinstance(command, NoAction):
+            # The micro deliberately leaves Defender-mode auto-fire running.
+            # Station packing must not replace that with an illegal move/hold
+            # or a repeated unsiege/siege cycle before the first shot.
+            return command
         if self.boundary is None or self.return_point is None:
             return command
         # Local combat can cross the station edge. Sight alone must not keep
@@ -489,6 +494,8 @@ def _form_change_pending(unit):
         },
         UnitTypeId.HELLION: {AbilityId.MORPH_HELLBAT, AbilityId.MORPH_HELLION},
         UnitTypeId.THOR: {AbilityId.MORPH_THORHIGHIMPACTMODE, AbilityId.MORPH_THOREXPLOSIVEMODE},
+        UnitTypeId.LIBERATOR: {AbilityId.MORPH_LIBERATORAGMODE, AbilityId.LIBERATORMORPHTOAG_LIBERATORAGMODE},
+        UnitTypeId.WIDOWMINE: {AbilityId.BURROWDOWN_WIDOWMINE, AbilityId.BURROWUP_WIDOWMINE},
         UnitTypeId.LURKERMP: {AbilityId.BURROWDOWN_LURKER, AbilityId.BURROWUP_LURKER,
                              AbilityId.BURROWDOWN, AbilityId.BURROWUP},
     }
@@ -496,6 +503,8 @@ def _form_change_pending(unit):
     changes[UnitTypeId.VIKINGASSAULT] = changes[UnitTypeId.VIKINGFIGHTER]
     changes[UnitTypeId.HELLIONTANK] = changes[UnitTypeId.HELLION]
     changes[UnitTypeId.THORAP] = changes[UnitTypeId.THOR]
+    changes[UnitTypeId.LIBERATORAG] = {AbilityId.MORPH_LIBERATORAAMODE, AbilityId.LIBERATORMORPHTOAA_LIBERATORAAMODE}
+    changes[UnitTypeId.WIDOWMINEBURROWED] = changes[UnitTypeId.WIDOWMINE]
     changes[UnitTypeId.LURKERMPBURROWED] = changes[UnitTypeId.LURKERMP]
     abilities = changes.get(unit.type_id, ())
     return any(getattr(getattr(order, 'ability', None), 'id', None) in abilities

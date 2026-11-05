@@ -44,6 +44,10 @@ python -m agents.llm_agent --race zerg --skill zerg/roach-hydra --opponent mediu
 `--race` 选择己方种族，对手仍是内置电脑；`--enemy-race` 只改电脑种族。Skill 的目录前缀必须与己方种族相同。省略 `--skill` 或使用 `--skill none` 都运行无 Skill 基线。
 该命令直接运行一局 `Environment`，记录文件夹直接写入 `records/`，不会创建 `batch_*`、`episodes/` 或 `batch.json`。批量评测才使用 `BenchmarkRunner` 的批次目录。
 
+客户端会对工具参数做有界的 JSON 编码修复：完整 JSON 外围的代码围栏、双重编码、字符串化的数组/对象，以及字符串外的尾逗号。数组和对象的修复必须符合工具 Schema 声明的容器类型；不会从普通正文提取动作，也不会推断目标名称、修改数量、补齐截断参数或重发执行结果未知的动作。无法确定的内容仍交给平台校验，并由现有工具回合处理拒绝反馈。
+
+发生修复时，`metrics.json` 的对应 `model_calls[].tool_argument_repairs` 保存原始参数、修复结果和变更字段路径；会话中的工具调用保存实际提交的参数。正式评测应区分使用此修复版本与旧客户端的运行。ReAct Agent 还会在同一决策内重复读取同一查询时提示状态仍冻结；提示不自动调用 `advance` 或派兵。
+
 
 用 BenchmarkRunner 加载工厂：
 

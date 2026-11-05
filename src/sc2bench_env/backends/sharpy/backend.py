@@ -73,6 +73,7 @@ class _Bridge:
     in_progress_research: Dict[str, int] = field(default_factory=dict)
     macro_errors: Dict[str, str] = field(default_factory=dict)
     waiting_reasons: Dict[str, str] = field(default_factory=dict)
+    native_command_errors: Dict[Tuple[str, int, int], int] = field(default_factory=dict)
     act_completed: Dict[str, int] = field(default_factory=dict)
     active_task_ids: List[str] = field(default_factory=list)
     active_trigger: Optional[DecisionTrigger] = None
@@ -626,6 +627,25 @@ class SharpyBackend(Backend):
         with self._bridge.lock:
             return bool(self._bridge.snapshot.terminated)
 
+    def collect_execution_events(self) -> List[dict]:
+        """Drain native rejections once per observation, grouped rather than per frame."""
+        from sc2.ids.ability_id import AbilityId
+        from sc2.data import ActionResult
+
+        def label(enum, value):
+            try:
+                return enum(value).name
+            except ValueError:
+                return str(value)
+
+        with self._bridge.lock:
+            errors = self._bridge.native_command_errors
+            self._bridge.native_command_errors = {}
+            return [dict(type="execution_warning", unit_type=kind,
+                         command=label(AbilityId, ability), reason=label(ActionResult, result),
+                         count=count, scope="native commands since previous observation")
+                    for (kind, ability, result), count in sorted(errors.items())]
+
     def collect_updates(self) -> List[DemandUpdate]:
         updates: List[DemandUpdate] = []
         with self._bridge.lock:
@@ -873,6 +893,7 @@ class SharpyBackend(Backend):
                 "in_progress_research": dict(bridge.in_progress_research),
                 "macro_errors": dict(bridge.macro_errors),
                 "waiting_reasons": dict(bridge.waiting_reasons),
+                "native_command_errors": dict(bridge.native_command_errors),
                 "zone_registry": deepcopy(bridge.zone_registry),
                 "structure_registry": deepcopy(bridge.structure_registry),
             }
@@ -886,6 +907,7 @@ class SharpyBackend(Backend):
             bridge.peak_ready = dict(state.get("peak_ready") or {})
             bridge.last_reported_completed = dict(state.get("last_reported_completed") or {})
             bridge.baselines = dict(state.get("baselines") or {})
+            bridge.native_command_errors = dict(state.get("native_command_errors") or {})
             bridge.task_meta = {
                 key: tuple(value) for key, value in dict(state.get("task_meta") or {}).items()
             }

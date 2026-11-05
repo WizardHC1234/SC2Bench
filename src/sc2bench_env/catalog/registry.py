@@ -356,6 +356,7 @@ def render_observation_guide() -> str:
         "- The latest Brief Observation is the self-contained snapshot for this decision. It replaces older changing values; earlier observations are history.",
         "- Brief Observation covers ordinary economy, production, army, threats and feedback. Use Read tools for omitted match-state detail and Knowledge tools for static game data when needed.",
         "- Available Targets is a technology checklist; current resource, supply and production blockers are shown under Production.",
+        "- Army order targets are destinations, not current unit locations. Enemy contact does not establish firing, damage or successful defense; support-only groups can also have contact.",
         "- unknown means that information is unavailable, while none means that the observed value is empty.",
         "- Supply used includes supply reserved for units in production; it is not a count of completed units.",
         "- Worker assignment/saturation pairs show current assignments and capacity, not two worker totals. Gas worker capacity counts completed gas structures, not unbuilt geysers.",

@@ -24,7 +24,7 @@ PLANNING_RULES = """Planning context:
 """
 
 EXECUTION_RULES = """Execution model:
-- Accepted build and train requests persist across decisions until completed, cancelled or failed. Repeating one requests additional work. Check existing persistent work before adding more; cancel edits the queue by removing matching unstarted work.
+- Accepted build and train requests persist across decisions until completed, cancelled or failed. A build request completes when construction or its structure morph starts; the building can still be unfinished. A research request completes on native queue entry; its upgrade can still be in progress. Train requests complete after the requested production finishes. Repeating one requests additional work. Check existing persistent work before adding more; cancel edits the queue by removing matching unstarted work.
 - Runnable requests use resources in submission order. Requests blocked by prerequisites, supply, production capacity or an unusable location do not reserve resources, and waiting_for reports observed blockers.
 - Actions that fail tool validation are rejected without being staged; actions already staged in this decision remain. Valid production requests can wait for resources, supply, prerequisites or production capacity. After advance, Changes reports execution progress, blockers, completion and failure since the previous decision.
 - Production buildings add capacity; units and research still require explicit train or research actions.
@@ -32,7 +32,9 @@ EXECUTION_RULES = """Execution model:
 """
 
 ARMY_RULES = """Army groups:
+- Local combat micro executes existing orders; it does not decide strategic attacks, retreats or reinforcements. Training units creates no new army order.
 - group_0 is the permanent home pool. Eligible new army units gather at a completed natural base when available, otherwise at the main. Use its available counts for dispatch or reinforcement; units performing another platform-managed role, scouting, transporting or assigned to an outbound group are unavailable. A returned group joins it only after arriving home.
+- group_0 automatically handles local contacts and home defense. Its displayed rally target is a destination, not proof that its units are there; members can still be travelling or fighting elsewhere. It does not launch strategic attacks or cover every base at once; dispatch a defend group to choose another defense position.
 - New units do not automatically reinforce outbound groups.
 - Army orders persist until changed. Reassess existing groups as objectives, positions and threats change, and issue new orders when appropriate.
 - A fixed-target attack group holds at its target after arrival when the target is visible and no visible enemies remain nearby. A new attack_group or defend_group order redirects it.
@@ -85,7 +87,7 @@ ZERG_GAME_RULES = """- Minerals and gas pay for buildings, units and research. D
 """
 
 # Action-local behavior is exposed through each Action tool's schema.
-COMBAT_DISPATCH_RULES = "dispatch_group atomically splits requested units from group_0 or another active group into a new attack or defend group. group_0 itself remains at home. attack_group and defend_group only change an existing outbound group's order."
+COMBAT_DISPATCH_RULES = "dispatch_group atomically splits requested units from group_0 or another active group into a new attack or defend group. group_0 keeps its home-pool role; its rally target is not a guarantee of current unit location. attack_group and defend_group only change an existing outbound group's order."
 COMBAT_RETARGET_RULES = "reinforce_group transfers a requested subset without changing the destination order; merge_groups transfers whole groups; retreat_group returns a whole outbound group home. Transfers do not pass through group_0 unless home is the destination."
 COMBAT_STYLE_RULES = "attack advances toward the target zone and uses combat micro on contact. After arrival with the target visible and no visible enemies nearby, the group holds there. mode=clear instead searches continuously for enemy structures, using current sightings, last-seen positions and map search points; a completed sweep does not mean all enemies are destroyed. defend deploys near its target, prioritizes local combat on contact and resumes holding when contact ends. Acceptance is not arrival or success."
 

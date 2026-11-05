@@ -15,6 +15,15 @@ class PlanZoneDefenseSafe(PlanZoneDefense):
     Attacking / Fighting units; filter those tags out here.
     """
 
+    async def start(self, knowledge):
+        await super().start(knowledge)
+        from sc2bench_env.backends.sharpy.micro import build_combat_micro_rules
+        # Unassigned local defenders use the manager's default rules, before
+        # joining group_0. They need the same form/spell safety as named groups.
+        rules = build_combat_micro_rules()
+        await rules.start(knowledge)
+        self.combat.default_rules = rules
+
     async def execute(self):
         from sc2.ids.unit_typeid import UnitTypeId
         from sharpy.managers.core.roles import UnitTask
